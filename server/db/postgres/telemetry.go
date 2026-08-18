@@ -144,10 +144,11 @@ func (t *Telemetry) EndResolutionKey(ctx context.Context, keyID string, o db.Tel
 	}
 	if _, err := t.db.ExecContext(ctx, `
 		UPDATE telemetry.resolution_key
-		SET extraction_outcome = $2, outcome = $3, mismatch_detected = $4, instrument_id = $5
+		SET extraction_outcome = $2, outcome = $3, mismatch_detected = $4,
+		    hint_diffs = $5, instrument_id = $6
 		WHERE id = $1
 	`, id, nullStr(o.ExtractionOutcome), nullStr(o.Outcome), o.MismatchDetected,
-		t.optUUID(o.InstrumentID, "end resolution key")); err != nil {
+		nullStr(o.HintDiffs), t.optUUID(o.InstrumentID, "end resolution key")); err != nil {
 		t.fail(ctx, o.RunID, "end resolution key", err)
 	}
 }

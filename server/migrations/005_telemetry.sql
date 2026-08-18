@@ -122,6 +122,15 @@ CREATE TABLE telemetry.resolution_key (
   -- outcome: resolution continues and succeeds using MIC_TICKER, so a mismatch is not
   -- a terminal state, and modelling it as one would make outcome non-exhaustive.
   mismatch_detected BOOLEAN NOT NULL DEFAULT FALSE,
+  -- What the resolved instrument contradicted about the hints it was given,
+  -- as the same summary the resolver logs ("Currency: USD->THB, Exchange:
+  -- XNAS->XBKK"), or NULL when it contradicted nothing. Free text rather than a
+  -- flag because which field disagreed is the whole content of the signal: a
+  -- currency that differs is a different listing of one security, and an
+  -- exchange that differs may be a different company. Hints do not currently
+  -- gate resolution, so this is the only record that the answer stored was one
+  -- the caller had already contradicted.
+  hint_diffs        TEXT,
   -- Null when unresolved.
   instrument_id     UUID
 );

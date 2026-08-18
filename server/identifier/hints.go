@@ -31,6 +31,14 @@ type Hints struct {
 	SecurityTypeHint string
 }
 
+// USComposite is the composite exchange code for US listings. OpenFIGI spells
+// it this way as exchCode and EODHD as its exchange filter, so one hint domain
+// constrains both. An OCC symbol names a US-listed underlying by construction,
+// so a hint derived from one carries this rather than leaving the venue open: a
+// bare root matches that ticker on every venue in the world, and which of them
+// is chosen is then arbitrary.
+const USComposite = "US"
+
 // UnderlyingSecTypeHint returns the inferred security type for a derivative's
 // underlying. Returns "" if the asset class is not a derivative.
 func UnderlyingSecTypeHint(derivativeAssetClass string) string {

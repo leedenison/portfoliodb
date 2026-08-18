@@ -99,10 +99,14 @@ func TestOptionFromContract(t *testing.T) {
 	if inst.Exchange != "BATO" {
 		t.Errorf("Exchange = %q, want BATO", inst.Exchange)
 	}
-	if len(inst.UnderlyingIdentifiers) != 1 {
-		t.Fatalf("len(UnderlyingIdentifiers) = %d, want 1", len(inst.UnderlyingIdentifiers))
+	// The OCC contract says the underlying is US listed, so the hints say so
+	// too, and the venue-constrained one comes first because the plugins take
+	// the first hint that answers.
+	if len(inst.UnderlyingIdentifiers) != 2 {
+		t.Fatalf("len(UnderlyingIdentifiers) = %d, want 2", len(inst.UnderlyingIdentifiers))
 	}
-	assertID(t, inst.UnderlyingIdentifiers[0], "MIC_TICKER", "", "AAPL")
+	assertID(t, inst.UnderlyingIdentifiers[0], "OPENFIGI_TICKER", "US", "AAPL")
+	assertID(t, inst.UnderlyingIdentifiers[1], "MIC_TICKER", "", "AAPL")
 	if len(ids) != 2 {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))
 	}

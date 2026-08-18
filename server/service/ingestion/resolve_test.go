@@ -171,6 +171,7 @@ func TestResolve_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *testing.T) 
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "UNKNOWN").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "UNKNOWN").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "p1", Precedence: 10, Config: nil}}, nil)
@@ -209,6 +210,7 @@ func TestResolve_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
@@ -260,6 +262,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", desc).
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), desc).Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
@@ -323,6 +326,7 @@ func TestResolve_PluginReturnsUnderlying_ResolvesUnderlyingThenDerivative(t *tes
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", desc).
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), desc).Return("", nil).AnyTimes()
 	// Top-level: list plugins.
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -376,6 +380,7 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "X").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "X").Return("", nil).AnyTimes()
 	// ListEnabledPluginConfigs returns precedence desc, so high (20) before low (10)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -425,6 +430,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "Y").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "Y").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
@@ -482,6 +488,7 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "Z").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "Z").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
@@ -527,6 +534,7 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "SLOW").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "SLOW").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "slow", Precedence: 10, Config: nil}}, nil)
@@ -564,6 +572,7 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "BAD").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "BAD").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "bad", Precedence: 10, Config: nil}}, nil)
@@ -892,6 +901,7 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "RETRY").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "RETRY").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "retry", Precedence: 10, Config: nil}}, nil)

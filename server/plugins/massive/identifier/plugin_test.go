@@ -201,8 +201,10 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	if res.Instrument.AssetClass != db.AssetClassOption {
 		t.Errorf("AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
-	if len(res.Instrument.UnderlyingIdentifiers) != 1 || res.Instrument.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
+	if len(res.Instrument.UnderlyingIdentifiers) != 2 ||
+		res.Instrument.UnderlyingIdentifiers[0] != (identifier.Identifier{Type: "OPENFIGI_TICKER", Domain: identifier.USComposite, Value: "AAPL"}) ||
+		res.Instrument.UnderlyingIdentifiers[1] != (identifier.Identifier{Type: "MIC_TICKER", Value: "AAPL"}) {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{OPENFIGI_TICKER US AAPL} {MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
 	}
 	if len(res.Identifiers) != 2 {
 		t.Fatalf("len(res.Identifiers) = %d, want 2", len(res.Identifiers))
@@ -247,8 +249,10 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 	if res.Instrument.AssetClass != db.AssetClassOption {
 		t.Errorf("AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
-	if len(res.Instrument.UnderlyingIdentifiers) != 1 || res.Instrument.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
+	if len(res.Instrument.UnderlyingIdentifiers) != 2 ||
+		res.Instrument.UnderlyingIdentifiers[0] != (identifier.Identifier{Type: "OPENFIGI_TICKER", Domain: identifier.USComposite, Value: "AAPL"}) ||
+		res.Instrument.UnderlyingIdentifiers[1] != (identifier.Identifier{Type: "MIC_TICKER", Value: "AAPL"}) {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{OPENFIGI_TICKER US AAPL} {MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
 	}
 }
 

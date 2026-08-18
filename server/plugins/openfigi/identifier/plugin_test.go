@@ -516,8 +516,10 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 	if res.Instrument.AssetClass != "OPTION" {
 		t.Errorf("res.Instrument.AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
-	if len(res.Instrument.UnderlyingIdentifiers) != 1 || res.Instrument.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
+	if len(res.Instrument.UnderlyingIdentifiers) != 2 ||
+		res.Instrument.UnderlyingIdentifiers[0] != (identifier.Identifier{Type: "OPENFIGI_TICKER", Domain: identifier.USComposite, Value: "AAPL"}) ||
+		res.Instrument.UnderlyingIdentifiers[1] != (identifier.Identifier{Type: "MIC_TICKER", Value: "AAPL"}) {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{OPENFIGI_TICKER US AAPL} {MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
 	}
 	hasOCC := false
 	for _, id := range res.Identifiers {
@@ -584,8 +586,10 @@ func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
 	if res.Instrument.AssetClass != "OPTION" {
 		t.Errorf("res.Instrument.AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
-	if len(res.Instrument.UnderlyingIdentifiers) != 1 || res.Instrument.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
+	if len(res.Instrument.UnderlyingIdentifiers) != 2 ||
+		res.Instrument.UnderlyingIdentifiers[0] != (identifier.Identifier{Type: "OPENFIGI_TICKER", Domain: identifier.USComposite, Value: "AAPL"}) ||
+		res.Instrument.UnderlyingIdentifiers[1] != (identifier.Identifier{Type: "MIC_TICKER", Value: "AAPL"}) {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{OPENFIGI_TICKER US AAPL} {MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
 	}
 }
 
@@ -630,8 +634,10 @@ func TestPlugin_Identify_Option_ClassicTickerConvertedToOCC(t *testing.T) {
 	if res.Instrument.AssetClass != "OPTION" {
 		t.Errorf("res.Instrument.AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
-	if len(res.Instrument.UnderlyingIdentifiers) != 1 || res.Instrument.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
+	if len(res.Instrument.UnderlyingIdentifiers) != 2 ||
+		res.Instrument.UnderlyingIdentifiers[0] != (identifier.Identifier{Type: "OPENFIGI_TICKER", Domain: identifier.USComposite, Value: "AAPL"}) ||
+		res.Instrument.UnderlyingIdentifiers[1] != (identifier.Identifier{Type: "MIC_TICKER", Value: "AAPL"}) {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{OPENFIGI_TICKER US AAPL} {MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
 	}
 	hasOCC := false
 	for _, id := range res.Identifiers {

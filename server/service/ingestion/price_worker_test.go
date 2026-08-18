@@ -501,7 +501,6 @@ func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 	})
 
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), "identifier").Return(nil, nil)
-	database.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "NVDA").Return(nil, nil).AnyTimes()
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", "NVDA240315P00510000").
 		Return("", "", "", "", nil)

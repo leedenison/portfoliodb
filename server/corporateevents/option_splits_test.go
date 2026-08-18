@@ -408,3 +408,28 @@ func TestProcessPendingOptionSplits_ListError(t *testing.T) {
 		t.Errorf("adjusted = %v, want nil on a query error", adjusted)
 	}
 }
+
+func TestIsWholeForwardSplit(t *testing.T) {
+	tests := []struct {
+		from, to string
+		want     bool
+	}{
+		{"1", "2", true},
+		{"1", "10", true},
+		{"1", "4", true},
+		{"2", "1", false}, // reverse
+		{"2", "3", false}, // non-whole
+		{"1", "1", false}, // no change
+		{"0", "2", false}, // invalid
+		{"", "2", false},  // invalid
+		{"1", "", false},  // invalid
+	}
+	for _, tt := range tests {
+		t.Run(tt.from+":"+tt.to, func(t *testing.T) {
+			got := IsWholeForwardSplit(tt.from, tt.to)
+			if got != tt.want {
+				t.Errorf("IsWholeForwardSplit(%q, %q) = %v, want %v", tt.from, tt.to, got, tt.want)
+			}
+		})
+	}
+}

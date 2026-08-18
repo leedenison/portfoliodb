@@ -25,6 +25,17 @@ correctly leaves alone, and `EnsureInstrument` would create a second instrument
 for the same contract. Today the two agree only because the pass rewrites the row
 to match the over-rebased hint -- agreeing on the wrong answer.
 
+## Only one carrier is left
+
+Issue 0126 retired the second bullet. Once
+[0055](0055-identifier-validity-is-an-interval.md) made a split mint a name
+rather than rewrite one, a hint of any vintage matches a stored row by value and
+rebasing had nothing left to do, so the bound has one place left to live: the
+query. The requirement above survives the retirement rather than being answered
+by it -- the pair that has to agree is now the query and the stored interval. A
+pass that restated an expired option would close the name the contract expired
+under, and the file that states that name would have nothing left to resolve to.
+
 ## Consequences
 
 - The `OCC_AT_EXPIRY` internal hint is retired. It existed to send OpenFIGI the

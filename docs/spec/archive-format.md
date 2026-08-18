@@ -605,7 +605,8 @@ under a split where a quantity is merely denominated by one -- an OCC symbol
 encodes a strike -- and a file names a contract under the symbol current when the
 file was written, not under the one it wore on each posting's `trade_date`. So the
 vintage of every hint in the part is the envelope's `exported_at`, one value for
-the document, and it is what an OCC hint is rebased from during resolution.
+the document, and it is what dates the names an identification writes from those
+hints.
 
 A broker upload has no envelope, so `UpsertTxsRequest.exported_at` is where it
 states the same thing. Where the broker's file dates itself the converter reports

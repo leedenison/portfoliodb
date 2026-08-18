@@ -276,6 +276,55 @@ func TestResolveWithPlugins_DatesNamesOnPluginSuccess(t *testing.T) {
 	}
 }
 
+// TestResolveWithPlugins_DatesNamesFromTheHintVintage pins the other half of
+// issue 0126: a plugin answers about the instrument it was named, so a name it
+// gives back is only as current as the hint that named it. The caller states
+// that vintage -- the exporting file's -- and it is written verbatim, on every
+// name and whether or not an OCC is among the hints. Dating a name from the run
+// instead is what used to let the retroactive option-split pass conclude a
+// pre-split symbol already carried the split.
+func TestResolveWithPlugins_DatesNamesFromTheHintVintage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	registry.Register("test", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "OPTION", Currency: "USD"},
+		ids: []identifier.Identifier{
+			{Type: "OCC", Value: "AAPL250117C00760000"},
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
+		},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", "AAPL250117C00760000").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "OCC", "AAPL250117C00760000").Return("", nil)
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
+
+	validAt := time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)
+	database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "", gomock.Any(), "", nil, nil, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			if len(idns) != 2 {
+				t.Fatalf("identifiers = %v, want the OCC and the ticker", idns)
+			}
+			for _, idn := range idns {
+				if idn.ValidFrom == nil || !idn.ValidFrom.Equal(validAt) {
+					t.Errorf("%s valid_from = %v, want the hint vintage %v", idn.Type, idn.ValidFrom, validAt)
+				}
+			}
+			return "new-id", nil
+		}).Times(1)
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption},
+		[]identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}},
+		false, nil, Attempt{}, nil, 0, &validAt); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
 // TestResolveWithPlugins_NoDatedNameOnFallback pins the other half: when no
 // plugin identifies the instrument, the caller's fallback creates a
 // broker-description-only row that reflects no market state. This path must
@@ -1449,5 +1498,35 @@ func TestResolveByHintsDBOnly_ExactMatchSkipsSeparatorFallback(t *testing.T) {
 	}
 	if len(ids) != 1 || ids[0].ID != "inst-aapl" {
 		t.Fatalf("got %+v, want one instrument inst-aapl", ids)
+	}
+}
+
+func TestOptionFieldsFromIdentifiers(t *testing.T) {
+	ids := []identifier.Identifier{
+		{Type: "MIC_TICKER", Value: "AAPL"},
+		{Type: "OCC", Value: "AAPL251219C00230000"},
+	}
+	got := optionFieldsFromIdentifiers(ids)
+	if got == nil {
+		t.Fatal("expected non-nil OptionFields")
+	}
+	if got.Strike.String() != "230" {
+		t.Errorf("strike = %v, want 230", got.Strike)
+	}
+	if got.PutCall != "C" {
+		t.Errorf("put_call = %q, want C", got.PutCall)
+	}
+	if got.Expiry.IsZero() {
+		t.Error("expiry is zero")
+	}
+}
+
+func TestOptionFieldsFromIdentifiers_NoOCC(t *testing.T) {
+	ids := []identifier.Identifier{
+		{Type: "MIC_TICKER", Value: "AAPL"},
+	}
+	got := optionFieldsFromIdentifiers(ids)
+	if got != nil {
+		t.Errorf("expected nil, got %+v", got)
 	}
 }

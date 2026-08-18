@@ -78,10 +78,11 @@ incidental `EnsureInstrument` touch must leave them alone -- moving a `valid_fro
 forward is what would tell the option-split pass that a symbol already reflects a
 split it was derived before.
 
-Derivation does not imply the present. A plugin answers about the contract it was
-named, so a name resolved from an OCC hint is only as current as that hint: today
-when the hint was rebased across every known split, and the hint's own vintage
-when a split we had not yet learned of left it alone.
+Derivation does not imply the present. A plugin answers about the instrument it
+was named, so a name resolved from a hint is only as current as that hint --
+the `exported_at` of the file that stated it, and today only for a caller that
+states no vintage at all. A pre-split OCC therefore yields a name dated before
+the ex_date, which is what leaves the option pending for restatement.
 
 **Uniqueness is interval-aware.** A name denotes one instrument at a time, stated
 as a GIST exclusion constraint on overlapping validity rather than as a unique

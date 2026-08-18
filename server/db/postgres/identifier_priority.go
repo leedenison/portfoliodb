@@ -34,12 +34,16 @@ var bestIdentifierJoin = bestIdentifierJoinOn("JOIN", "i.id", "best_id")
 // export's underlying reference, which a file names by identifier rather than by
 // UUID -- shares the one priority order rather than restating it. Pass
 // "LEFT JOIN" where idExpr may be NULL.
+//
+// Only names still in force are candidates. An option that has worn two OCC
+// symbols holds both, and a file naming it by the one it has given up would name
+// a contract that no longer answers to it.
 func bestIdentifierJoinOn(joinType, idExpr, alias string) string {
 	return fmt.Sprintf(`
 	%s LATERAL (
 		SELECT ii.identifier_type, ii.value, ii.domain
 		FROM instrument_identifiers ii
-		WHERE ii.instrument_id = %s
+		WHERE ii.instrument_id = %s AND ii.valid_before IS NULL
 		ORDER BY %s
 		LIMIT 1
 	) %s ON true

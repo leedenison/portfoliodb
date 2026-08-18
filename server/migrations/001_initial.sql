@@ -1,5 +1,8 @@
 -- Enable TimescaleDB for time-series price data.
 CREATE EXTENSION IF NOT EXISTS timescaledb;
+-- btree_gist lets an exclusion constraint mix equality on scalar columns with
+-- overlap on a range, which is what instrument_identifiers needs below.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 -- M01 datamodel: holdings only. No instrument identification, prices or corporate events.
 -- Holdings are calculated from transactions at query time, not materialized.
@@ -411,37 +414,69 @@ CREATE TABLE instruments (
 
 CREATE INDEX idx_instruments_underlying_id ON instruments (underlying_id);
 
--- Identifiers for an instrument. (identifier_type, domain, value) is unique globally.
+-- Identifiers for an instrument. (identifier_type, domain, value) names the
+-- instrument over the half-open [valid_from, valid_before) interval the name was
+-- correct for it; two instruments may hold one value over disjoint intervals.
 -- identifier_type: proto IdentifierType name (ISIN, CUSIP, TICKER, OPENFIGI_GLOBAL, OPENFIGI_SHARE_CLASS, OPENFIGI_COMPOSITE, BROKER_DESCRIPTION, etc.).
 -- domain: optional; for BROKER_DESCRIPTION = source (e.g. 'Fidelity:web:fidelity-csv'); for TICKER = exchange code when present.
 -- canonical = false only for BROKER_DESCRIPTION identifiers; canonical = true for standard identifiers.
 -- Surrogate PK so domain can be NULL (PostgreSQL PK columns are NOT NULL).
--- Identifiers carry no validity interval by design: the triple is unique for all
--- time, so ticker reuse is not representable and a merge deletes the loser
--- rather than closing its interval. See docs/adr/0004-instrument-resolution-and-merge.md.
+--
+-- valid_from is the point in market time the name became correct for the
+-- instrument: the vintage of the source that supplied it, or the ex_date of the
+-- split that minted it. A NULL valid_before means it is the name the instrument
+-- wears now, and a NULL valid_from means the name predates everything we know.
+-- The bounds are what decide whether an option's OCC symbol still needs
+-- restating, in place of a single stamp on the instrument. See
+-- docs/adr/0055-identifier-validity-is-an-interval.md,
+-- docs/adr/0018-half-open-date-intervals.md and docs/spec/bitemporality.md.
 CREATE TABLE instrument_identifiers (
   id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   instrument_id   UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
   identifier_type TEXT NOT NULL,
   domain          TEXT,
   value           TEXT NOT NULL,
-  canonical       BOOLEAN NOT NULL DEFAULT true
+  canonical       BOOLEAN NOT NULL DEFAULT true,
+  valid_from      DATE,
+  valid_before    DATE,
+  CONSTRAINT chk_instrument_identifiers_interval CHECK (
+    valid_from IS NULL OR valid_before IS NULL OR valid_from < valid_before
+  ),
+  -- One name denotes one instrument at a time. This replaces the global unique
+  -- index on (identifier_type, domain, value), which cannot survive retained
+  -- history: a forward split halves every strike, so one option's new OCC symbol
+  -- is character-for-character another's old one whenever the strike ladder
+  -- overlaps itself.
+  --
+  -- The COALESCE is load-bearing. A GIST 'WITH =' on a NULL never conflicts,
+  -- which is the opposite of what the partial unique indexes on a NULL domain
+  -- achieved.
+  --
+  -- Being global, it also covers per-instrument uniqueness for overlapping rows
+  -- while still allowing one instrument to hold a value over disjoint intervals.
+  CONSTRAINT excl_instrument_identifiers_overlap EXCLUDE USING gist (
+    identifier_type WITH =,
+    COALESCE(domain, '') WITH =,
+    value WITH =,
+    daterange(valid_from, valid_before) WITH &&
+  )
 );
 
--- Per-instrument uniqueness: one row per (instrument_id, identifier_type, domain, value).
-CREATE UNIQUE INDEX idx_instrument_identifiers_inst_unique_null_domain ON instrument_identifiers (instrument_id, identifier_type, value) WHERE domain IS NULL;
-CREATE UNIQUE INDEX idx_instrument_identifiers_inst_unique_non_null_domain ON instrument_identifiers (instrument_id, identifier_type, domain, value) WHERE domain IS NOT NULL;
--- Global uniqueness: (identifier_type, domain, value) unique across the table.
-CREATE UNIQUE INDEX idx_instrument_identifiers_unique_null_domain ON instrument_identifiers (identifier_type, value) WHERE domain IS NULL;
-CREATE UNIQUE INDEX idx_instrument_identifiers_unique_non_null_domain ON instrument_identifiers (identifier_type, domain, value) WHERE domain IS NOT NULL;
--- Domain-agnostic lookup by (identifier_type, value). The domain-aware paths are
--- served by the two partial unique indexes above, so this one is deliberately narrow:
--- an intermediate COALESCE(domain,'') column would block the prefix match on value
+-- Domain-agnostic lookup by (identifier_type, value). Deliberately narrow: an
+-- intermediate COALESCE(domain,'') column would block the prefix match on value
 -- for the queries that actually reach this index (FX pair, ticker, ISIN lookups).
 CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, value);
+-- Domain-aware lookup, previously served by the partial unique indexes the
+-- exclusion constraint replaced. GIST answers equality far worse than btree, so
+-- the constraint's index is not a substitute for this one.
+CREATE INDEX idx_instrument_identifiers_lookup_domain ON instrument_identifiers (identifier_type, domain, value);
 
 -- Trigger: recompute instruments.name and instruments.exchange whenever identifiers
 -- or the instrument itself change. Fires AFTER so that all rows are visible.
+--
+-- Only names still in force are considered. An instrument that has worn two OCC
+-- symbols holds both, and without the filter the priority order would fall
+-- through to the lexicographically smaller value rather than the current one.
 CREATE OR REPLACE FUNCTION recompute_instrument_name() RETURNS TRIGGER AS $$
 DECLARE
   instr_id UUID;
@@ -456,6 +491,7 @@ BEGIN
     name = COALESCE(
       (SELECT ii.value FROM instrument_identifiers ii
        WHERE ii.instrument_id = instr_id
+         AND ii.valid_before IS NULL
          AND ii.identifier_type IN ('MIC_TICKER','OPENFIGI_TICKER','OCC','BROKER_DESCRIPTION','CURRENCY','FX_PAIR')
        ORDER BY CASE ii.identifier_type
          WHEN 'MIC_TICKER' THEN 0 WHEN 'OPENFIGI_TICKER' THEN 1
@@ -469,6 +505,7 @@ BEGIN
       (SELECT e.acronym FROM exchanges e WHERE e.mic = instruments.exchange_mic),
       (SELECT ii.domain FROM instrument_identifiers ii
        WHERE ii.instrument_id = instr_id AND ii.identifier_type = 'OPENFIGI_TICKER'
+         AND ii.valid_before IS NULL
          AND ii.domain IS NOT NULL AND ii.domain <> ''
        ORDER BY ii.domain LIMIT 1),
       ''

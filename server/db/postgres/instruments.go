@@ -58,30 +58,32 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	`, survivor, mergedAway); err != nil {
 		return fmt.Errorf("update transfer matches: %w", err)
 	}
-	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, domain, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
+	// The validity interval moves with the name. A name the loser wore and gave
+	// up is history the survivor inherits, and dropping the bounds here would
+	// re-open it.
+	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, domain, value, canonical, valid_from, valid_before FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
 	if err != nil {
 		return fmt.Errorf("list identifiers: %w", err)
 	}
 	defer rows.Close()
-	var toInsert []struct {
-		idType, domain, value string
-		canonical             bool
-	}
+	var toInsert []db.IdentifierInput
 	for rows.Next() {
-		var idType, val string
+		var idn db.IdentifierInput
 		var domain sql.NullString
-		var canonical bool
-		if err := rows.Scan(&idType, &domain, &val, &canonical); err != nil {
+		var validFrom, validBefore sql.NullTime
+		if err := rows.Scan(&idn.Type, &domain, &idn.Value, &idn.Canonical, &validFrom, &validBefore); err != nil {
 			return err
 		}
-		d := ""
 		if domain.Valid {
-			d = domain.String
+			idn.Domain = domain.String
 		}
-		toInsert = append(toInsert, struct {
-			idType, domain, value string
-			canonical             bool
-		}{idType, d, val, canonical})
+		if validFrom.Valid {
+			idn.ValidFrom = &validFrom.Time
+		}
+		if validBefore.Valid {
+			idn.ValidBefore = &validBefore.Time
+		}
+		toInsert = append(toInsert, idn)
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -91,10 +93,10 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	}
 	for _, idn := range toInsert {
 		_, err := exec.ExecContext(ctx, `
-			INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical) VALUES ($1, $2, $3, $4, $5)
-		`, survivor, idn.idType, nullStr(idn.domain), idn.value, idn.canonical)
+			INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, survivor, idn.Type, nullStr(idn.Domain), idn.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 		if err != nil {
-			if isUniqueViolation(err) {
+			if isIdentifierConflict(err) {
 				continue
 			}
 			return fmt.Errorf("insert identifier: %w", err)
@@ -162,7 +164,24 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pe) && pe.Code == "23505"
 }
 
+// isIdentifierConflict reports whether err is another instrument already holding
+// the identifier. instrument_identifiers states that as an exclusion constraint
+// on overlapping validity rather than as a unique index, so the two codes mean
+// the same thing to every caller that reacts by looking the holder up.
+func isIdentifierConflict(err error) bool {
+	var pe *pq.Error
+	return errors.As(err, &pe) && (pe.Code == "23505" || pe.Code == "23P01")
+}
+
 // FindInstrumentByIdentifier implements db.InstrumentDB.
+//
+// The lookup is by value alone, over every interval: a broker file exported
+// before a split names the symbol the contract traded under then, and both that
+// name and the one minted for it belong to the same contract. Where retained
+// history leaves more than one row, the name in force now wins and the most
+// recently closed one is the fallback -- so a value two different instruments
+// held over disjoint intervals resolves to the current holder. Asking what a
+// value denoted on a given date is issue 0122, not this.
 func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error) {
 	var id uuid.UUID
 	var err error
@@ -170,11 +189,15 @@ func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierTyp
 		err = p.q.QueryRowContext(ctx, `
 			SELECT instrument_id FROM instrument_identifiers
 			WHERE identifier_type = $1 AND domain IS NULL AND value = $2
+			ORDER BY valid_before IS NULL DESC, valid_before DESC
+			LIMIT 1
 		`, identifierType, value).Scan(&id)
 	} else {
 		err = p.q.QueryRowContext(ctx, `
 			SELECT instrument_id FROM instrument_identifiers
 			WHERE identifier_type = $1 AND domain = $2 AND value = $3
+			ORDER BY valid_before IS NULL DESC, valid_before DESC
+			LIMIT 1
 		`, identifierType, domain, value).Scan(&id)
 	}
 	if err == sql.ErrNoRows {
@@ -186,7 +209,8 @@ func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierTyp
 	return id.String(), nil
 }
 
-// FindInstrumentWithMetaByIdentifier implements db.InstrumentDB.
+// FindInstrumentWithMetaByIdentifier implements db.InstrumentDB. It orders by
+// validity for the same reason FindInstrumentByIdentifier does.
 func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (string, string, string, string, error) {
 	var id uuid.UUID
 	var ac, exch, cur string
@@ -197,6 +221,8 @@ func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, ident
 			FROM instrument_identifiers ii
 			JOIN instruments i ON i.id = ii.instrument_id
 			WHERE ii.identifier_type = $1 AND ii.domain IS NULL AND ii.value = $2
+			ORDER BY ii.valid_before IS NULL DESC, ii.valid_before DESC
+			LIMIT 1
 		`, identifierType, value).Scan(&id, &ac, &exch, &cur)
 	} else {
 		err = p.q.QueryRowContext(ctx, `
@@ -204,6 +230,8 @@ func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, ident
 			FROM instrument_identifiers ii
 			JOIN instruments i ON i.id = ii.instrument_id
 			WHERE ii.identifier_type = $1 AND ii.domain = $2 AND ii.value = $3
+			ORDER BY ii.valid_before IS NULL DESC, ii.valid_before DESC
+			LIMIT 1
 		`, identifierType, domain, value).Scan(&id, &ac, &exch, &cur)
 	}
 	if err == sql.ErrNoRows {
@@ -552,9 +580,10 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		}
 		for _, idn := range identifiers {
 			canonical := idn.Canonical
-			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical) VALUES ($1, $2, $3, $4, $5)`, newID, idn.Type, nullStr(idn.Domain), idn.Value, canonical)
+			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				newID, idn.Type, nullStr(idn.Domain), idn.Value, canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 			if err != nil {
-				if isUniqueViolation(err) {
+				if isIdentifierConflict(err) {
 					return errIdentifierExists // rollback tx; caller will look up existing id
 				}
 				return err
@@ -746,9 +775,9 @@ func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID 
 		input.Domain = p.normalizeToOperatingMIC(ctx, input.Domain)
 	}
 	_, err = p.q.ExecContext(ctx, `
-		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical)
-		VALUES ($1, $2, $3, $4, $5)
-	`, uid, input.Type, nullStr(input.Domain), input.Value, input.Canonical)
+		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, uid, input.Type, nullStr(input.Domain), input.Value, input.Canonical, nullTime(input.ValidFrom), nullTime(input.ValidBefore))
 	if err != nil {
 		return fmt.Errorf("insert instrument identifier: %w", err)
 	}
@@ -784,11 +813,14 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
 		for _, idn := range idns {
+			// ON CONFLICT with no target covers the exclusion constraint as well as
+			// a unique index, so an identifier the row already holds over an
+			// overlapping interval is still a no-op rather than an error.
 			_, err := exec.ExecContext(ctx, `
-				INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical)
-				VALUES ($1, $2, $3, $4, $5)
+				INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
 				ON CONFLICT DO NOTHING
-			`, uid, idn.Type, nullStr(idn.Domain), idn.Value, idn.Canonical)
+			`, uid, idn.Type, nullStr(idn.Domain), idn.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 			if err != nil {
 				return fmt.Errorf("merge identifier (%s/%s): %w", idn.Type, idn.Value, err)
 			}

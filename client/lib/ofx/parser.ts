@@ -246,6 +246,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
   const acctId = str(dig(stmtRs, "INVACCTFROM"), "ACCTID");
   const acctCurrency = str(stmtRs, "CURDEF");
   const secList = buildSecList(body);
+  const exportedAt = statementVintage(body, stmtRs);
 
   const tranList = one(stmtRs.INVTRANLIST);
   if (!tranList) {
@@ -486,5 +487,25 @@ export function parseOfxStatement(text: string): OfxParseResult {
   const afterLast = last ? startOfNextDay(timestampDate(last)) : new Date(0);
   const periodBefore = afterLast > dtEnd ? afterLast : dtEnd;
 
-  return { postings, periodFrom, periodBefore, errors, secList };
+  return { postings, periodFrom, periodBefore, exportedAt, errors, secList };
+}
+
+/**
+ * When the file was written, from DTSERVER, else the statement's DTASOF.
+ *
+ * This is the vintage of the SECLIST, which is what makes it worth reading: the
+ * security records describe each contract in current terms at the moment the
+ * server rendered them, so an OCC symbol in the file is as of DTSERVER and not as
+ * of any transaction's DTTRADE. DTASOF is the fallback because a file that omits
+ * the signon's clock still dates the statement it answers with, and that is a
+ * closer bound than the upload.
+ *
+ * Undefined when the file states neither, which leaves the vintage to the
+ * uploader rather than inventing one from the transactions.
+ */
+function statementVintage(body: unknown, stmtRs: Record<string, unknown>): Date | undefined {
+  const sonrs = one(dig(body, "OFX", "SIGNONMSGSRSV1", "SONRS"));
+  return (
+    parseOfxDate(str(sonrs, "DTSERVER")) ?? parseOfxDate(str(stmtRs, "DTASOF")) ?? undefined
+  );
 }

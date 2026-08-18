@@ -164,6 +164,10 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
         postings: parsed.postings,
       },
       filename: `${recipe.id}-${formatDate(lastDay, "yyyy-MM-dd")}.json`,
+      // The export was driven minutes ago, so the identifiers in it are the ones
+      // the broker lists now. Where the file dates itself the file wins: this run
+      // asked for it, but it is the broker that says what it holds.
+      exportedAt: timestampFromDate(parsed.exportedAt ?? now),
     });
     jobId = res.jobId;
   } catch (e) {

@@ -50,3 +50,27 @@ export function startOfNextDay(at: Date): Date {
 export function lastCoveredDay(before: Date): Date {
   return new Date(before.getFullYear(), before.getMonth(), before.getDate() - 1);
 }
+
+/**
+ * The local calendar day of an instant, as a date input's "YYYY-MM-DD" value.
+ *
+ * Local rather than UTC, because it is paired with a Date built from a local
+ * calendar date -- a window bound, or a vintage the file states -- and reading it
+ * back in UTC would show the day before for anyone west of Greenwich.
+ */
+export function toDayInput(at: Date): string {
+  const y = at.getFullYear();
+  const m = at.getMonth() + 1;
+  const d = at.getDate();
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/**
+ * Local midnight of a date input's "YYYY-MM-DD" value, the inverse of
+ * toDayInput. Undefined for an empty or malformed input.
+ */
+export function fromDayInput(value: string): Date | undefined {
+  const m = ISO_DATE.exec(value.trim());
+  if (!m) return undefined;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}

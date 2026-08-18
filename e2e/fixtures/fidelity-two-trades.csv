@@ -1,0 +1,5 @@
+Note,Modelled on a Fidelity.co.uk transaction download with its account and reference numbers replaced by invented ones
+
+Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,
+20 Oct 2025,22 Oct 2025,Buy,ISHARES II PLC INRG,SIPP - Pension Savings Account,AP10000001,,-716.00,100,7.16,1000000001,Completed,
+21 Jan 2026,23 Jan 2026,Buy,ISHARES II PLC INRG,SIPP - Pension Savings Account,AP10000001,,-358.00,50,7.16,1000000002,Completed,

@@ -599,10 +599,16 @@ vintage of every hint in the part is the envelope's `exported_at`, one value for
 the document, and it is what an OCC hint is rebased from during resolution.
 
 A broker upload has no envelope, so `UpsertTxsRequest.exported_at` is where it
-states the same thing. An upload that states nothing is taken to be its own
-export and the server stamps its clock at receipt; there is no date to infer from
-the postings, and inferring one from a trade date is the error this rule exists to
-stop.
+states the same thing. Where the broker's file dates itself the converter reports
+that -- an OFX statement's `DTSERVER`, which is the vintage of the `SECLIST` the
+symbols are rendered from. Where it does not, the upload asks: the web upload
+offers the last day the window covers, which is the earliest date the file can
+honestly claim, and lets the user correct it; the extension states the moment it
+drove the export. An upload that states nothing at all is taken to be its own
+export and the server stamps its clock at receipt.
+
+What no path does is infer the vintage from a posting's `trade_date`, which is
+the error this rule exists to stop.
 
 **Grouping does not travel.** Postings are flat under the window and the file says
 nothing about which of them are legs of one event. The importing instance derives

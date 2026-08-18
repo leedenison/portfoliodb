@@ -17,7 +17,8 @@ import { create } from "@bufbuild/protobuf";
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { TxWindowSchema } from "@/gen/archive/v1/txs_pb";
 import type { ParseError } from "@/lib/csv/parse-result";
-import { lastCoveredDay } from "@/lib/dates";
+import { lastCoveredDay, toDayInput } from "@/lib/dates";
+import { defaultVintage, uploadVintage } from "@/lib/upload-vintage";
 import {
   getBrokerOptionsForUpload,
   getFormatsForBroker,
@@ -69,6 +70,7 @@ function UploadModalBody({
   const [broker, setBroker] = useState<Broker>(DEFAULT_BROKER);
   const [formatId, setFormatId] = useState<string>("archive");
   const [converterOptions, setConverterOptions] = useState<Record<string, unknown>>({});
+  const [vintageEdit, setVintageEdit] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileText, setFileText] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -106,15 +108,31 @@ function UploadModalBody({
         periodBefore: timestampFromDate(result.periodBefore),
         postings: result.postings,
       },
+      exportedAt: result.exportedAt,
       errors: [],
     };
   }, [fileText, selectedFormat, converterOptions, optionsValid, broker, formatId]);
+
+  // What the upload will state as the vintage of the file's identifiers. The
+  // field is prefilled from the file and editable, because which side of a split
+  // a file was written on is not always something the file says. vintageEdit is
+  // null until the user touches it, so the default follows a re-parse.
+  const periodBefore = parsed?.window ? windowDate(parsed.window.periodBefore) : undefined;
+  const shownVintage = defaultVintage(parsed?.exportedAt, periodBefore);
+  const vintageInput = vintageEdit ?? (shownVintage ? toDayInput(shownVintage) : "");
+  const exportedAt = uploadVintage({
+    stated: parsed?.exportedAt,
+    periodBefore,
+    edited: vintageEdit,
+  });
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     setFile(f ?? null);
     setFileText(null);
     setSubmitError(null);
+    // The vintage belongs to the file, so a new file starts from what it states.
+    setVintageEdit(null);
     if (!f) return;
     const reader = new FileReader();
     reader.onload = () => {
@@ -128,19 +146,12 @@ function UploadModalBody({
     if (!window || parsed.errors.length > 0 || window.postings?.length === 0) return;
     setSubmitError(null);
     try {
-      // A document states when it was written, and its identifiers are stated as
-      // of that moment. A converted broker file states nothing yet, and an
-      // omitted vintage is the server taking the upload for the export.
-      const res = await upsertTxs({
-        window,
-        filename: file?.name,
-        exportedAt: parsed.exportedAt,
-      });
+      const res = await upsertTxs({ window, filename: file?.name, exportedAt });
       onJobStarted(res.jobId);
     } catch (e) {
       setSubmitError(errorMessage(e));
     }
-  }, [parsed, file, onJobStarted]);
+  }, [parsed, file, exportedAt, onJobStarted]);
 
   // Poll until the job reaches a terminal status, then stop.
   const { data: jobStatus } = useAuthedQuery<Awaited<ReturnType<typeof getJob>>>({
@@ -290,7 +301,10 @@ function UploadModalBody({
               <select
                 id="upload-format"
                 value={formatId}
-                onChange={(e) => setFormatId(e.target.value)}
+                onChange={(e) => {
+                  setFormatId(e.target.value);
+                  setVintageEdit(null);
+                }}
                 className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-hidden"
               >
                 {formats.map((f) => (
@@ -364,6 +378,27 @@ function UploadModalBody({
                       {parsed.window.postings?.length ?? 0} posting(s), from{" "}
                       {windowDate(parsed.window.periodFrom).toLocaleDateString()} to{" "}
                       {lastCoveredDay(windowDate(parsed.window.periodBefore)).toLocaleDateString()}.
+                    </div>
+                    <div className="mt-3 space-y-1">
+                      <label
+                        htmlFor="upload-exported-at"
+                        className="block text-sm font-medium text-text-primary"
+                      >
+                        Exported on
+                      </label>
+                      <input
+                        id="upload-exported-at"
+                        data-testid="upload-exported-at"
+                        type="date"
+                        value={vintageInput}
+                        onChange={(e) => setVintageEdit(e.target.value)}
+                        className="block rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-hidden"
+                      />
+                      <p className="text-xs text-text-muted">
+                        The date this file was downloaded. An option is named by the symbol it
+                        carried then, so a date after a split means the file already states the
+                        adjusted one.
+                      </p>
                     </div>
                     <button
                       type="button"

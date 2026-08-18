@@ -44,7 +44,12 @@ func optionFromContract(r *client.OptionsContractResult) (*identifier.Instrument
 			identifier.ProviderIdentifier{Provider: "massive", Type: "SEGMENT_MIC_TICKER", Domain: r.PrimaryExchange, Value: strings.TrimPrefix(r.Ticker, "O:")})
 	}
 	if r.UnderlyingTicker != "" {
+		// PrimaryExchange is the option's venue (BATO, XASE), never the
+		// underlying's, so it says nothing about where the underlying trades.
+		// What does is that the contract is an OCC one: the underlying is US
+		// listed.
 		inst.UnderlyingIdentifiers = []identifier.Identifier{
+			{Type: "OPENFIGI_TICKER", Domain: identifier.USComposite, Value: r.UnderlyingTicker},
 			{Type: "MIC_TICKER", Value: r.UnderlyingTicker},
 		}
 	}

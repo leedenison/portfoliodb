@@ -1132,3 +1132,59 @@ func TestMergeInstrumentFromArchive_LeavesSeededReferenceDataAlone(t *testing.T)
 			len(before.Identifiers), len(after.Identifiers))
 	}
 }
+
+// The lookup exists so an OCC root reaches the equity ticker it names. It has to
+// match across the separator in both directions and stay silent when two
+// instruments collapse to the same spelling, because at that point the root does
+// not name one of them.
+func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	brk, err := p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "Berkshire", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK.B", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	// An OCC root finds the dotted ticker.
+	got, err := p.FindInstrumentByTickerIgnoringSeparators(ctx, "BRKB")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if got != brk {
+		t.Errorf("BRKB -> %q, want %q", got, brk)
+	}
+
+	// And the reverse, so the caller need not know which spelling was stored.
+	if got, err = p.FindInstrumentByTickerIgnoringSeparators(ctx, "BRK-B"); err != nil || got != brk {
+		t.Errorf("BRK-B -> %q, %v; want %q", got, err, brk)
+	}
+
+	// A ticker with no separator at all still matches itself.
+	aapl, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure aapl: %v", err)
+	}
+	if got, err = p.FindInstrumentByTickerIgnoringSeparators(ctx, "AAPL"); err != nil || got != aapl {
+		t.Errorf("AAPL -> %q, %v; want %q", got, err, aapl)
+	}
+
+	// Nothing that collapses to this spelling.
+	if got, err = p.FindInstrumentByTickerIgnoringSeparators(ctx, "NOSUCH"); err != nil || got != "" {
+		t.Errorf("NOSUCH -> %q, %v; want empty", got, err)
+	}
+
+	// Two instruments collapsing to one spelling is ambiguous, not a match.
+	if _, err = p.EnsureInstrument(ctx, "STOCK", "XBUE", "ARS", "Berkshire CEDEAR", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XBUE", Value: "BRKB", Canonical: true},
+	}, "", nil, nil, nil); err != nil {
+		t.Fatalf("ensure cedear: %v", err)
+	}
+	if got, err = p.FindInstrumentByTickerIgnoringSeparators(ctx, "BRK.B"); err != nil || got != "" {
+		t.Errorf("ambiguous BRK.B -> %q, %v; want empty", got, err)
+	}
+}

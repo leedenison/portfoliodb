@@ -249,7 +249,11 @@ func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints
 		if !ok || parsed.Symbol == "" {
 			return nil, nil, false
 		}
+		// The OPENFIGI_TICKER hint is first because tryOpenFIGIFromHints takes
+		// the first hint that returns anything: the venue-constrained query has
+		// to run before the worldwide one, not after it.
 		inst.UnderlyingIdentifiers = []identifier.Identifier{
+			{Type: "OPENFIGI_TICKER", Domain: identifier.USComposite, Value: parsed.Symbol},
 			{Type: "MIC_TICKER", Value: parsed.Symbol},
 		}
 		// Convert parsed option ticker to OCC and replace OPENFIGI_TICKER.

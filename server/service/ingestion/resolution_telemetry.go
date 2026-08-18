@@ -34,7 +34,13 @@ type resolutionKeys struct {
 	// mismatched is the MIC_TICKER against OPENFIGI_SHARE_CLASS disagreement,
 	// detected between the two stages and likewise held.
 	mismatched map[string]bool
-	stamped    map[string]bool
+	// hintDiffs is what the resolved instrument contradicted about its hints.
+	// Recorded by the primary resolution and held until the key is stamped, the
+	// same way, because the resolution that decides the key is the one whose
+	// contradictions belong on it -- a mismatch-check probe answers a different
+	// question and its diffs would overwrite the answer with an aside.
+	hintDiffs map[string]string
+	stamped   map[string]bool
 }
 
 // newResolutionKeys writes a key row per distinct (source, description, hints)
@@ -59,6 +65,7 @@ func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source st
 		ids:        make(map[string]string),
 		extraction: make(map[string]string),
 		mismatched: make(map[string]bool),
+		hintDiffs:  make(map[string]string),
 		stamped:    make(map[string]bool),
 	}
 	type seed struct {
@@ -110,6 +117,16 @@ func (k *resolutionKeys) mismatch(key string) {
 	k.mismatched[key] = true
 }
 
+// hintDiff records what the instrument this key resolved to contradicted about
+// the hints it was given. Empty summaries are dropped rather than stored, so the
+// column reads as "contradicted nothing" rather than "was not looked at".
+func (k *resolutionKeys) hintDiff(key, summary string) {
+	if k == nil || summary == "" {
+		return
+	}
+	k.hintDiffs[key] = summary
+}
+
 // end stamps a key with what became of it, filling stage 1 in from what the
 // pre-pass recorded.
 //
@@ -126,6 +143,7 @@ func (k *resolutionKeys) end(ctx context.Context, key, outcome, instrumentID str
 		ExtractionOutcome: k.extraction[key],
 		Outcome:           outcome,
 		MismatchDetected:  k.mismatched[key],
+		HintDiffs:         k.hintDiffs[key],
 		InstrumentID:      instrumentID,
 	})
 }
@@ -204,6 +222,7 @@ func newIdentifierResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID 
 		ids:        make(map[string]string),
 		extraction: make(map[string]string),
 		mismatched: make(map[string]bool),
+		hintDiffs:  make(map[string]string),
 		stamped:    make(map[string]bool),
 	}
 	var order []identifierRef

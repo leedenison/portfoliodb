@@ -217,6 +217,42 @@ func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, ident
 
 // FindInstrumentByTypeAndValue implements db.InstrumentDB.
 // Returns "" if no row matches or if more than one instrument has the same (type, value) with different domains (ambiguous).
+// FindInstrumentByTickerIgnoringSeparators implements db.InstrumentDB. The
+// separator set matches identifier.NormalizeSplitTicker, and both sides are
+// stripped rather than one being rewritten, because an OCC root has lost the
+// separator's position and cannot have it put back.
+func (p *Postgres) FindInstrumentByTickerIgnoringSeparators(ctx context.Context, value string) (string, error) {
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT DISTINCT instrument_id FROM instrument_identifiers
+		WHERE identifier_type = 'MIC_TICKER'
+		  AND translate(value, './- ', '') = translate($1, './- ', '')
+	`, value)
+	if err != nil {
+		return "", fmt.Errorf("find instrument by ticker ignoring separators: %w", err)
+	}
+	defer rows.Close()
+	var id uuid.UUID
+	var count int
+	for rows.Next() {
+		var next uuid.UUID
+		if err := rows.Scan(&next); err != nil {
+			return "", err
+		}
+		count++
+		if count > 1 {
+			return "", nil
+		}
+		id = next
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if count == 0 {
+		return "", nil
+	}
+	return id.String(), nil
+}
+
 func (p *Postgres) FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error) {
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT instrument_id FROM instrument_identifiers

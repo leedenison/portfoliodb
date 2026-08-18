@@ -1253,6 +1253,13 @@ type InstrumentDB interface {
 	FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (instrumentID, assetClass, exchangeMIC, currency string, err error)
 	// FindInstrumentByTypeAndValue looks up instrument_id by (identifier_type, value) with any domain. Returns "" if not found or if multiple instruments match (ambiguous).
 	FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error)
+	// FindInstrumentByTickerIgnoringSeparators looks up instrument_id by a
+	// MIC_TICKER value compared with split-ticker separators removed on both
+	// sides. An OCC root spells a multi-class ticker without its separator --
+	// BRKB for BRK.B -- and no substitution recovers one spelling from the
+	// other, because nothing in BRKB says where the separator was. Returns ""
+	// if not found or if several instruments match.
+	FindInstrumentByTickerIgnoringSeparators(ctx context.Context, value string) (string, error)
 	// FindInstrumentBySourceDescription looks up instrument_id by (source, NULL domain, instrument_description). Returns "" if not found.
 	FindInstrumentBySourceDescription(ctx context.Context, source, description string) (string, error)
 	// GetInstrument returns an instrument by ID with its identifiers, or nil if not found.
@@ -2105,7 +2112,10 @@ type TelemetryResolutionKeyOutcome struct {
 	ExtractionOutcome string
 	Outcome           string
 	MismatchDetected  bool
-	InstrumentID      string
+	// HintDiffs summarises what the resolved instrument contradicted about its
+	// hints, empty when it contradicted nothing.
+	HintDiffs    string
+	InstrumentID string
 }
 
 // TelemetryIdentificationAttempt is one ResolveWithPlugins call, written when it

@@ -81,6 +81,17 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 			if err != nil {
 				return nil, err
 			}
+			// An underlying hint built from an OCC root spells a multi-class
+			// ticker without its separator, so the exact lookups above miss the
+			// instrument that the same import resolved from its own posting
+			// minutes earlier. Compare with the separator dropped on both sides
+			// before concluding it is not there.
+			if id == "" && h.Type == "MIC_TICKER" {
+				id, err = database.FindInstrumentByTickerIgnoringSeparators(ctx, value)
+				if err != nil {
+					return nil, err
+				}
+			}
 			// TypeAndValue fallback doesn't return metadata. Empty fields
 			// cause CompareHints to skip currency/exchange/assetClass
 			// checks, so hint validation is not performed for instruments
@@ -120,6 +131,17 @@ func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hint
 			id, err = database.FindInstrumentByTypeAndValue(ctx, h.Type, value)
 			if err != nil {
 				return nil, err
+			}
+			// An underlying hint built from an OCC root spells a multi-class
+			// ticker without its separator, so the exact lookups above miss the
+			// instrument that the same import resolved from its own posting
+			// minutes earlier. Compare with the separator dropped on both sides
+			// before concluding it is not there.
+			if id == "" && h.Type == "MIC_TICKER" {
+				id, err = database.FindInstrumentByTickerIgnoringSeparators(ctx, value)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 		if id != "" && !seen[id] {

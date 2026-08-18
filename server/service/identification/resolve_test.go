@@ -208,6 +208,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
@@ -247,6 +248,7 @@ func TestResolveWithPlugins_StampsIdentityAsOfOnPluginSuccess(t *testing.T) {
 
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").Return("", "", "", "", nil)
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 	database.EXPECT().EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", "", "", gomock.Any(), "", nil, nil, nil).
@@ -276,6 +278,7 @@ func TestResolveWithPlugins_NoStampOnFallback(t *testing.T) {
 
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").Return("", "", "", "", nil)
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 	// No UpdateIdentityAsOf expectation: the strict controller fails the test if
@@ -309,6 +312,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "XYZ").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "XYZ").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
@@ -356,6 +360,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "SLOW").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "SLOW").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "slow", Precedence: 10}}, nil)
@@ -394,6 +399,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "XYZ").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "XYZ").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
@@ -431,6 +437,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", desc).
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), desc).Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
@@ -477,6 +484,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "BAD").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "BAD").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "bad", Precedence: 10}}, nil)
@@ -759,6 +767,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
@@ -979,6 +988,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
@@ -1216,6 +1226,7 @@ func TestResolveWithPlugins_NoHintMatch_FallsBackToPrecedence(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
@@ -1263,6 +1274,7 @@ func TestResolveWithPlugins_NoHints_PurePrecedence(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
@@ -1375,5 +1387,58 @@ func TestResolveWithPlugins_SparseResultDoesNotVacuouslyMatch(t *testing.T) {
 	}
 	if result.InstrumentID != "id-apple" {
 		t.Errorf("expected id-apple (highest precedence), got %s", result.InstrumentID)
+	}
+}
+
+// An underlying hint built from an OCC root spells a multi-class ticker without
+// its separator, so BRKB has to reach the BRK.B the same import already
+// resolved. Without this the resolver falls through to the plugins, where a
+// bare root matches that ticker on every venue in the world.
+func TestResolveByHintsDBOnly_OCCRootReachesSplitTicker(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "BRKB").
+		Return("", "", "", "", nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "BRKB").
+		Return("", nil)
+	database.EXPECT().
+		FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "BRKB").
+		Return("inst-brk", nil)
+
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+		{Type: "MIC_TICKER", Value: "BRKB"},
+	})
+	if err != nil {
+		t.Fatalf("ResolveByHintsDBOnly: %v", err)
+	}
+	if len(ids) != 1 || ids[0].ID != "inst-brk" {
+		t.Fatalf("got %+v, want one instrument inst-brk", ids)
+	}
+}
+
+// The separator-insensitive lookup is a last resort: an exact match must not
+// reach it, or a ticker that genuinely differs only by a separator would be
+// answered by whichever row the looser query happened to find first.
+func TestResolveByHintsDBOnly_ExactMatchSkipsSeparatorFallback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
+
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+		{Type: "MIC_TICKER", Value: "AAPL"},
+	})
+	if err != nil {
+		t.Fatalf("ResolveByHintsDBOnly: %v", err)
+	}
+	if len(ids) != 1 || ids[0].ID != "inst-aapl" {
+		t.Fatalf("got %+v, want one instrument inst-aapl", ids)
 	}
 }

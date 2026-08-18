@@ -394,12 +394,16 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		return resolveResult{}, err
 	}
 	if len(result.HintDiffs) > 0 {
+		summary := hintDiffsSummary(result.HintDiffs)
 		ingestionLogger().InfoContext(ctx, "instrument resolved with hint differences",
 			"source", source,
 			"instrument_description", instrumentDescription,
 			"instrument_id", result.InstrumentID,
-			"diffs", hintDiffsSummary(result.HintDiffs),
+			"diffs", summary,
 		)
+		if purpose == db.TelemetryPurposePrimary {
+			keys.hintDiff(key, summary)
+		}
 	}
 
 	r := resolveResult{InstrumentID: result.InstrumentID, FirstRowIndex: rowIndex}

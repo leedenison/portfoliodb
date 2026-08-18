@@ -25,7 +25,6 @@ func TestExportSystemArchive_Prices_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	open := decimal.RequireFromString("185.5")
 	vol := int64(50000000)
-	basis := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
 	rows := []dbpkg.ExportPriceRow{
 		{
 			IdentifierType:   "MIC_TICKER",
@@ -45,7 +44,6 @@ func TestExportSystemArchive_Prices_Success(t *testing.T) {
 			AssetClass:       "STOCK",
 			Currency:         "USD",
 			PriceDate:        time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC),
-			ShareCountBasis:  &basis,
 			Close:            decimal.RequireFromString("18.59"),
 		},
 	}
@@ -107,12 +105,6 @@ func TestExportSystemArchive_Prices_Success(t *testing.T) {
 		t.Fatalf("expected volume=50000000, got %v", row.Volume)
 	}
 	// An as-traded bar says nothing; only the restated one carries a basis.
-	if row.ShareCountBasis != nil {
-		t.Fatalf("expected no share_count_basis on the as-traded row, got %v", row.ShareCountBasis)
-	}
-	if g.GetRows()[1].GetShareCountBasis() != "2024-06-10" {
-		t.Fatalf("expected share_count_basis=2024-06-10, got %v", g.GetRows()[1].ShareCountBasis)
-	}
 }
 
 // The envelope carries the knowledge time the whole file is stamped with, so it

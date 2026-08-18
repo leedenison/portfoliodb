@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -58,8 +57,6 @@ type ingestParams struct {
 	// to the upload or import that wrote it.
 	JobID string
 	Txs   []*apiv1.Tx
-	// ShareCountBasis is parallel to Txs, or nil when every row is as-traded.
-	ShareCountBasis []*time.Time
 	// PeriodFrom and PeriodBefore make this a replacement rather than an append.
 	// Both nil appends the batch as one group, which is the manual-entry path.
 	PeriodFrom, PeriodBefore *timestamppb.Timestamp
@@ -136,7 +133,7 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 
 	if clearing {
 		// Nothing to resolve or balance: the delete is the whole instruction.
-		if err := deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, nil, nil, nil, nil); err != nil {
+		if err := deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, nil, nil, nil); err != nil {
 			rep.Errf(-1, "txs", err.Error())
 			return out, fmt.Errorf("clear period: %w", err)
 		}
@@ -188,9 +185,9 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 	txWeights := weights(txs, instrumentIDs, balanceInsts)
 
 	if replacing {
-		err = deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, txs, instrumentIDs, txWeights, p.ShareCountBasis)
+		err = deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, txs, instrumentIDs, txWeights)
 	} else {
-		err = deps.DB.CreateTxGroup(ctx, p.UserID, p.Broker, txs[0].GetAccount(), p.JobID, txs, instrumentIDs, txWeights, p.ShareCountBasis)
+		err = deps.DB.CreateTxGroup(ctx, p.UserID, p.Broker, txs[0].GetAccount(), p.JobID, txs, instrumentIDs, txWeights)
 	}
 	if err != nil {
 		rep.Errf(-1, "txs", err.Error())

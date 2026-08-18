@@ -167,17 +167,6 @@ func groupBars(g *archivev1.PriceGroup, groupIndex int, instrumentID string, fet
 			DataProvider:  "import",
 			LastFetchedAt: fetchedAt,
 		}
-		// An undeclared basis means as-traded, which is what PortfolioDB's own
-		// export emits. exported_at is knowledge time and does not imply the
-		// file was back-adjusted.
-		if b := row.GetShareCountBasis(); b != "" {
-			basis, err := time.Parse("2006-01-02", b)
-			if err != nil {
-				fail(i, "share_count_basis", fmt.Sprintf("invalid date %q: want YYYY-MM-DD", b))
-				continue
-			}
-			p.ShareCountBasis = &basis
-		}
 		if row.Volume != nil {
 			p.Volume = row.Volume
 		}

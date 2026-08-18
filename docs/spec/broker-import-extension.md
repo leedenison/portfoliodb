@@ -81,7 +81,7 @@ Two of these need care.
 
 The extension reads the broker's live web UI, which is the one import path where a broker could present historical rows restated into post-split terms.
 
-The default is as-traded: quantities and unit prices are denominated in the share count current on the row's own transaction date, and no broker found so far violates that. A converter for a broker that does restate sets `share_count_basis` on the postings it emits, which is where the archive states it -- a file can restate some rows and not others. The declaration sits on the converter rather than the recipe or the run because it is a property of how the broker reports, and because the converter is shared with the web upload path -- so both routes get it from one place. See [bitemporality.md](bitemporality.md#share-count-basis).
+Quantities and unit prices are denominated in the share count current on the row's own transaction date, and no broker found so far reports anything else. A converter for a broker that does restate converts back before it emits: the broker restated by a ratio the converter can read out of the same export, so the knowledge is already where the work has to happen, and nothing downstream has to be told. See [bitemporality.md](bitemporality.md#share-count-basis).
 
 ### Account scope
 

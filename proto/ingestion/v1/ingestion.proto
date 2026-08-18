@@ -44,9 +44,9 @@ message CreateTxRequest {
   portfoliodb.type.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
   string source = 2 [(buf.validate.field).string.min_len = 1];
-  // The posting (must include account). Its share_count_basis says what share
-  // count the quantity and unit price are denominated in; absent is the
-  // posting's own date, the as-traded assumption.
+  // The posting (must include account). Its quantity and unit price are
+  // denominated in the share count current on its own trade_date; see
+  // docs/spec/bitemporality.md.
   portfoliodb.archive.v1.Posting posting = 3 [(buf.validate.field).required = true];
 }
 

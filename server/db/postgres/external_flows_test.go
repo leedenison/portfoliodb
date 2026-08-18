@@ -79,10 +79,10 @@ func postGroup(t *testing.T, p *Postgres, userID, desc, instID string, at time.T
 		if _, err := p.q.ExecContext(ctx, `
 			INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 				instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
-				group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
+				group_id, weight, weight_commodity, split_adjusted_quantity)
 			VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $3::timestamptz, $4, $5::uuid,
 				ARRAY['TRANSFER'], 'TRANSFER', $6::numeric, $7, $8::uuid, $6::numeric,
-				'inst:'||$5, $3::timestamptz::date, $6::numeric)
+				'inst:'||$5, $6::numeric)
 		`, userID, leg[0], at, desc, instID, leg[2], leg[1], groupID); err != nil {
 			t.Fatalf("insert %s leg: %v", leg[1], err)
 		}
@@ -398,10 +398,10 @@ func TestGetPortfolioExternalFlows_GroupStraddlingTheWindowStillReports(t *testi
 	if _, err := p.q.ExecContext(ctx, `
 		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 			instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
-			group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
+			group_id, weight, weight_commodity, split_adjusted_quantity)
 		VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $3::timestamptz, 'USD CASH', $4::uuid,
 			ARRAY['TRANSFER'], 'TRANSFER', -500, 'EQUITY', $5::uuid, -500,
-			'inst:'||$4, $3::timestamptz::date, -500)
+			'inst:'||$4, -500)
 	`, userID, acct, april(12), cashID, groupID); err != nil {
 		t.Fatalf("insert equity leg: %v", err)
 	}
@@ -441,10 +441,10 @@ func TestGetPortfolioExternalFlows_InstrumentFilterSeesTheCashLeg(t *testing.T) 
 	if _, err := p.q.ExecContext(ctx, `
 		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 			instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
-			group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
+			group_id, weight, weight_commodity, split_adjusted_quantity)
 		VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $3::timestamptz, 'USD CASH', $4::uuid,
 			ARRAY['TRADE_CASH'], 'TRADE_CASH', -1855, 'USER', $5::uuid, -10,
-			'inst:'||$6, $3::timestamptz::date, -1855)
+			'inst:'||$6, -1855)
 	`, userID, acct, april(5), cashID, groupID, instID); err != nil {
 		t.Fatalf("insert cash leg: %v", err)
 	}

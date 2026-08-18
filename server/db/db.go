@@ -129,9 +129,6 @@ type EODPrice struct {
 	// only; never an input to valuation. nil when the provider does not supply it.
 	AdjustedClose *decimal.Decimal
 	LastFetchedAt *time.Time // when this row was fetched; nil defaults to now()
-	// ShareCountBasis is the date at which the share count these raw values are
-	// denominated in was current. nil defaults to PriceDate (as-traded).
-	ShareCountBasis *time.Time
 }
 
 // PriceCacheDB provides price cache management.
@@ -341,11 +338,6 @@ type ExportPosting struct {
 	// The cash total the source stated for the row, or nil on a posting whose
 	// own quantity is already money.
 	SettlementAmount *decimal.Decimal
-	// The share count this posting is denominated in, or nil when it is the
-	// posting's own trade date. The column is NOT NULL and the insert
-	// trigger defaults it to that date, so only a value that differs from it
-	// says anything, and only that value is worth writing to a file.
-	ShareCountBasis *time.Time
 	// Why this posting might belong with another one, in the order its source
 	// stated them. Empty for a derived posting, which transcribes nothing.
 	Correlations []Correlation
@@ -387,7 +379,6 @@ type TxDB interface {
 	// postings arrived in. Every group is stamped with the ingestion job that
 	// created it.
 	//
-	// shareCountBasis is parallel to txs and is the date each row's quantity and
 	// unit price are denominated in. A nil entry, and a nil slice, mean as-traded:
 	// the row uses its own timestamp. It is per row rather than per call because a
 	// file can restate one row and leave its neighbours alone.
@@ -398,12 +389,12 @@ type TxDB interface {
 	// returns for a posting with no price. What the weights leave over is what the
 	// store routes a counterparty for, so a caller that supplies none is asking for
 	// one to be routed against that default.
-	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
+	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight) error
 	// CreateTxGroup appends the postings of one economic event as a single group,
 	// rather than one posting as a group of its own. It takes a slice because the
 	// legs of one event have to arrive together to be grouped together; what the
 	// group owes is settled from them.
-	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
+	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight) error
 	// ListTxs and ListTxsByPortfolio page by group rather than by posting: pageSize
 	// counts groups, a page carries every posting of the groups it covers, and the
 	// postings of one group are contiguous in the result. A group whose legs
@@ -696,7 +687,6 @@ type EODPriceRow struct {
 	Volume                *int64
 	DataProvider          string
 	LastFetchedAt         time.Time
-	ShareCountBasis       time.Time
 }
 
 // ExportPriceRow is a single price row with the best instrument identifier for export.
@@ -707,17 +697,12 @@ type ExportPriceRow struct {
 	AssetClass       string
 	Currency         string
 	PriceDate        time.Time
-	// The share count this bar is denominated in, or nil when it is the bar's
-	// own PriceDate. The column is NOT NULL and defaults to the price date, so
-	// only a value that differs from it says anything, and only that value is
-	// worth writing to a file.
-	ShareCountBasis *time.Time
-	Open            *decimal.Decimal
-	High            *decimal.Decimal
-	Low             *decimal.Decimal
-	Close           decimal.Decimal
-	AdjustedClose   *decimal.Decimal
-	Volume          *int64
+	Open             *decimal.Decimal
+	High             *decimal.Decimal
+	Low              *decimal.Decimal
+	Close            decimal.Decimal
+	AdjustedClose    *decimal.Decimal
+	Volume           *int64
 }
 
 // ExportPriceCoverageRow is one half-open [From, Before) price coverage span
@@ -1134,9 +1119,6 @@ type HoldingDeclarationRow struct {
 	InstrumentID string
 	DeclaredQty  string // numeric as string to preserve precision
 	AsOfDate     time.Time
-	// ShareCountBasis is the date at which the share count DeclaredQty is
-	// denominated in was current. Defaults to AsOfDate. See docs/spec/bitemporality.md.
-	ShareCountBasis time.Time
 	// Kind is derived, not stored: the earliest declaration for a holding is the
 	// pad and the rest are assertions. Reads populate it; writes ignore it.
 	Kind apiv1.DeclarationKind
@@ -1153,7 +1135,7 @@ type HoldingDeclarationRow struct {
 // not with the query that measures.
 type DeclarationCheck struct {
 	// ComputedQty is the sum of the holding's USER postings up to and including
-	// AsOfDate, converted into the declaration's ShareCountBasis. Includes the pad.
+	// AsOfDate, denominated on that date. Includes the pad.
 	ComputedQty decimal.Decimal
 	// PostingCount is how many postings contributed.
 	PostingCount int32
@@ -1165,15 +1147,15 @@ type DeclarationCheck struct {
 
 // InitializeTx is the derived pad for a holding declaration: the synthetic posting
 // that makes the declared quantity true, and the EQUITY counterparty that balances
-// it. Timestamp is the portfolio start date and ShareCountBasis is the declaration's,
+// it. Timestamp is the portfolio start date, which is also what the pad's quantity
+// is denominated on,
 // which are independent -- the pad is dated when the history begins but denominated
 // where the declaration is. The pad's tx type is not a field: value entering from
 // outside the user's holdings is TRANSFER_EXTERNAL by definition, and the upsert
 // writes that constant.
 type InitializeTx struct {
-	Timestamp       time.Time
-	Quantity        decimal.Decimal
-	ShareCountBasis time.Time
+	Timestamp time.Time
+	Quantity  decimal.Decimal
 }
 
 // ExportDeclaration is one stored declaration with the best identifier of the
@@ -1194,26 +1176,20 @@ type ExportDeclaration struct {
 	IdentifierDomain string
 	DeclaredQty      decimal.Decimal
 	AsOfDate         time.Time
-	// The share count the declared quantity is denominated in, or nil when it is
-	// the declaration's own as_of_date. The column is NOT NULL and the insert
-	// trigger defaults it to that date, so only a value that differs from it
-	// says anything worth writing to a file.
-	ShareCountBasis *time.Time
 }
 
 // HoldingDeclarationDB provides holding declaration CRUD and INITIALIZE tx helpers.
 type HoldingDeclarationDB interface {
-	CreateHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
-	UpdateHoldingDeclaration(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
+	CreateHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time) (*HoldingDeclarationRow, error)
+	UpdateHoldingDeclaration(ctx context.Context, id, declaredQty string, asOfDate time.Time) (*HoldingDeclarationRow, error)
 	// UpsertHoldingDeclaration restates the declaration for a holding at a date,
 	// or creates it where there is none. It is what an archive import writes
 	// through: re-importing an exported file collides on the unique key at every
 	// unchanged row, and the AlreadyExists the create path answers with -- right
 	// for a user filling in a form -- would fail the restore.
 	//
-	// A zero shareCountBasis leaves the column NULL on insert so the table's
 	// trigger applies the as_of_date default, keeping that rule in one place.
-	UpsertHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) error
+	UpsertHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time) error
 	DeleteHoldingDeclaration(ctx context.Context, id string) error
 	GetHoldingDeclaration(ctx context.Context, id string) (*HoldingDeclarationRow, error)
 	ListHoldingDeclarations(ctx context.Context, userID string) ([]*HoldingDeclarationRow, error)
@@ -1221,21 +1197,29 @@ type HoldingDeclarationDB interface {
 	// order -- by broker, then account, then date -- so a writer can cut them
 	// into statements in one pass.
 	ListHoldingDeclarationsForExport(ctx context.Context, userID string) ([]ExportDeclaration, error)
+	// ConvertQtyToBasis restates qty, denominated in the share count current on
+	// fromBasis, into the share count current on toBasis. Both directions are
+	// exact rationals multiplied before the single division, the same way
+	// split_factor_at is used everywhere else. It exists because a holding's pad
+	// is computed against the date its declaration asserts and written against
+	// the date the portfolio starts, and those are the same quantity only when
+	// no split falls between them.
+	ConvertQtyToBasis(ctx context.Context, instrumentID string, qty decimal.Decimal, fromBasis, toBasis time.Time) (decimal.Decimal, error)
 	// GetPortfolioStartDate returns the earliest real tx timestamp for the user, or nil if none exist.
 	GetPortfolioStartDate(ctx context.Context, userID string) (*time.Time, error)
 	// ComputeRunningBalance sums the real (non-synthetic) txs for the given holding
 	// where timestamp >= from and timestamp < to, expressed in the share count
 	// current at basis. Quantities are converted from each posting's own
-	// share_count_basis, so the sum is in one denomination rather than a mixture.
+	// trade_date, so the sum is in one denomination rather than a mixture.
 	ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to, basis time.Time) (decimal.Decimal, error)
 	// UpsertInitializeTx creates or updates the INITIALIZE synthetic tx for the given holding.
 	UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID string, init InitializeTx) error
 	// DeleteInitializeTx deletes the INITIALIZE synthetic tx for the given holding, if it exists.
 	DeleteInitializeTx(ctx context.Context, userID, broker, account, instrumentID string) error
 	// CreateDeclarationWithInitializeTx atomically creates a declaration and upserts its INITIALIZE tx.
-	CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time, init InitializeTx) (*HoldingDeclarationRow, error)
+	CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time, init InitializeTx) (*HoldingDeclarationRow, error)
 	// UpdateDeclarationWithInitializeTx atomically updates a declaration and upserts its INITIALIZE tx.
-	UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time, userID, broker, account, instrumentID string, init InitializeTx) (*HoldingDeclarationRow, error)
+	UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate time.Time, userID, broker, account, instrumentID string, init InitializeTx) (*HoldingDeclarationRow, error)
 	// DeleteDeclarationWithInitializeTx atomically deletes a declaration and either
 	// rewrites the holding's pad from init or, when init is nil, deletes it. A
 	// deleted assertion leaves the pad alone; a deleted pad promotes the

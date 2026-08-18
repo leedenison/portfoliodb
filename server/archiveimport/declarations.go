@@ -96,14 +96,6 @@ func DeclarationPart(ctx context.Context, database db.DB, userID string, part *a
 				rep.Errf(idx, "declared_qty", fmt.Sprintf("%q is not a decimal: %v", d.GetDeclaredQty(), err))
 				continue
 			}
-			basis := asOfDate
-			if d.ShareCountBasis != nil {
-				basis, err = time.Parse(declarationDateLayout, d.GetShareCountBasis())
-				if err != nil {
-					rep.Errf(idx, "share_count_basis", fmt.Sprintf("%q is not a date: %v", d.GetShareCountBasis(), err))
-					continue
-				}
-			}
 			instrumentID, err := findDeclaredInstrument(ctx, database, d.GetInstrument(), idx, rep)
 			if err != nil {
 				return written, fmt.Errorf("resolve instrument: %w", err)
@@ -113,7 +105,7 @@ func DeclarationPart(ctx context.Context, database db.DB, userID string, part *a
 			}
 
 			if err := database.UpsertHoldingDeclaration(ctx, userID, broker, st.GetAccount(),
-				instrumentID, qty.String(), asOfDate, basis); err != nil {
+				instrumentID, qty.String(), asOfDate); err != nil {
 				return written, fmt.Errorf("upsert holding declaration: %w", err)
 			}
 			written++

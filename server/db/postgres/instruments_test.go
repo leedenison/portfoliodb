@@ -43,7 +43,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		{OrderDate: ts2,
 			TradeDate: ts2, InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""},
 	}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil, nil)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil)
 	if err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
@@ -819,7 +819,7 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 		{Amount: decf(-10), Commodity: "inst:" + idA},
 		{Amount: decf(10), Commodity: "inst:" + idB},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, ws, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, ws); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 

@@ -119,9 +119,6 @@ func posting(r db.ExportPosting) *archivev1.Posting {
 	if r.SettlementCurrency != "" {
 		p.SettlementCurrency = proto.String(r.SettlementCurrency)
 	}
-	if r.ShareCountBasis != nil {
-		p.ShareCountBasis = proto.String(r.ShareCountBasis.Format("2006-01-02"))
-	}
 	for _, c := range r.Correlations {
 		p.Correlations = append(p.Correlations, correlation(c))
 	}

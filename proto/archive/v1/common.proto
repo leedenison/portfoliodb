@@ -126,6 +126,14 @@ message Identifier {
   string value = 2 [(buf.validate.field).string.min_len = 1];
   string domain = 3;
   bool canonical = 4;
+  // The half-open [valid_from, valid_before) interval in market time this name
+  // was correct for the instrument. An absent valid_before means it is the name
+  // the instrument wears now. Carried so a round trip cannot make an
+  // already-restated option look unrestated, and so the symbol a contract
+  // traded under before a split survives the file.
+  // See docs/adr/0055-identifier-validity-is-an-interval.md.
+  optional string valid_from = 5; // "YYYY-MM-DD"
+  optional string valid_before = 6; // "YYYY-MM-DD"
 }
 
 // DateInterval is a half-open [from, before) interval of calendar days. To cover

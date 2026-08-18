@@ -61,6 +61,11 @@ func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
 			Value:     idn.Value,
 			Domain:    idn.Domain,
 			Canonical: idn.Canonical,
+			ValidFrom: optDate(idn.ValidFrom),
+			// A name the instrument has given up travels too. Dropping it would
+			// leave a file exported before a split naming a symbol the imported
+			// instance has never heard of.
+			ValidBefore: optDate(idn.ValidBefore),
 		})
 	}
 	// The recorded output of the identifier lookups. Carrying them is the point

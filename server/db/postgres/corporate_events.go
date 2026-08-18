@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -91,15 +92,33 @@ func (p *Postgres) ListStockSplits(ctx context.Context, instrumentID string) ([]
 // effect, and is picked up by the first run after it does. ex_date <= expiry is
 // the scope guard: OCC restates a contract on the effective date, so a split
 // only reaches the contracts still listed that day and one that had already
-// expired was never restated. identity_as_of < ex_date is the correctness guard:
-// the stored OCC symbol reflects a split only if it was derived on or after the
-// split took effect, and a NULL predates every split. Together they make the
-// work list self-describing, so the pass needs no record of which cycle a split
-// arrived in and re-running it is a no-op.
+// expired was never restated. valid_from < ex_date is the correctness guard: the
+// OCC symbol in force reflects a split only if the name became correct on or
+// after the split took effect. Together they make the work list
+// self-describing, so the pass needs no record of which cycle a split arrived in
+// and re-running it is a no-op.
+//
+// The guard reads the OCC row's own valid_from rather than a stamp on the
+// instrument, which is what lets a split learned of after the fact still select
+// the option: a minted name's valid_from is the ex_date it was minted from, a
+// market fact, where a knowledge-time stamp would already sit after the newly
+// learned split's ex_date and exclude it forever.
+//
+// A NULL valid_from falls back to the option's own first trade date. A source
+// states an option under the name current at its export, and an export cannot
+// precede the purchase it describes, so that date is the floor that holds
+// without a recorded vintage. With no transactions at all there is no floor and
+// the name predates everything, as a NULL stamp used to mean.
+//
+// The OCC row is read through a LEFT JOIN LATERAL taking one row. LEFT so an
+// option carrying no OCC identifier still reaches the pass, which reports it as
+// an unhandled event rather than passing over it in silence; LIMIT 1 so an
+// option that somehow wears two names at once cannot multiply its splits and be
+// restated twice over.
 //
 // The scope guard is per joined row, not per option, so an option that lived
 // through one split and expired before the next comes back pending for the first
-// alone and the pass compounds only that one.
+// alone and the pass restates only that one.
 func (p *Postgres) ListPendingOptionSplits(ctx context.Context, underlyingID string) ([]db.PendingOptionSplits, error) {
 	var (
 		filter string
@@ -117,11 +136,24 @@ func (p *Postgres) ListPendingOptionSplits(ctx context.Context, underlyingID str
 		SELECT o.id, s.instrument_id, s.ex_date, s.split_from::text, s.split_to::text,
 		       s.data_provider, s.first_known_at
 		FROM instruments o
+		LEFT JOIN LATERAL (
+		    SELECT ii.valid_from
+		    FROM instrument_identifiers ii
+		    WHERE ii.instrument_id = o.id
+		      AND ii.identifier_type = 'OCC'
+		      AND ii.valid_before IS NULL
+		    ORDER BY ii.valid_from DESC NULLS LAST
+		    LIMIT 1
+		) occ ON true
 		JOIN stock_splits s ON s.instrument_id = o.underlying_id
 		WHERE o.asset_class = 'OPTION'
 		  AND s.ex_date <= CURRENT_DATE
 		  AND s.ex_date <= o.expiry
-		  AND (o.identity_as_of IS NULL OR o.identity_as_of < s.ex_date)
+		  AND COALESCE(
+		        occ.valid_from,
+		        (SELECT MIN(t.trade_date)::date FROM txs t WHERE t.instrument_id = o.id),
+		        '-infinity'::date
+		      ) < s.ex_date
 		  %s
 		ORDER BY o.id, s.ex_date
 	`, filter), args...)
@@ -639,42 +671,141 @@ func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Contex
 	return out, rows.Err()
 }
 
-// ApplyOptionSplit implements db.CorporateEventDB. All mutations run in a
-// single transaction: replace the OCC identifier, update strike,
-// recompute split-adjusted tx values, advance identity_as_of. The split_factor_at
-// SQL function looks up splits via the underlying_id FK, so no derived split
-// row is needed on the option instrument.
+// ApplyOptionSplit implements db.CorporateEventDB. All mutations run in a single
+// transaction: close the OCC symbol still in force, mint one row per pending
+// split, update the strike, recompute split-adjusted tx values. The
+// split_factor_at SQL function looks up splits via the underlying_id FK, so no
+// derived split row is needed on the option instrument.
+//
+// The old symbol is closed rather than deleted. A broker file exported before
+// the ex_date names it, and deleting it leaves that file nothing to resolve to,
+// so the import invents a duplicate instrument instead. See
+// docs/adr/0055-identifier-validity-is-an-interval.md.
+//
+// The name is not written here. recompute_instrument_name derives it from the
+// identifier still in force, which after the mint is the last one.
 func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitParams) error {
+	if len(params.Mints) == 0 {
+		return fmt.Errorf("apply option split: no mints")
+	}
+	uid, err := uuid.Parse(params.InstrumentID)
+	if err != nil {
+		return fmt.Errorf("apply option split: invalid instrument id %q: %w", params.InstrumentID, err)
+	}
+	from := params.Mints[0].ExDate
+	mints := make([]db.IdentifierInput, len(params.Mints))
+	for i, m := range params.Mints {
+		mints[i] = m.OCC
+		mints[i].ValidFrom = &params.Mints[i].ExDate
+		if i+1 < len(params.Mints) {
+			mints[i].ValidBefore = &params.Mints[i+1].ExDate
+		}
+	}
+
 	return p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
-		// Every OCC identifier goes, not just the value the caller read. An
-		// option has exactly one OCC, and deleting by value leaves a stale one
-		// behind when two runs of the pass overlap: the loser's delete matches
-		// nothing, its insert of a different adjusted symbol succeeds, and the
-		// option ends up resolving under both. Deleting by type makes the
-		// operation converge whatever the caller last saw.
-		if err := txp.DeleteInstrumentIdentifiersByType(ctx, params.InstrumentID, "OCC"); err != nil {
-			return fmt.Errorf("apply option split: delete OCC identifiers: %w", err)
-		}
-		if err := txp.InsertInstrumentIdentifier(ctx, params.InstrumentID, params.NewOCC); err != nil {
-			return fmt.Errorf("apply option split: insert new OCC: %w", err)
-		}
-		if err := txp.UpdateInstrumentStrike(ctx, params.InstrumentID, params.NewStrike); err != nil {
-			return fmt.Errorf("apply option split: update strike: %w", err)
-		}
-		if params.NewName != "" {
-			if err := txp.UpdateInstrumentName(ctx, params.InstrumentID, params.NewName); err != nil {
-				return fmt.Errorf("apply option split: update name: %w", err)
+		// Absorb first, before anything is written. A name about to be minted
+		// that another instrument already holds is a duplicate of this contract:
+		// it was bought again, or its prices fetched, while the split was still
+		// unknown, so the post-split symbol resolved to nothing and was given an
+		// instrument of its own. Letting the insert fail instead would roll the
+		// restatement back and leave the option pending, and every later cycle
+		// would collide the same way.
+		for _, idn := range mints {
+			if err := absorbDuplicateHolder(ctx, tx, uid, idn); err != nil {
+				return fmt.Errorf("apply option split: %w", err)
 			}
+		}
+		// This call owns the option's OCC history from the first ex_date
+		// onwards, so anything already sitting in that window goes -- including
+		// whatever an absorbed duplicate just brought with it, and whatever an
+		// earlier overlapping run of the pass minted. The pass is driven by both
+		// the fetch cycle and the import job, so a run can plan from a snapshot
+		// another has already superseded; without this, the later run would try
+		// to close a row starting on the very date it is closing at, which is a
+		// zero-length interval the CHECK refuses.
+		//
+		// Nothing outside the window is caught by it. An OCC row starts either
+		// at the ex_date of the split that minted it or at the vintage that
+		// supplied it, and every pending split is later than the name in force.
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM instrument_identifiers
+			WHERE instrument_id = $1 AND identifier_type = 'OCC' AND valid_from >= $2
+		`, uid, from); err != nil {
+			return fmt.Errorf("apply option split: clear the restated window: %w", err)
+		}
+		// Whatever is left in force is the name the contract traded under before
+		// the ex_date. Closing rather than deleting it is what lets a file
+		// exported before the split still resolve to this contract. Every open
+		// row closes, not just the value the caller read, so the write converges
+		// whatever snapshot it planned from.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE instrument_identifiers SET valid_before = $2
+			WHERE instrument_id = $1 AND identifier_type = 'OCC' AND valid_before IS NULL
+		`, uid, from); err != nil {
+			return fmt.Errorf("apply option split: close OCC identifiers: %w", err)
+		}
+		for _, idn := range mints {
+			if err := insertIdentifierRow(ctx, tx, uid, idn); err != nil {
+				return fmt.Errorf("apply option split: mint %s: %w", idn.Value, err)
+			}
+		}
+		if err := txp.UpdateInstrumentStrike(ctx, params.InstrumentID, params.Mints[len(params.Mints)-1].Strike); err != nil {
+			return fmt.Errorf("apply option split: update strike: %w", err)
 		}
 		if err := txp.RecomputeSplitAdjustments(ctx, params.InstrumentID); err != nil {
 			return fmt.Errorf("apply option split: recompute adjustments: %w", err)
 		}
-		if err := txp.UpdateIdentityAsOf(ctx, params.InstrumentID); err != nil {
-			return fmt.Errorf("apply option split: update identity_as_of: %w", err)
-		}
 		return nil
 	})
+}
+
+// absorbDuplicateHolder merges away any other instrument holding the name idn is
+// about to claim.
+//
+// The option being restated is the survivor rather than pickSurvivor's answer:
+// the caller holds its id and the rest of the transaction runs against it, and
+// it is the row carrying the contract's history, where the duplicate holds only
+// what arrived after the split.
+func absorbDuplicateHolder(ctx context.Context, tx queryable, instrumentID uuid.UUID, idn db.IdentifierInput) error {
+	holder, err := identifierHolder(ctx, tx, idn)
+	if err != nil {
+		return err
+	}
+	if holder == uuid.Nil || holder == instrumentID {
+		return nil
+	}
+	if err := mergeInstruments(ctx, tx, instrumentID, holder); err != nil {
+		return fmt.Errorf("absorb duplicate %s holding %s: %w", holder, idn.Value, err)
+	}
+	return nil
+}
+
+func insertIdentifierRow(ctx context.Context, tx queryable, instrumentID uuid.UUID, idn db.IdentifierInput) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, instrumentID, idn.Type, nullStr(idn.Domain), idn.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+	return err
+}
+
+// identifierHolder returns the instrument whose row for this name overlaps the
+// interval being claimed, or uuid.Nil when none does.
+func identifierHolder(ctx context.Context, tx queryable, idn db.IdentifierInput) (uuid.UUID, error) {
+	var holder uuid.UUID
+	err := tx.QueryRowContext(ctx, `
+		SELECT instrument_id FROM instrument_identifiers
+		WHERE identifier_type = $1 AND COALESCE(domain, '') = $2 AND value = $3
+		  AND daterange(valid_from, valid_before) && daterange($4, $5)
+		LIMIT 1
+	`, idn.Type, idn.Domain, idn.Value, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore)).Scan(&holder)
+	if errors.Is(err, sql.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("find identifier holder for %s: %w", idn.Value, err)
+	}
+	return holder, nil
 }
 
 // RecomputeSplitAdjustments implements db.CorporateEventDB. Two UPDATEs (one

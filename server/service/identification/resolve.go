@@ -622,16 +622,30 @@ func ResolveWithPlugins(
 				})
 			}
 		}
+		// A plugin has just identified this instrument, so the names it gave
+		// back became correct as of the hints it was asked about: now, unless an
+		// OCC hint could not be rebased onto today, in which case the plugin was
+		// asked about the contract as it stood at identityAsOf and answered
+		// about that one. Only names this path writes carry it; a name already
+		// stored keeps the valid_from it was written with, because when a name
+		// became correct is a market fact and re-seeing it is not evidence of a
+		// new one.
+		namedAt := identityAsOf
+		if namedAt == nil {
+			now := time.Now()
+			namedAt = &now
+		}
+		nameFrom := db.VintageDate(namedAt)
 		identifiers := make([]db.IdentifierInput, 0, len(mergedIds)+1)
 		hasSource := false
 		for _, idn := range mergedIds {
-			identifiers = append(identifiers, db.IdentifierInput{Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Canonical: true})
+			identifiers = append(identifiers, db.IdentifierInput{Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Canonical: true, ValidFrom: nameFrom})
 			if idn.Type == "BROKER_DESCRIPTION" && idn.Domain == source && idn.Value == instrumentDescription {
 				hasSource = true
 			}
 		}
 		if storeSourceDescription && !hasSource {
-			identifiers = append(identifiers, db.IdentifierInput{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false})
+			identifiers = append(identifiers, db.IdentifierInput{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false, ValidFrom: nameFrom})
 		}
 		inst := winner.inst
 		var underlyingID string

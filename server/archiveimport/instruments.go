@@ -119,7 +119,8 @@ type importInstKey struct{ typ, value, domain string }
 
 // ensureArchiveInstrument ensures one archive instrument, restoring the values
 // nothing recomputes: the option terms, the deliverable multiplier, the identity
-// vintage and the provider identifiers the lookups produced. It returns "" when
+// vintage, the interval each name was correct over, and the provider identifiers
+// the lookups produced. It returns "" when
 // it reported a problem rather than storing anything.
 func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev1.Instrument,
 	underlyingID string, i int, seenKeys map[string]struct{}, rep *PartReporter) string {
@@ -133,12 +134,18 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	idns := make([]db.IdentifierInput, 0, len(inst.GetIdentifiers()))
 	for _, idf := range inst.GetIdentifiers() {
 		typeStr := typev1.IdentifierType_name[int32(idf.GetType())]
-		key := typeStr + "\x00" + idf.GetValue()
+		// The interval is part of the key: one instrument may state a name it
+		// has given up alongside the one it wears now, and those are two rows,
+		// not a duplicate.
+		key := typeStr + "\x00" + idf.GetValue() + "\x00" + idf.GetValidFrom() + "\x00" + idf.GetValidBefore()
 		if _, ok := seenKeys[key]; ok {
 			return fail("duplicate (type, value) in payload")
 		}
 		seenKeys[key] = struct{}{}
-		idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
+		idns = append(idns, db.IdentifierInput{
+			Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical(),
+			ValidFrom: archiveDate(idf.ValidFrom), ValidBefore: archiveDate(idf.ValidBefore),
+		})
 	}
 	opts, err := archiveOptionFields(inst)
 	if err != nil {

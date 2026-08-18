@@ -53,11 +53,14 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 
 	var adjusted []*db.InstrumentRow
 	for _, p := range pending {
-		// Compound as an exact rational and carry it as one. The quotient is
-		// never taken here: applyOptionSplits multiplies the strike by the
-		// denominator before dividing by the numerator, so the single division
-		// comes last.
+		// One cumulative factor per split, each an exact rational over the
+		// splits up to and including it. The quotient is never taken here:
+		// applyOptionSplits multiplies the option's stored strike by the
+		// denominator before dividing by the numerator, so every name is one
+		// rounding away from the strike on record rather than from the name
+		// before it.
 		num, den := decimal.NewFromInt(1), decimal.NewFromInt(1)
+		factors := make([]factor, 0, len(p.Splits))
 		unhandled := false
 		for _, s := range p.Splits {
 			if !identification.IsWholeForwardSplit(s.SplitFrom, s.SplitTo) {
@@ -76,16 +79,17 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 			to, _ := decimal.NewFromString(s.SplitTo)
 			num = num.Mul(to)
 			den = den.Mul(from)
+			factors = append(factors, factor{split: s, num: num, den: den})
 		}
-		// A pending split we cannot apply blocks the whole option: adjusting
+		// A pending split we cannot apply blocks the whole option: restating
 		// only the splits either side of it would silently produce a strike
-		// that matches no real contract. Leaving identity_as_of untouched keeps
-		// the option pending, so it is picked up again once the event is
-		// resolved.
+		// that matches no real contract. Leaving the OCC symbol in force where
+		// it is keeps the option pending, so it is picked up again once the
+		// event is resolved.
 		if unhandled {
 			continue
 		}
-		if applyOptionSplits(ctx, database, p.Option, p.Splits, num, den, log) {
+		if applyOptionSplits(ctx, database, p.Option, factors, log) {
 			adjusted = append(adjusted, p.Option)
 		}
 	}
@@ -97,12 +101,22 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 	return adjusted
 }
 
-// applyOptionSplits rewrites one option's OCC symbol and strike for the
-// cumulative factor of its pending splits. Returns true when the adjustment was
-// applied. splits is used only for reporting; factor already accounts for all of
-// them.
-func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRow, splits []db.StockSplit, num, den decimal.Decimal, log *slog.Logger) bool {
-	split := splits[len(splits)-1] // most recent, for unhandled-event context
+// factor is one pending split and the cumulative rational over every pending
+// split up to and including it.
+type factor struct {
+	split    db.StockSplit
+	num, den decimal.Decimal
+}
+
+// applyOptionSplits mints one OCC symbol per pending split, each valid from that
+// split's ex_date, and moves the option's strike to the last of them. Returns
+// true when the restatement was applied.
+//
+// Every name is minted, not just the last. Splitting twice in one contract's
+// life is vanishingly rare, but the names in between were real: a file exported
+// in that window states one, and without the row it has nothing to resolve to.
+func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRow, factors []factor, log *slog.Logger) bool {
+	split := factors[len(factors)-1].split // most recent, for unhandled-event context
 
 	if opt.Strike == nil || opt.Expiry == nil || opt.PutCall == nil {
 		if log != nil {
@@ -111,10 +125,11 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 		return false
 	}
 
-	// Find the current OCC identifier.
+	// The OCC symbol in force. A closed one names the contract as it stood
+	// before an earlier split and is not what this restatement builds on.
 	var currentOCC string
 	for _, idn := range opt.Identifiers {
-		if idn.Type == "OCC" {
+		if idn.Type == "OCC" && idn.ValidBefore == nil {
 			currentOCC = idn.Value
 			break
 		}
@@ -126,32 +141,38 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 		return false
 	}
 
-	newStrike := derivative.AdjustStrike(*opt.Strike, num, den)
-
-	// Build new OCC.
 	parsed, ok := derivative.ParseOptionTicker(currentOCC)
 	if !ok {
 		insertUnhandledOptionSplit(ctx, database, opt, split, fmt.Sprintf("unparseable OCC identifier %q", currentOCC), log)
 		return false
 	}
 
-	newOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, newStrike)
-	if !ok {
-		insertUnhandledOptionSplit(ctx, database, opt, split, fmt.Sprintf("cannot build OCC with adjusted strike %s", newStrike), log)
-		return false
+	mints := make([]db.OptionMint, 0, len(factors))
+	for _, f := range factors {
+		// From the stored strike and the cumulative factor, so the rounding
+		// happens once per name rather than accumulating along the chain.
+		strike := derivative.AdjustStrike(*opt.Strike, f.num, f.den)
+		occ, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, strike)
+		if !ok {
+			insertUnhandledOptionSplit(ctx, database, opt, f.split, fmt.Sprintf("cannot build OCC with adjusted strike %s", strike), log)
+			return false
+		}
+		mints = append(mints, db.OptionMint{
+			ExDate: f.split.ExDate,
+			OCC:    db.IdentifierInput{Type: "OCC", Value: occ, Canonical: true},
+			Strike: strike,
+		})
 	}
 
-	// All mutations run in a single transaction via ApplyOptionSplit so
-	// partial failure cannot leave the option in an inconsistent state. That
-	// transaction also advances identity_as_of, which is what removes the option
-	// from the pending set. A failure here leaves it pending, so the next cycle
-	// retries it.
+	// All mutations run in a single transaction via ApplyOptionSplit so partial
+	// failure cannot leave the option in an inconsistent state. That transaction
+	// closes the OCC symbol in force, which is what removes the option from the
+	// pending set. A failure here leaves it pending, so the next cycle retries
+	// it.
 	params := db.OptionSplitParams{
 		InstrumentID: opt.ID,
 		OldOCCValue:  currentOCC,
-		NewOCC:       db.IdentifierInput{Type: "OCC", Value: newOCC, Canonical: true},
-		NewStrike:    newStrike,
-		NewName:      newOCC,
+		Mints:        mints,
 	}
 	if err := database.ApplyOptionSplit(ctx, params); err != nil {
 		if log != nil {
@@ -161,10 +182,11 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 	}
 
 	if log != nil {
-		log.InfoContext(ctx, "option splits: adjusted",
-			"option", opt.ID, "old_occ", currentOCC, "new_occ", newOCC,
-			"old_strike", *opt.Strike, "new_strike", newStrike,
-			"splits", len(splits), "factor_num", num, "factor_den", den)
+		last := mints[len(mints)-1]
+		log.InfoContext(ctx, "option splits: restated",
+			"option", opt.ID, "old_occ", currentOCC, "new_occ", last.OCC.Value,
+			"old_strike", *opt.Strike, "new_strike", last.Strike,
+			"splits", len(factors))
 	}
 	return true
 }

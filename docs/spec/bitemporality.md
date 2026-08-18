@@ -16,12 +16,12 @@ adr/0016-bitemporal-time-model.md.
 | --- | --- | --- |
 | **Valid time** | When was this true in the world? | `*_date`, `timestamp`, `valid_from` / `valid_before` |
 | **Knowledge time** | When did PortfolioDB learn it? | `first_known_at`, `last_fetched_at`, `created_at` |
-| **Share count basis** | Which share count is this quantity or per-share price denominated in? | fixed by convention; see [Share count basis](#share-count-basis) |
+| **Share count basis** | Which share count is this quantity or per-share price denominated in? | `share_count_basis` |
 
 Valid time and knowledge time are the conventional bitemporal pair. Share count
-basis is a third question this domain has to answer, but it is not a third stored
-axis: the API fixes the answer by convention and every source converts to it, so
-nothing has to be recorded or read back.
+basis is a third axis specific to this domain: it is a knowledge time belonging
+to the **source** rather than to PortfolioDB, and it cannot be derived from the
+other two.
 
 The name is deliberately long. "Basis" alone means **cost basis** -- the money
 paid for a lot -- everywhere else in this system, and the two are unrelated. This
@@ -124,7 +124,7 @@ a revision occurred, which follows from rule 8 below
 | --- | --- | --- |
 | `stock_splits` | `first_known_at` | First known. Preserved across corporate-event export and import; not read by option adjustment, which keys off `ex_date` (see adr/0017-option-identity-reflects-ex-date.md). |
 | `cash_dividends` | `first_known_at` | First known. |
-| `eod_prices` | `last_fetched_at` | Staleness only. It carries no semantics about the price itself, whose denomination is its own `price_date`. |
+| `eod_prices` | `last_fetched_at` | Staleness only. It carries no semantics about the price itself -- that is what `share_count_basis` is for. |
 | `price_coverage` | `last_fetched_at` | When the span was last confirmed. Merged the same way as `corporate_event_coverage` below. |
 | `corporate_event_coverage` | `last_fetched_at` | When the span was last confirmed. Merging spans keeps the oldest constituent's, since a union is only as freshly confirmed as its stalest part. |
 | `inflation_indices` | `last_fetched_at` | Staleness only. |
@@ -159,37 +159,35 @@ which share count they are expressed in. A 2:1 split makes "100 shares at $50"
 and "200 shares at $25" the same holding. The **share count basis** is the date
 at which a row's share count was current.
 
-It is fixed by convention rather than declared. Each kind of row has one basis
-and only one, and a source holding its data on any other basis converts before it
-uploads:
+Every source declares its own. The storage layer assumes nothing.
 
-| Row | Basis | Because |
+| Source | Declares | Because |
 | --- | --- | --- |
-| A posting | its own `trade_date` | A trade happened in the share count of the day it happened in. |
-| A price bar | its own `price_date` | The bar is the market as it printed that day, so a provider is asked for unadjusted output. |
-| A holding declaration | its own `as_of_date` | The assertion is about a date, so it is denominated in that date. |
-| An identifier | the exporting file's `exported_at`, else the upload's own receipt | An OCC symbol encodes a strike, so it moves under a split. A file states identity as it stood when the file was written. |
+| Broker transaction rows (CSV, extension) | the row's own transaction date | A broker log line accounts only for events prior to the trade, whatever has happened since. |
+| Price plugin returning as-traded bars | each bar's `price_date` | The bar is the market as it printed that day. |
+| Price plugin returning back-adjusted bars | the fetch date | The provider restated the whole series to the share count current when it answered. |
+| Price import file | `price_date`, unless the row declares otherwise | Matches PortfolioDB's own export, which emits raw close. |
+| Holding declaration | `as_of_date`, unless the user says otherwise | A quantity read off a record of some date is in the share count current then. A quantity read off today's holdings screen is not, and the form asks which. |
 
-The alternative was a per-row `share_count_basis` that let a source say which
-basis it had used. It was carried on postings, price rows and declarations, and
-in three years of real broker data nothing ever set it: brokers report as-traded,
-and every price plugin asks for unadjusted bars. What it did instead was let a
-source restate silently and stay conforming, because a row that restates without
-declaring is indistinguishable from one that does not.
+Both defaults are inferrable, and both are wrong for a source that restates. Two
+sources here can: the browser extension scrapes the broker's live web UI, which
+may show historical rows in post-split terms; and a price plugin switched to
+adjusted output changes denomination with no schema change to signal it. So the
+declaration is explicit -- `share_count_basis` on the row, and a declaration on
+the plugin interface and the ingestion request that sets it.
 
-A convention moves that work to where the knowledge is. A source that restates
-knows it restated and knows the ratio it used -- that is how it restated -- so it
-can convert back. A source that does not restate does nothing. Neither has to
-describe itself, and neither can misdescribe itself.
+Fixing the basis by convention instead, and requiring a restating source to
+convert before it uploads, was tried and withdrawn: a source that relays a third
+party's restatement can neither invert it nor decline to hold it. See
+adr/0056-a-relaying-source-cannot-convert-back.md.
 
-See adr/0054-share-count-basis-is-a-convention.md for the decision and what it
-cost. For a person entering a holding declaration the convention is the whole of
-the user interface: the form asks for the quantity held on the date, not the quantity
-a screen shows today. A field asking which basis they had used would be answered
-wrongly by anyone who needed it and redundantly by anyone who did not.
+Which share count a value is in is not which name an instrument answered to. An
+identifier's vintage is the exporting file's `exported_at`, and it is one value
+per document rather than one per row -- a separate question, answered in
+[Instrument identity](#instrument-identity) and [Knowledge time](#knowledge-time).
 
-`split_factor_at(instrument_id, basis_date)` converts a row from its own basis
-to today's, where `basis_date` is whichever of the dates above the row carries. It returns the factor as an exact rational -- a numerator and
+`split_factor_at(instrument_id, share_count_basis)` converts a row from its own
+basis to today's. It returns the factor as an exact rational -- a numerator and
 denominator, the products of `split_to` and `split_from` over the applicable
 splits -- so a caller multiplies before dividing and the division happens once.
 See [corporate-events.md](corporate-events.md#adjustment) and
@@ -198,7 +196,7 @@ adr/0028-cumulative-split-factor-is-an-exact-rational.md.
 The `split_adjusted_quantity` and `split_adjusted_unit_price` columns are a
 derived cache of that conversion, not stored facts. A reverse split in an awkward
 ratio has no exact decimal form, so they carry a declared rounding scale while
-the values they derive from -- `quantity`, `unit_price`, the row's own date and
+the values they derive from -- `quantity`, `unit_price`, `share_count_basis` and
 the split chain -- stay exact and can be recomputed from at any time.
 
 ## Rules
@@ -213,10 +211,9 @@ the split chain -- stay exact and can be recomputed from at any time.
    moves forward: revising the fact leaves it alone, and on conflict it takes
    the earlier of the stored and supplied values. A stamp can only ever be at or
    after the moment the world knew, so the earlier of two is the better one.
-3. **Share-denominated values are on the basis their kind fixes, and a source
-   that holds otherwise converts before it uploads.** A posting is on its
-   `trade_date`, a price bar on its `price_date`, a declaration on its
-   `as_of_date`. Nothing is inferred from when a row was fetched.
+3. **Share-denominated values record their share count basis, declared by the
+   source.** Basis is never inferred from a knowledge timestamp and never
+   assumed by the storage layer.
 4. **Arithmetic never mixes share counts.** Raw quantity multiplies raw price;
    split-adjusted quantity multiplies split-adjusted price. Mixing the two across
    a split silently scales the result by the split factor.
@@ -226,7 +223,7 @@ the split chain -- stay exact and can be recomputed from at any time.
    performance; it exists to cross-check the `split_adjusted_close` PortfolioDB
    derives itself.
 6. **Lots inherit the share count basis of the acquisition that created them.**
-   A lot-aware equivalent of `split_factor_at` reads the trade date from the
+   A lot-aware equivalent of `split_factor_at` reads `share_count_basis` from the
    acquiring transaction, not from the disposal or the query date. A Section 104
    pool has many acquisitions and so none to inherit from, and declares its own
    (see adr/0031-lots-are-derived-and-unknown-basis-is-a-value.md).

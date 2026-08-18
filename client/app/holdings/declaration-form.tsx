@@ -20,6 +20,20 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Which share count a declared quantity is denominated in. The wire carries a date;
+ * the form offers the two readings that date can have, because a raw date picker
+ * asks a question users cannot answer.
+ */
+type ShareCountBasis = "as-of" | "today";
+
+/** The stored basis read back as one of the two choices the form offers. */
+function initialBasis(decl: HoldingDeclaration): ShareCountBasis {
+  const stored = decl.shareCountBasis ? protoDateToStr(decl.shareCountBasis) : "";
+  const asOf = decl.asOfDate ? protoDateToStr(decl.asOfDate) : "";
+  return stored && stored !== asOf ? "today" : "as-of";
+}
+
 /** Ticker if the instrument has one, else its name, else the bare id. */
 function instrumentDisplayLabel(decl: HoldingDeclaration): string {
   const ticker = currentTicker(decl.instrument);
@@ -47,6 +61,9 @@ export function DeclarationForm({
   // as-of date is in the share count current then; one copied off today's holdings
   // screen is in today's. A split between the two dates makes them differ by the
   // split factor, so the user says which rather than the system guessing.
+  const [basis, setBasis] = useState<ShareCountBasis>(
+    editing ? initialBasis(editing) : "as-of"
+  );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -82,12 +99,14 @@ export function DeclarationForm({
       return;
     }
     setSubmitting(true);
+    const shareCountBasis = basis === "today" ? todayStr() : asOfDate;
     try {
       if (editing) {
         await updateHoldingDeclaration({
           id: editing.id,
           declaredQty,
           asOfDate,
+          shareCountBasis,
         });
       } else {
         await createHoldingDeclaration({
@@ -96,6 +115,7 @@ export function DeclarationForm({
           instrumentId,
           declaredQty,
           asOfDate,
+          shareCountBasis,
         });
       }
       onDone();
@@ -258,6 +278,35 @@ export function DeclarationForm({
         </div>
       </div>
 
+      <fieldset>
+        <legend className="mb-1 block text-xs font-semibold uppercase tracking-wider text-text-muted">
+          Share Count
+        </legend>
+        <p className="mb-2 text-sm text-text-muted">
+          If the instrument has split since the as of date, the same holding is a
+          different number of shares before and after. Tell us which one you counted.
+        </p>
+        <div className="space-y-1">
+          {(
+            [
+              ["as-of", "The share count on the as of date (from a statement or contract note)"],
+              ["today", "Today's share count (from a current holdings screen)"],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value} className="flex items-start gap-2 text-sm text-text-primary">
+              <input
+                type="radio"
+                name="share-count-basis"
+                value={value}
+                checked={basis === value}
+                onChange={() => setBasis(value)}
+                className="mt-0.5"
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <div className="flex gap-3">
         <button

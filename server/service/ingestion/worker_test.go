@@ -97,7 +97,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		ListInstrumentsByIDs(gomock.Any(), []string{"broker-only-id"}).
 		Return([]*db.InstrumentRow{{ID: "broker-only-id"}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-1", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-1", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
@@ -163,7 +163,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"cached-inst-id"}).
 		Return([]*db.InstrumentRow{{ID: "cached-inst-id"}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-2", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-2", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
@@ -305,7 +305,7 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"spy-etf-id"}).
 		Return([]*db.InstrumentRow{{ID: "spy-etf-id", AssetClass: strPtr(db.AssetClassETF)}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-etf", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-etf", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
@@ -489,7 +489,7 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"msft-id"}).
 		Return([]*db.InstrumentRow{{ID: "msft-id", AssetClass: strPtr(db.AssetClassStock)}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-transfer-stock", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-transfer-stock", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
@@ -584,7 +584,7 @@ func TestProcessTx_RebasesOCCFromTheUploadVintageNotTheTradeDate(t *testing.T) {
 			database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-1").Return(nil)
 			database.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{"broker-only-id"}).
 				Return([]*db.InstrumentRow{{ID: "broker-only-id"}}, nil)
-			database.EXPECT().ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-1", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			database.EXPECT().ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-1", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 			database.EXPECT().InstrumentsWithSplits(gomock.Any(), gomock.Any()).Return(nil, nil)
 			database.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return(nil, nil)
 			database.EXPECT().SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_SUCCESS).Return(nil)

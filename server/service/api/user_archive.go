@@ -277,6 +277,11 @@ func declarationStatements(rows []db.ExportDeclaration) []*archivev1.Statement {
 			},
 			DeclaredQty: r.DeclaredQty.String(),
 		}
+		// Written only where it differs from the statement's own date, which is
+		// what an absent one already means.
+		if r.ShareCountBasis != nil {
+			d.ShareCountBasis = proto.String(r.ShareCountBasis.Format("2006-01-02"))
+		}
 		cur.Declarations = append(cur.Declarations, d)
 	}
 	closeStatement()

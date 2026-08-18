@@ -16,7 +16,7 @@ import (
 // initTx builds a pad denominated in the share count current on its own date, which
 // is what the tests that are not about denomination want.
 func initTx(at time.Time, qty float64) db.InitializeTx {
-	return db.InitializeTx{Timestamp: at, Quantity: decf(qty)}
+	return db.InitializeTx{Timestamp: at, Quantity: decf(qty), ShareCountBasis: at}
 }
 
 // addSplit records a stock split. Splits are written by the corporate event path in
@@ -39,7 +39,7 @@ func TestCreateHoldingDeclaration(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "150.5", asOf)
+	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "150.5", asOf, time.Time{})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -63,14 +63,14 @@ func TestCreateHoldingDeclaration_ManyPerHolding(t *testing.T) {
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	later := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{}); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "200", later); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "200", later, time.Time{}); err != nil {
 		t.Fatalf("second create at a later date: %v", err)
 	}
 
-	_, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "300", asOf)
+	_, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "300", asOf, time.Time{})
 	if !errors.Is(err, db.ErrDuplicate) {
 		t.Fatalf("second create at the same date: want db.ErrDuplicate, got %v", err)
 	}
@@ -101,7 +101,7 @@ func TestListHoldingDeclarations_DerivesKind(t *testing.T) {
 		{instA, d2021, "500"},
 		{instB, d2022, "10"},
 	} {
-		if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", seed.inst, seed.qty, seed.asOf); err != nil {
+		if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", seed.inst, seed.qty, seed.asOf, time.Time{}); err != nil {
 			t.Fatalf("seed %s at %s: %v", seed.inst, seed.asOf.Format("2006-01-02"), err)
 		}
 	}
@@ -145,10 +145,10 @@ func TestUpdateHoldingDeclaration(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "MSFT", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf)
+	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{})
 
 	newDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
-	updated, err := p.UpdateHoldingDeclaration(ctx, row.ID, "200", newDate)
+	updated, err := p.UpdateHoldingDeclaration(ctx, row.ID, "200", newDate, time.Time{})
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestDeleteHoldingDeclaration(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSLA", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "50", asOf)
+	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "50", asOf, time.Time{})
 
 	if err := p.DeleteHoldingDeclaration(ctx, row.ID); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -196,10 +196,10 @@ func TestListHoldingDeclarations(t *testing.T) {
 	inst2, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "A2", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst1, "100", asOf); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst1, "100", asOf, time.Time{}); err != nil {
 		t.Fatalf("create decl 1: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst2, "200", asOf); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst2, "200", asOf, time.Time{}); err != nil {
 		t.Fatalf("create decl 2: %v", err)
 	}
 
@@ -440,13 +440,13 @@ func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	var legs, groups, sum float64
+	var legs, groups, bases, sum float64
 	if err := p.q.QueryRowContext(ctx, `
-		SELECT count(*), count(DISTINCT group_id), sum(quantity)
+		SELECT count(*), count(DISTINCT group_id), count(DISTINCT share_count_basis), sum(quantity)
 		FROM txs
 		WHERE user_id = $1 AND synthetic_purpose = 'INITIALIZE'
 		  AND broker = 'IBKR' AND account = 'acct1' AND instrument_id = $2
-	`, userID, instID).Scan(&legs, &groups, &sum); err != nil {
+	`, userID, instID).Scan(&legs, &groups, &bases, &sum); err != nil {
 		t.Fatalf("read legs: %v", err)
 	}
 	if legs != 2 {
@@ -454,6 +454,9 @@ func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
 	}
 	if groups != 1 {
 		t.Errorf("the pad and its counterparty must share one group, got %v groups", groups)
+	}
+	if bases != 1 {
+		t.Errorf("the two legs must share a share_count_basis, got %v distinct", bases)
 	}
 	if sum != 0 {
 		t.Errorf("the pad's group must sum to zero, got %v", sum)
@@ -501,6 +504,50 @@ func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
 	}
 }
 
+// TestCreateHoldingDeclaration_DefaultsShareCountBasis pins the as-traded default:
+// a declaration that says nothing about denomination is in the share count current
+// on the date it refers to.
+func TestCreateHoldingDeclaration_DefaultsShareCountBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-basis-default", "U", "u@b.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BD1", Canonical: false}}, "", nil, nil, nil)
+
+	asOf := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "500", asOf, time.Time{})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !row.ShareCountBasis.Equal(asOf) {
+		t.Fatalf("share_count_basis: want %v (as_of_date), got %v", asOf, row.ShareCountBasis)
+	}
+
+	// A stated basis survives, and moving as_of_date afterwards does not restate it:
+	// the denomination is what the user said, not a function of the date.
+	stated := time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
+	row, err = p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct2", instID, "500", asOf, stated)
+	if err != nil {
+		t.Fatalf("create with basis: %v", err)
+	}
+	if !row.ShareCountBasis.Equal(stated) {
+		t.Fatalf("stated share_count_basis: want %v, got %v", stated, row.ShareCountBasis)
+	}
+	moved := time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)
+	row, err = p.UpdateHoldingDeclaration(ctx, row.ID, "500", moved, time.Time{})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !row.ShareCountBasis.Equal(stated) {
+		t.Fatalf("share_count_basis after moving as_of_date: want %v, got %v", stated, row.ShareCountBasis)
+	}
+}
+
+// TestComputeRunningBalance_ConvertsToDeclarationBasis is the reason the balance is
+// not a plain SUM(quantity). The two postings below are recorded either side of a
+// 2:1 split and are in different units, so adding them raw gives 150 -- a number in
+// no share count at all. Converted, the same history is 100 pre-split shares or 200
+// post-split ones, and which of those a declaration is compared against is the
+// declaration's to state.
 func TestComputeRunningBalance_ConvertsToDeclarationBasis(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -562,17 +609,18 @@ func TestListHoldingDeclarations_ChecksAgainstTheHolding(t *testing.T) {
 
 	// A pad of 500 at the start, one real buy of 150, and an assertion of 650.
 	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
-		Timestamp: padDate, Quantity: decf(500)}); err != nil {
+		Timestamp: padDate, Quantity: decf(500), ShareCountBasis: padDate,
+	}); err != nil {
 		t.Fatalf("upsert pad: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{OrderDate: timestamppb.New(buyAt),
 		TradeDate: timestamppb.New(buyAt), InstrumentDescription: "VF1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "150", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create buy: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "500", padDate); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "500", padDate, time.Time{}); err != nil {
 		t.Fatalf("create pad declaration: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "650", assertDate); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "650", assertDate, time.Time{}); err != nil {
 		t.Fatalf("create assertion: %v", err)
 	}
 
@@ -613,9 +661,9 @@ func TestListHoldingDeclarations_ChecksAgainstTheHolding(t *testing.T) {
 }
 
 // TestListHoldingDeclarations_ChecksAcrossASplit denominates both sides of the
-// comparison. A declaration is stated in the share count of the date it asserts,
-// so one asserting a date before a 2:1 split and one asserting a date after it
-// describe the same postings with different numbers, and both have to reconcile.
+// comparison. The postings are recorded either side of a 2:1 split, so an assertion
+// stated in pre-split shares and one stated in post-split shares describe the same
+// holding with different numbers, and both have to reconcile.
 func TestListHoldingDeclarations_ChecksAcrossASplit(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -634,19 +682,21 @@ func TestListHoldingDeclarations_ChecksAcrossASplit(t *testing.T) {
 		}
 	}
 
-	// Asserted before the split, only the first buy has happened and it is 50
-	// shares in the terms of that day. Asserted after it, the same 50 are 100 and
-	// the second buy adds its own 50, so the holding is 150.
+	// 50 shares bought pre-split are 100 post-split, plus 50 more: 150 in post-split
+	// terms, 75 in pre-split terms. The two as_of dates differ only because a holding
+	// takes one declaration per date; both are after the last buy, so the two
+	// declarations see the same postings.
 	for _, tc := range []struct {
-		name string
-		asOf time.Time
-		want string
+		name  string
+		asOf  time.Time
+		basis time.Time
+		want  string
 	}{
-		{"before the split", time.Date(2021, 6, 1, 0, 0, 0, 0, time.UTC), "50"},
-		{"after the split", time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC), "150"},
+		{"pre-split basis", time.Date(2023, 12, 30, 0, 0, 0, 0, time.UTC), preSplit, "75"},
+		{"post-split basis", time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC), postSplit, "150"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, tc.want, tc.asOf)
+			row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, tc.want, tc.asOf, tc.basis)
 			if err != nil {
 				t.Fatalf("create declaration: %v", err)
 			}
@@ -663,6 +713,11 @@ func TestListHoldingDeclarations_ChecksAcrossASplit(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors covers what deleting
+// one of a holding's declarations does to the pad. Deleting one that leaves others
+// behind rewrites the pad from whichever now pads the holding; deleting the last one
+// takes the pad with it, since there is nothing left to pad to.
 func TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -671,11 +726,11 @@ func TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors(t *testing.T)
 
 	pad := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	next := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
-	padRow, err := p.CreateDeclarationWithInitializeTx(ctx, userID, "IBKR", "acct1", instID, "500", pad, db.InitializeTx{})
+	padRow, err := p.CreateDeclarationWithInitializeTx(ctx, userID, "IBKR", "acct1", instID, "500", pad, time.Time{}, initTx(pad, 500))
 	if err != nil {
 		t.Fatalf("create pad declaration: %v", err)
 	}
-	nextRow, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "650", next)
+	nextRow, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "650", next, time.Time{})
 	if err != nil {
 		t.Fatalf("create assertion: %v", err)
 	}
@@ -704,6 +759,54 @@ func TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors(t *testing.T)
 	}
 }
 
+// TestUpsertInitializeTx_DenominatesThePad verifies the pad is stored in its
+// declaration's share count rather than in the one current on the portfolio start
+// date. The two are unrelated, and letting the txs trigger infer the basis from the
+// timestamp made a pad declared in today's terms read as pre-split shares.
+func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|init-basis", "U", "u@b.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "IB1", Canonical: false}}, "", nil, nil, nil)
+
+	startDay := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	basis := time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
+		Timestamp: startDay, Quantity: decf(50), ShareCountBasis: basis,
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	assertPadBasis := func(want time.Time) {
+		t.Helper()
+		var legs int
+		if err := p.q.QueryRowContext(ctx, `
+			SELECT count(*) FROM txs
+			WHERE user_id = $1 AND synthetic_purpose = 'INITIALIZE'
+			  AND share_count_basis = $2
+		`, userID, want).Scan(&legs); err != nil {
+			t.Fatalf("read basis: %v", err)
+		}
+		if legs != 2 {
+			t.Fatalf("postings denominated at %v: want both legs, got %d", want, legs)
+		}
+	}
+	assertPadBasis(basis)
+
+	// Moving the portfolio start date moves the pad's timestamp. Its denomination is
+	// the declaration's and must not follow.
+	moved := startDay.AddDate(0, 0, -30)
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
+		Timestamp: moved, Quantity: decf(75), ShareCountBasis: basis,
+	}); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+	assertPadBasis(basis)
+}
+
+// A re-imported file collides on the unique key at every unchanged row, so the
+// archive path upserts where the create path answers AlreadyExists. Applying the
+// same file twice writes what it says and no more.
 func TestUpsertHoldingDeclaration_RestatesRatherThanColliding(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -711,15 +814,15 @@ func TestUpsertHoldingDeclaration_RestatesRatherThanColliding(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
 	// The same row again changes nothing and must not be an error.
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
 		t.Fatalf("re-import: %v", err)
 	}
 	// A changed quantity restates the declaration in place.
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "120", asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "120", asOf, asOf); err != nil {
 		t.Fatalf("restate: %v", err)
 	}
 
@@ -735,6 +838,85 @@ func TestUpsertHoldingDeclaration_RestatesRatherThanColliding(t *testing.T) {
 	}
 }
 
+// A zero basis leaves the column NULL so the table's trigger applies the
+// as_of_date default, on the conflict branch as well as the insert: the trigger
+// runs before the conflict is detected, so EXCLUDED carries the defaulted value.
+func TestUpsertHoldingDeclaration_LetsTheTriggerDefaultTheBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-basis", "U", "u@u.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
+
+	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	other := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	// Stated first, so the update branch has something to overwrite.
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, other); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{}); err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+
+	rows, _ := p.ListHoldingDeclarations(ctx, userID)
+	if len(rows) != 1 {
+		t.Fatalf("stored %d declarations, want 1", len(rows))
+	}
+	if !rows[0].ShareCountBasis.Equal(asOf) {
+		t.Fatalf("share_count_basis = %s, want the as_of_date default %s",
+			rows[0].ShareCountBasis.Format("2006-01-02"), asOf.Format("2006-01-02"))
+	}
+}
+
+// The export names an instrument by the identifier bestIdentifierJoin ranks
+// highest, so this export agrees with every other one about which one it is.
+// It also drops a basis equal to the declaration's own date, which is what an
+// absent one already means.
+func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-export", "U", "u@u.com")
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "APPLE INC", Canonical: false},
+		{Type: "ISIN", Value: "US0378331005", Canonical: true},
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
+	}, "", nil, nil, nil)
+
+	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	basis := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	later := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "120", later, basis); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	rows, err := p.ListHoldingDeclarationsForExport(ctx, userID)
+	if err != nil {
+		t.Fatalf("list for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("read %d rows, want 2", len(rows))
+	}
+	// MIC_TICKER outranks ISIN, which outranks BROKER_DESCRIPTION.
+	if rows[0].IdentifierType != "MIC_TICKER" || rows[0].IdentifierValue != "AAPL" || rows[0].IdentifierDomain != "XNAS" {
+		t.Fatalf("identifier = %s %s %s, want MIC_TICKER AAPL XNAS",
+			rows[0].IdentifierType, rows[0].IdentifierValue, rows[0].IdentifierDomain)
+	}
+	if rows[0].ShareCountBasis != nil {
+		t.Fatalf("share_count_basis = %v, want nil where it equals as_of_date", rows[0].ShareCountBasis)
+	}
+	if rows[1].ShareCountBasis == nil || !rows[1].ShareCountBasis.Equal(basis) {
+		t.Fatalf("share_count_basis = %v, want %s", rows[1].ShareCountBasis, basis.Format("2006-01-02"))
+	}
+	if rows[0].DeclaredQty.String() != "100" {
+		t.Fatalf("declared_qty = %s, want 100", rows[0].DeclaredQty)
+	}
+}
+
+// An instrument carrying no identifier still comes back, so the writer can say
+// so rather than the row simply not appearing: a declaration silently missing
+// from an export is the one failure a file the user diffs by hand cannot show.
 func TestListHoldingDeclarationsForExport_KeepsAnUnidentifiedInstrument(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -747,7 +929,7 @@ func TestListHoldingDeclarationsForExport_KeepsAnUnidentifiedInstrument(t *testi
 	}
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 

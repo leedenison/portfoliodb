@@ -148,7 +148,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "BENCH", "",
 		timestamppb.New(open.Add(-time.Hour)), timestamppb.New(before.Add(time.Hour)),
-		txs, instIDs, nil); err != nil {
+		txs, instIDs, nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -224,10 +224,10 @@ func seedMatchedTransfers(t testing.TB, p *Postgres, userID string, n int, from,
 		if _, err := p.q.ExecContext(ctx, `
 			INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 				instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
-				group_id, weight, weight_commodity, split_adjusted_quantity)
+				group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
 			SELECT $1::uuid, 'BENCH', $2, $3::timestamptz, $3::timestamptz, 'USD CASH', $4::uuid,
 				ARRAY['TRANSFER'], 'TRANSFER', q, at, $5::uuid, q, 'cur:USD',
-				q
+				$3::timestamptz::date, q
 			FROM (VALUES ($6::numeric, 'USER'), (-$6::numeric, 'TRANSFER_CLEARING')) v(q, at)
 		`, userID, account, at, cashID, groupID, qty); err != nil {
 			t.Fatalf("insert transfer legs: %v", err)

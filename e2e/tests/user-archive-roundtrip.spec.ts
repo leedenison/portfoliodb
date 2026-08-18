@@ -310,7 +310,9 @@ test.describe("user archive page", () => {
     expect(january.declarations[0].declared_qty).toBe("8");
     // A basis equal to the statement's own date is what an absent one already
     // means, so it is not written.
+    expect(january.declarations[0].share_count_basis).toBeUndefined();
     // And one that differs is.
+    expect(february.declarations[0].share_count_basis).toBe("2024-03-31");
 
     // Neither the pad/assert discriminator nor the check against the computed
     // holding travels: both are derived from the declarations and the postings,
@@ -354,7 +356,7 @@ test.describe("user archive page", () => {
     // Three rows, not six: the import restated the ones already there rather
     // than colliding on the unique key or writing duplicates.
     const restored = (await rawQuery(
-      `SELECT broker, account, declared_qty, as_of_date::text
+      `SELECT broker, account, declared_qty, as_of_date::text, share_count_basis::text
        FROM holding_declarations WHERE user_id = $1 ORDER BY as_of_date, declared_qty`,
       [TEST_USER_ID],
     )) as {
@@ -362,15 +364,20 @@ test.describe("user archive page", () => {
       account: string;
       declared_qty: string;
       as_of_date: string;
+      share_count_basis: string;
     }[];
     expect(restored).toHaveLength(3);
     expect(restored.map((r) => Number(r.declared_qty)).sort((a, b) => a - b)).toEqual([
       8, 8, 15,
     ]);
-    // Two statements came back, told apart by the date each asserts, which is
-    // also the share count each is denominated in.
-    expect(restored.filter((r) => r.as_of_date === "2024-01-31")).toHaveLength(2);
-    expect(restored.filter((r) => r.as_of_date === "2024-02-29")).toHaveLength(1);
+    // The basis the file did not state is the statement's own date, applied by
+    // the table's trigger, and the one it did state is used as stated.
+    const stated = restored.find((r) => r.as_of_date === "2024-02-29");
+    expect(stated?.share_count_basis).toBe("2024-03-31");
+    const defaulted = restored.filter((r) => r.as_of_date === "2024-01-31");
+    expect(defaulted.every((r) => r.share_count_basis === "2024-01-31")).toBe(
+      true,
+    );
 
     // The earliest declaration for each holding is its pad, and the recalc the
     // import earns is what writes it. A declaration carries no pad, so without

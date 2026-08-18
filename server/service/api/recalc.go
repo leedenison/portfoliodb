@@ -122,17 +122,9 @@ func recalcHoldingPad(ctx context.Context, database db.DB, decl *db.HoldingDecla
 		return fmt.Errorf("parse declared_qty: %w", err)
 	}
 	dayAfterAsOf := decl.AsOfDate.AddDate(0, 0, 1)
-	// The pad is a posting, so it is denominated where every posting is: on its
-	// own date, which is the portfolio start. The declaration is denominated on
-	// the date it asserts. Everything below is therefore computed at startDay,
-	// and the declared quantity is the one number that has to be carried there.
-	runningBalance, err := database.ComputeRunningBalance(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, startDay, dayAfterAsOf, startDay)
+	runningBalance, err := database.ComputeRunningBalance(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, startDay, dayAfterAsOf, decl.ShareCountBasis)
 	if err != nil {
 		return fmt.Errorf("compute running balance: %w", err)
-	}
-	declaredQty, err = database.ConvertQtyToBasis(ctx, decl.InstrumentID, declaredQty, decl.AsOfDate, startDay)
-	if err != nil {
-		return fmt.Errorf("convert declared_qty to the pad's basis: %w", err)
 	}
 	// A zero pad means the real transactions already account for the declared
 	// balance exactly. That is the declaration agreeing with the data, not being
@@ -140,8 +132,9 @@ func recalcHoldingPad(ctx context.Context, database db.DB, decl *db.HoldingDecla
 	// report -- so the record stays and the pad is written as zero.
 	initQty := declaredQty.Sub(runningBalance)
 	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, db.InitializeTx{
-		Timestamp: startDay,
-		Quantity:  initQty,
+		Timestamp:       startDay,
+		Quantity:        initQty,
+		ShareCountBasis: decl.ShareCountBasis,
 	})
 }
 

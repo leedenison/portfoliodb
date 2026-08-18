@@ -19,6 +19,18 @@ import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { DeclarationForm } from "./declaration-form";
 
 /**
+ * Which share count the declared quantity is in, said the way the form asks it. The
+ * denomination only matters once it differs from the as of date, so a declaration on
+ * the as-traded default reads as the date itself rather than as jargon.
+ */
+function shareCountLabel(decl: HoldingDeclaration): string {
+  const basis = decl.shareCountBasis ? protoDateToStr(decl.shareCountBasis) : "";
+  const asOf = decl.asOfDate ? protoDateToStr(decl.asOfDate) : "";
+  if (!basis || basis === asOf) return "As of date";
+  return `As of ${basis}`;
+}
+
+/**
  * What the check says about a declaration. A pad is true by construction, so it
  * reports what it is rather than that it passed -- calling it "matches" would suggest
  * it had found something out. An assertion that disagrees says by how much, because
@@ -151,7 +163,10 @@ export function OpeningBalances() {
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     As Of Date
                   </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
+                    Share Count
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Status
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
@@ -192,6 +207,9 @@ export function OpeningBalances() {
                         </td>
                         <td className="px-4 py-3 text-text-muted">
                           {protoDateToStr(d.asOfDate)}
+                        </td>
+                        <td className="px-4 py-3 text-text-muted">
+                          {shareCountLabel(d)}
                         </td>
                         <td
                           className={

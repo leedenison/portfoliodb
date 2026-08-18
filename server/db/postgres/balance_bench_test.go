@@ -58,7 +58,7 @@ func seedBalancedGroups(t testing.TB, p *Postgres, groups int) (string, string) 
 	}
 	from := timestamppb.New(base.Add(-time.Hour))
 	before := timestamppb.New(base.Add(time.Duration(groups+60) * time.Minute))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "BENCH", "", from, before, txs, ids, ws); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "BENCH", "", from, before, txs, ids, ws, nil); err != nil {
 		t.Fatalf("seed groups: %v", err)
 	}
 	return userID, instID
@@ -106,7 +106,7 @@ func seedPairedJournals(t testing.TB, p *Postgres, groups int) (string, string, 
 	}
 	from := timestamppb.New(base.Add(-time.Hour))
 	before := timestamppb.New(base.Add(time.Duration(groups+60) * time.Minute))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "MERGE", "", from, before, txs, ids, ws); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "MERGE", "", from, before, txs, ids, ws, nil); err != nil {
 		t.Fatalf("seed journals: %v", err)
 	}
 	return userID, mergedAway, survivor

@@ -45,6 +45,7 @@ Holdings are computed aggregates (there is no holdings table), so a holding is i
 | instrument_id     | uuid, FK -> instruments  | Instrument for the holding                               |
 | declared_qty      | numeric                  | The number of units the user held at `as_of_date`        |
 | as_of_date        | date                     | The date the user's declaration refers to                |
+| share_count_basis | date                     | Which share count `declared_qty` is in. Defaults to `as_of_date`. |
 | created_at        | timestamptz              |                                                          |
 | updated_at        | timestamptz              |                                                          |
 
@@ -63,10 +64,11 @@ current then; a user reading it off today's holdings screen means today's. Both
 are ordinary, and a split between the two dates makes them differ by the split
 factor -- so the declaration states which rather than the system guessing.
 
-`declared_qty` is denominated in the share count current on `as_of_date`. The
-assertion is about a date, so it is stated in the terms of that date, and a
-person reading a current holdings view converts before entering it. See
-[bitemporality.md](bitemporality.md#share-count-basis).
+`share_count_basis` is that statement, and it defaults to `as_of_date`: the
+as-traded assumption, the same default `txs` and `eod_prices` carry. The default
+is applied by a trigger on the table, so every path in lands on it. It is an
+insert-time decision -- moving `as_of_date` afterwards does not restate a
+denomination the user already gave.
 
 The balance the pad is computed against is converted into the declaration's basis
 before the subtraction (`holding_qty_in_basis`), so both sides of it are in one
@@ -89,7 +91,7 @@ side of a split, giving a number in no share count at all. See
 
 A pad has no counterparty in the source data -- that is what makes it a pad -- so one is written for it: an equal and opposite `EQUITY` posting of the same instrument, in the same broker account, in the same group. It is what makes the group sum to zero, and value entering the user's holdings from before their history begins is exactly what `EQUITY` is for. See [postings.md](postings.md#account-types) and adr/0022-typed-per-account-cash-flow-boundary.md.
 
-The counterparty is synthetic for the same reason the pad is, carries the same `timestamp`, and moves with it: both legs are recalculated together, so a stock split adjusts them identically and the pair cannot drift.
+The counterparty is synthetic for the same reason the pad is, carries the same `timestamp` and `share_count_basis`, and moves with it: both legs are recalculated together, so a stock split adjusts them identically and the pair cannot drift.
 
 It is excluded from holdings and from every other quantity aggregation, along with all non-`USER` postings. That exclusion is what stops it netting the pad out to nothing, which would make a declared opening balance read as zero. The transaction list is not filtered, so both legs are visible there.
 
@@ -105,23 +107,28 @@ It is excluded from holdings and from every other quantity aggregation, along wi
 
 **Procedure:**
 
-1. Store the holding declaration record (`user_id`, `broker`, `account`, `instrument_id`, `declared_qty`, `as_of_date`).
+1. Store the holding declaration record (`user_id`, `broker`, `account`, `instrument_id`, `declared_qty`, `as_of_date`, `share_count_basis`).
 2. Determine the portfolio start date: the date of the earliest real transaction for this user across all holdings.
 3. Identify the holding's pad: the earliest of its declarations, including the one being stored. The steps below are computed from that declaration, which may not be the one the request wrote -- a later declaration is an assertion and changes nothing about the pad.
-4. Compute the running unit balance for this holding from all real transactions (excluding any existing INITIALIZE) for the same `(broker, account, instrument_id)` that fall on or between the portfolio start date and `as_of_date` inclusive, converting each posting from its own `trade_date` into the portfolio start date, which is where the pad is written.
+4. Compute the running unit balance for this holding from all real transactions (excluding any existing INITIALIZE) for the same `(broker, account, instrument_id)` that fall on or between the portfolio start date and `as_of_date` inclusive, converting each posting from its own `share_count_basis` into the declaration's.
 5. Calculate the INITIALIZE quantity: `declared_qty - running_balance`. Both are
    exact decimals and subtraction is closed, so the pad reconciles the holding to
    the declaration exactly rather than to within a rounding of it.
 6. Create (or replace) the INITIALIZE transaction for this holding with:
    - `date` = portfolio start date, at `00:00:00` (midnight, start of day)
    - `quantity` = the value computed in step 5
+   - `share_count_basis` = the declaration's. The pad is dated where the history
+     begins but denominated where the declaration is; the two are unrelated, and
+     inferring the basis from the timestamp made the pad wrong by a split factor.
+   - `broker`, `account`, `instrument_id` = copied from the declaration
+   - `synthetic_purpose` = `'INITIALIZE'`
 7. Create (or replace) its `EQUITY` counterparty in the same group, identical but for `account_type` and a negated `quantity`.
 
 **Note on quantity:** The INITIALIZE quantity may be negative. This represents a short position at portfolio inception and is permitted.
 
 ### Updating a Declaration
 
-The user may edit the declared quantity or the `as_of_date`. The procedure is identical to creation: update the declaration record, then recalculate and replace the INITIALIZE transaction from whichever declaration pads the holding once the edit lands. Moving an `as_of_date` can hand the pad to a sibling or take it from one, so the pad is never recomputed from the edited row alone. Moving it onto a date the holding already has is rejected with `ALREADY_EXISTS`.
+The user may edit the declared quantity, the `as_of_date` or the `share_count_basis`. The procedure is identical to creation: update the declaration record, then recalculate and replace the INITIALIZE transaction from whichever declaration pads the holding once the edit lands. Moving an `as_of_date` can hand the pad to a sibling or take it from one, so the pad is never recomputed from the edited row alone. Moving it onto a date the holding already has is rejected with `ALREADY_EXISTS`.
 
 ### Deleting a Declaration
 
@@ -131,7 +138,7 @@ Deleting an **assertion** leaves the pad alone. Deleting the **pad** promotes th
 
 An assertion is compared against the holding it describes. The comparison is computed on read, not stored: a holding's computed quantity moves under an ingestion, an instrument merge, an option split application and a split recompute alike, so a stored verdict would need invalidating from each of them. Derived at read time it is current after all of them with no trigger, and it clears on its own when the data comes back into agreement. See adr/0030-declarations-are-padded-then-asserted.md.
 
-The computed side is the sum of the holding's `USER` postings up to and including `as_of_date`, **including the pad** -- an assertion checks the holding as the user sees it, opening balance and all. Each posting is converted from its own `trade_date` into the declaration's `as_of_date`, so both sides of the comparison are in one share count.
+The computed side is the sum of the holding's `USER` postings up to and including `as_of_date`, **including the pad** -- an assertion checks the holding as the user sees it, opening balance and all. Each posting is converted from its own `share_count_basis` into the declaration's, so both sides of the comparison are in one share count.
 
 **Tolerance.** Postings are grouped by their own basis and summed before conversion, so the division happens once per denomination rather than once per posting. A group whose conversion factor is not `1/1` can round once, at the declared scale of the split-adjusted columns. The assertion reconciles when
 

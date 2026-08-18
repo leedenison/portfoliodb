@@ -94,8 +94,8 @@ message Envelope {
   // and coverage record it as last_fetched_at, corporate events without their
   // own first_known_at fall back to it, and option identity is adjusted to it
   // during instrument resolution. It says nothing about which share count a
-  // value is denominated in -- that is fixed by convention per row kind, and it
-  // is a different question. See docs/spec/bitemporality.md.
+  // value is denominated in -- that is share_count_basis, and it is a different
+  // question. See docs/spec/bitemporality.md.
   google.protobuf.Timestamp exported_at = 2 [(buf.validate.field).required = true];
   // Opaque label for whatever produced the file, for a reader's benefit only.
   // Nothing keys off it. e.g. "portfoliodb.example.com" or "recover-prices.py".

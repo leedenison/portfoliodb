@@ -77,7 +77,7 @@ func (f *groupingFixture) writeWithResidual(t *testing.T, account string, ts tim
 	// group short and gives the store something to route.
 	w := []db.Weight{{Amount: decimal.RequireFromString(qty), Commodity: "inst:" + f.instID}}
 	err := f.p.CreateTxGroup(f.ctx, f.userID, "FIDELITY", account, "",
-		[]*apiv1.Tx{tx}, []string{f.instID}, w)
+		[]*apiv1.Tx{tx}, []string{f.instID}, w, []*time.Time{nil})
 	if err != nil {
 		t.Fatalf("write posting with residual: %v", err)
 	}

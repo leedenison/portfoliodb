@@ -40,4 +40,9 @@ message Statement {
 message Declaration {
   InstrumentRef instrument = 1 [(buf.validate.field).required = true];
   string declared_qty = 2 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  // The share count declared_qty is denominated in, as "YYYY-MM-DD". Absent
+  // means the statement's as_of_date, which is what the table defaults to: a
+  // quantity read off a record of that date is in the share count current then.
+  // Set it where the quantity was read off a current holdings view instead.
+  optional string share_count_basis = 3 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
 }

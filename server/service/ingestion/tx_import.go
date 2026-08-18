@@ -3,6 +3,7 @@ package ingestion
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -23,7 +24,11 @@ import (
 // window. The pass rescans every posting of each instrument it is given, so
 // running it per window would rescan the same instruments repeatedly for a
 // result that only the last run decides.
-func importTxPart(ctx context.Context, deps ingestDeps, userID, jobID string, part *archivev1.TxPart, rep *archiveimport.PartReporter) (bool, error) {
+//
+// asOf is the document's envelope vintage, and every window is resolved against
+// it: knowledge time that differs between one file's own parts is not knowledge
+// time, and the same holds between one part's own windows.
+func importTxPart(ctx context.Context, deps ingestDeps, userID, jobID string, part *archivev1.TxPart, asOf *time.Time, rep *archiveimport.PartReporter) (bool, error) {
 	windows := part.GetWindows()
 	// The part's unit is a posting, which is what a window's own progress counts
 	// and what a reader watching the job expects to see move.
@@ -58,6 +63,7 @@ func importTxPart(ctx context.Context, deps ingestDeps, userID, jobID string, pa
 			Txs:           txs,
 			PeriodFrom:    w.GetPeriodFrom(),
 			PeriodBefore:  w.GetPeriodBefore(),
+			ExportedAt:    asOf,
 			RowIndices:    rowIdx,
 			TotalDeclared: true,
 		}, rep)

@@ -4,6 +4,7 @@ package portfoliodb.ingestion.v1;
 
 import "buf/validate/validate.proto";
 import "archive/v1/txs.proto";
+import "google/protobuf/timestamp.proto";
 import "type/v1/type.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/ingestion/v1;ingestionv1";
@@ -34,6 +35,17 @@ message UpsertTxsRequest {
   portfoliodb.archive.v1.TxWindow window = 1 [(buf.validate.field).required = true];
   // Original filename of the uploaded file.
   string filename = 2;
+  // The point in market time this upload's identifiers are stated as of: a
+  // broker names an option under the symbol current when it wrote the file, not
+  // under the one the contract wore on the trade date. It is the identifier twin
+  // of the share count basis a posting carries by convention, and it is what an
+  // OCC hint is rebased from during resolution. See docs/spec/bitemporality.md.
+  //
+  // An archive document states its envelope's exported_at here. A broker file
+  // states whatever it knows about its own export, and unset means the upload is
+  // the export -- the server stamps its own clock at receipt rather than leaving
+  // the vintage to be guessed from the postings.
+  google.protobuf.Timestamp exported_at = 3;
 }
 
 // CreateTxRequest appends one posting. There is no window because there is no

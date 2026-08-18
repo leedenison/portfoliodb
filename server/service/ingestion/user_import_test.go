@@ -324,3 +324,73 @@ func TestProcessUserImport_DeclarationsPartStoresAndEarnsTheRecalc(t *testing.T)
 		t.Fatal("declarationsStored = false, want the stored declaration to earn the recalc")
 	}
 }
+
+// The transaction part reads its vintage from the envelope, exactly as the
+// system import's parts do. Without it the postings would be resolved against
+// their own trade dates, and a symbol the export had already restated would be
+// restated a second time.
+func TestProcessUserImport_TxPartResolvesAgainstTheEnvelopeVintage(t *testing.T) {
+	database := userImportMock(t)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
+	database.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	database.EXPECT().AppendIdentificationErrors(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().InstrumentsWithSplits(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	database.EXPECT().ReplaceTxsInPeriod(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").
+		Return([]db.StockSplit{{ExDate: mustParseDay("2024-08-01"), SplitFrom: "1", SplitTo: "4"}}, nil).AnyTimes()
+
+	var looked []string
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, value string) (string, string, string, string, error) {
+			looked = append(looked, value)
+			return "", "", "", "", nil
+		}).AnyTimes()
+
+	// Exported after the ex_date: the document names the contract as it stands.
+	payload, err := proto.Marshal(&archivev1.UserArchive{
+		Envelope: &archivev1.Envelope{
+			FormatVersion: 1,
+			ExportedAt:    timestamppb.New(mustParseDay("2024-09-01")),
+			Kind:          archivev1.ArchiveKind_USER,
+		},
+		Txs: &archivev1.TxPart{Windows: []*archivev1.TxWindow{{
+			Broker:       typev1.Broker_IBKR,
+			PeriodFrom:   timestamppb.New(mustParseDay("2024-01-01")),
+			PeriodBefore: timestamppb.New(mustParseDay("2025-01-01")),
+			Source:       "IBKR:archive:export",
+			Postings: []*archivev1.Posting{{
+				OrderDate:             timestamppb.New(mustParseDay("2024-06-15")),
+				TradeDate:             timestamppb.New(mustParseDay("2024-06-15")),
+				Account:               "acct",
+				BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
+				InstrumentDescription: "AAPL 250117C00760000",
+				Quantity:              "1",
+				IdentifierHints: []*archivev1.InstrumentRef{
+					{Type: typev1.IdentifierType_OCC, Value: "AAPL250117C00760000"},
+				},
+			}},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	j := &JobRequest{JobID: "job-ua-tx", JobType: db.JobTypeUserArchive}
+	database.EXPECT().LoadJobPayload(gomock.Any(), j.JobID).Return(payload, nil)
+	database.EXPECT().GetJob(gomock.Any(), j.JobID).Return(&db.JobDetail{
+		UserID: "user-7",
+		Parts:  partRows(archivev1.ArchivePart_TXS),
+	}, nil).AnyTimes()
+
+	processUserImport(context.Background(), ingestDeps{DB: database}, j)
+
+	if len(looked) != 1 || looked[0] != "AAPL250117C00760000" {
+		t.Errorf("OCC looked up = %v, want [AAPL250117C00760000]", looked)
+	}
+}

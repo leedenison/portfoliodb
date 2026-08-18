@@ -89,7 +89,11 @@ function UploadModalBody({
   // reads a broker's own file and states only its postings and period, so the
   // broker and source come from what was chosen here; an archive document
   // states all four itself.
-  const parsed = useMemo((): { window?: TxWindowInit; errors: ParseError[] } | null => {
+  const parsed = useMemo((): {
+    window?: TxWindowInit;
+    exportedAt?: Date;
+    errors: ParseError[];
+  } | null => {
     if (fileText == null || !optionsValid) return null;
     if (!selectedFormat?.convert) return readTxDocument(fileText);
     const result = selectedFormat.convert(fileText, converterOptions);
@@ -124,7 +128,14 @@ function UploadModalBody({
     if (!window || parsed.errors.length > 0 || window.postings?.length === 0) return;
     setSubmitError(null);
     try {
-      const res = await upsertTxs({ window, filename: file?.name });
+      // A document states when it was written, and its identifiers are stated as
+      // of that moment. A converted broker file states nothing yet, and an
+      // omitted vintage is the server taking the upload for the export.
+      const res = await upsertTxs({
+        window,
+        filename: file?.name,
+        exportedAt: parsed.exportedAt,
+      });
       onJobStarted(res.jobId);
     } catch (e) {
       setSubmitError(errorMessage(e));

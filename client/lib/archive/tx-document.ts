@@ -11,12 +11,20 @@
  * period and has nowhere to put the rest.
  */
 
+import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { TxWindow } from "@/gen/archive/v1/txs_pb";
 import type { ParseError } from "@/lib/csv/parse-result";
 import { archiveErrorMessage, unmarshalUser } from "@/lib/archive/codec";
 
 export interface TxDocumentResult {
   window?: TxWindow;
+  /**
+   * The envelope's exported_at: when the data in the document was current, and so
+   * the point in market time its identifiers are stated as of. It travels with
+   * the window because an OCC symbol moves under a split and the upload is what
+   * has to say which side of one it was written on.
+   */
+  exportedAt?: Date;
   errors: ParseError[];
 }
 
@@ -50,5 +58,10 @@ export function readTxDocument(json: string): TxDocumentResult {
       "This archive carries more than transactions. Import it from the archive page instead",
     );
   }
-  return { window: windows[0], errors: [] };
+  const exportedAt = doc.envelope?.exportedAt;
+  return {
+    window: windows[0],
+    exportedAt: exportedAt ? timestampDate(exportedAt) : undefined,
+    errors: [],
+  };
 }

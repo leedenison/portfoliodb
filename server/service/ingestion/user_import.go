@@ -67,6 +67,12 @@ func processUserImport(ctx context.Context, deps ingestDeps, j *JobRequest) user
 		return out
 	}
 
+	// Knowledge time declared once for the whole document, exactly as the system
+	// import reads it: the envelope is where a file says when its data was
+	// current, and the transaction part's identifiers are stated as of that
+	// moment rather than as of each posting's trade date.
+	asOf := vintage(a.GetEnvelope().GetExportedAt())
+
 	out.userID = detail.UserID
 	anyFailed := false
 	for _, pr := range detail.Parts {
@@ -90,7 +96,7 @@ func processUserImport(ctx context.Context, deps ingestDeps, j *JobRequest) user
 			out.displayCurrencySet = out.displayCurrencySet || res.DisplayCurrency
 		case archivev1.ArchivePart_TXS:
 			var stored bool
-			stored, partErr = importTxPart(ctx, deps, detail.UserID, j.JobID, a.GetTxs(), rep)
+			stored, partErr = importTxPart(ctx, deps, detail.UserID, j.JobID, a.GetTxs(), asOf, rep)
 			out.txsStored = out.txsStored || stored
 		case archivev1.ArchivePart_DECLARATIONS:
 			var written int32

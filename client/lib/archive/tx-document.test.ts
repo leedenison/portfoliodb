@@ -39,6 +39,17 @@ describe("readTxDocument", () => {
     expect(window?.postings).toHaveLength(1);
   });
 
+  // The envelope says when the document's data was current, which is the point in
+  // market time its identifiers are stated as of. Dropping it would leave the
+  // server taking the upload for the export and rebasing an OCC the document had
+  // already restated.
+  it("carries the envelope's exported_at out with the window", () => {
+    const { exportedAt, errors } = readTxDocument(doc());
+
+    expect(errors).toEqual([]);
+    expect(exportedAt).toEqual(new Date("2026-08-01"));
+  });
+
   // The upload replaces one broker's period, so it has nowhere to put a second
   // window or a part it is not asked about. Refusing beats importing some of it.
   it("refuses a document covering more than one broker or period", () => {

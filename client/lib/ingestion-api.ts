@@ -4,6 +4,7 @@
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import type { MessageInitShape } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   UpsertTxsResponseSchema,
   UpsertTxsRequestSchema,
@@ -28,6 +29,14 @@ export interface UpsertTxsParams {
    */
   window: MessageInitShape<typeof TxWindowSchema>;
   filename?: string;
+  /**
+   * When the uploaded file was written, and so the point in market time its
+   * identifiers are stated as of: a broker names an option under the symbol
+   * current at its export, not under the one the contract wore on the trade
+   * date. Omitted, the server takes the upload for the export and stamps its own
+   * clock. See docs/spec/bitemporality.md.
+   */
+  exportedAt?: Date;
 }
 
 export async function upsertTxs(params: UpsertTxsParams): Promise<UpsertTxsResponse> {
@@ -35,6 +44,7 @@ export async function upsertTxs(params: UpsertTxsParams): Promise<UpsertTxsRespo
   const req = create(UpsertTxsRequestSchema, {
     window: params.window,
     filename: params.filename ?? "",
+    exportedAt: params.exportedAt ? timestampFromDate(params.exportedAt) : undefined,
   });
   const resBytes = await unaryFetch(
     base,

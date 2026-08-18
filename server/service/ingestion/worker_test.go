@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"testing"
+	"time"
 )
 
 // marshalPayload serializes an UpsertTxsRequest for test fixtures.
@@ -501,4 +502,98 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 		Return(nil)
 
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
+}
+
+// A file names an option under the symbol current when the file was written, so
+// the vintage an OCC hint is rebased from is the upload's own exported_at and not
+// each posting's trade date. The observable is which symbol the lookup asks for:
+// an export after the ex_date already carries the restated strike and must be
+// looked up as it stands, while one before it is carried forward to today.
+func TestProcessTx_RebasesOCCFromTheUploadVintageNotTheTradeDate(t *testing.T) {
+	const preSplit = "AAPL250117C00760000"
+	const postSplit = "AAPL250117C00190000"
+	exDate := time.Date(2024, 8, 1, 0, 0, 0, 0, time.UTC)
+	tradeDate := timestamppb.New(time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC))
+
+	cases := []struct {
+		name       string
+		exportedAt *timestamppb.Timestamp
+		wantLookup string
+	}{{
+		name: "export after the ex_date states the restated symbol",
+		// The trade predates the split and the export does not, which is the
+		// ordinary shape of a broker file covering a split. Rebasing here would
+		// halve a strike the file had already halved.
+		exportedAt: timestamppb.New(time.Date(2024, 9, 1, 0, 0, 0, 0, time.UTC)),
+		wantLookup: preSplit,
+	}, {
+		name:       "export before the ex_date is carried forward",
+		exportedAt: timestamppb.New(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)),
+		wantLookup: postSplit,
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			database := mock.NewMockDB(ctrl)
+			database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+			database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			registry := identifier.NewRegistry() // no plugins
+
+			payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
+				ExportedAt: tc.exportedAt,
+				Window: &archivev1.TxWindow{
+					Broker:       typev1.Broker_IBKR,
+					Source:       "IBKR:test:statement",
+					PeriodFrom:   tradeDate,
+					PeriodBefore: timestamppb.New(exDate.AddDate(1, 0, 0)),
+					Postings: []*archivev1.Posting{{
+						OrderDate:             tradeDate,
+						TradeDate:             tradeDate,
+						InstrumentDescription: "AAPL 250117C00760000",
+						BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
+						Quantity:              "1",
+						IdentifierHints: []*archivev1.InstrumentRef{
+							{Type: typev1.IdentifierType_OCC, Value: preSplit},
+						},
+					}},
+				},
+			})
+
+			database.EXPECT().SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_RUNNING).Return(nil)
+			expectLoadPayload(database, "job-1", "user-1", payload)
+			database.EXPECT().SetJobTotalCount(gomock.Any(), "job-1", int32(1)).Return(nil)
+			database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "AAPL 250117C00760000").Return("", nil)
+			database.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").
+				Return([]db.StockSplit{{ExDate: exDate, SplitFrom: "1", SplitTo: "4"}}, nil).AnyTimes()
+
+			// The hint as stated, looked up before any rebasing can happen.
+			database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "OCC", "", preSplit).Return("", nil)
+			// The hint as resolution decided it should be spelled: the assertion.
+			var looked []string
+			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, _, value string) (string, string, string, string, error) {
+					looked = append(looked, value)
+					return "", "", "", "", nil
+				})
+			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "OCC", gomock.Any()).Return("", nil).AnyTimes()
+			database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).Return(nil, nil)
+			database.EXPECT().EnsureInstrument(gomock.Any(), "", "", "", "AAPL 250117C00760000", "", "", gomock.Any(), "", nil, nil, nil).Return("broker-only-id", nil)
+			database.EXPECT().AppendIdentificationErrors(gomock.Any(), "job-1", gomock.Any()).Return(nil).AnyTimes()
+			database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-1").Return(nil)
+			database.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{"broker-only-id"}).
+				Return([]*db.InstrumentRow{{ID: "broker-only-id"}}, nil)
+			database.EXPECT().ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-1", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			database.EXPECT().InstrumentsWithSplits(gomock.Any(), gomock.Any()).Return(nil, nil)
+			database.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return(nil, nil)
+			database.EXPECT().SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_SUCCESS).Return(nil)
+
+			processJob(context.Background(), WorkerOptions{DB: database, IdentifierRegistry: registry}, &JobRequest{JobID: "job-1", JobType: "tx"})
+
+			if len(looked) != 1 || looked[0] != tc.wantLookup {
+				t.Errorf("OCC looked up = %v, want [%s]", looked, tc.wantLookup)
+			}
+		})
+	}
 }

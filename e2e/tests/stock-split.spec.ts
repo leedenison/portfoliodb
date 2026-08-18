@@ -15,6 +15,13 @@ import { AssetClass, IdentifierType } from "../gen/type/v1/type_pb";
 // Upload stock + option txs in a single document (pre/post split dates). Then
 // trigger the corporate event fetcher which discovers the 4:1 split from
 // EODHD. Verify split-adjusted quantities and option OCC/strike update.
+//
+// split-txs.json states exported_at 2024-07-01, before the 2024-08-01 ex_date,
+// and names the option by its pre-split symbol. The two go together: identity is
+// stated as of the file's export, so a document exported after the ex_date would
+// be claiming the pre-split symbol was current after the split restated it.
+// Moving the date forward without restating the symbol makes the file say
+// something false and both cases below stop testing what they are named for.
 // ---------------------------------------------------------------------------
 test.describe("stock split: tx uploaded before split", () => {
   let userSession: string;

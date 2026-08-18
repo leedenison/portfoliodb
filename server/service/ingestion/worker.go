@@ -282,6 +282,10 @@ func processTx(ctx context.Context, deps ingestDeps, j *JobRequest, userID strin
 		JobID:      j.JobID,
 		Txs:        txs,
 		RowIndices: rowIdx,
+		// The upload's own statement of when its identifiers were current. The
+		// handler stamps its clock when the uploader said nothing, so this is
+		// only nil for a payload written before the field existed.
+		ExportedAt: vintage(req.GetExportedAt()),
 		// Both bounds present makes this a replacement rather than an append.
 		// CreateTx wraps its one posting in a window with no period, which is
 		// where the two paths diverge.
@@ -403,7 +407,13 @@ func extractDescHints(ctx context.Context, deps ingestDeps, source, broker strin
 // resolveInstruments resolves each tx to an instrument ID using the pre-populated
 // cache and extracted hints. Returns the instrument IDs (parallel to txs) and any
 // identification errors collected from the cache.
-func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier, extraction map[string]string, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
+//
+// exportedAt is the vintage every posting's identifier hints are stated as of,
+// and it is one value for the batch rather than one per row: a file names an
+// option under the symbol current when the file was written, not under the one
+// the contract wore on each trade date. See docs/adr/0054-share-count-basis-is-a-convention.md
+// for the convention and docs/spec/bitemporality.md for where it is recorded.
+func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier, extraction map[string]string, exportedAt *time.Time, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
 	// Filtered once and reused below, because filtering logs what it discards and
 	// deriving the same list twice would say it twice.
 	txHints := make([][]identifier.Identifier, len(txs))
@@ -416,12 +426,7 @@ func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source str
 	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
 		rowIndex := int32(originalIndices[i])
-		var hintsValidAt *time.Time
-		if tx.GetTradeDate() != nil {
-			t := tx.GetTradeDate().AsTime()
-			hintsValidAt = &t
-		}
-		r, err := Resolve(ctx, deps.DB, deps.Registry, broker, source, desc, HintsFromTx(tx), txHints[i], cache, rowIndex, extractedHintsCache, hintsValidAt, keys)
+		r, err := Resolve(ctx, deps.DB, deps.Registry, broker, source, desc, HintsFromTx(tx), txHints[i], cache, rowIndex, extractedHintsCache, exportedAt, keys)
 		if err != nil {
 			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}

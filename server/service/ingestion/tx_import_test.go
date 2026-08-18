@@ -181,7 +181,7 @@ func TestImportTxPart_StoresEachWindowWithItsOwnPeriod(t *testing.T) {
 			archivePosting("AAPL", "-10", typev1.TxType_TRADE_ASSET),
 		},
 	}}}
-	stored, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, archiveimport.NewDetachedReporter())
+	stored, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, nil, archiveimport.NewDetachedReporter())
 	if err != nil {
 		t.Fatalf("importTxPart: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestImportTxPart_EmptyWindowClearsItsPeriod(t *testing.T) {
 		Broker: typev1.Broker_IBKR, PeriodFrom: from, PeriodBefore: before,
 		Source: "IBKR:archive:export",
 	}}}
-	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, archiveimport.NewDetachedReporter()); err != nil {
+	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, nil, archiveimport.NewDetachedReporter()); err != nil {
 		t.Fatalf("importTxPart: %v", err)
 	}
 }
@@ -244,7 +244,7 @@ func TestImportTxPart_TotalCountsPostings(t *testing.T) {
 		},
 	}}}
 	rep := archiveimport.NewPartReporter(database, "job-tx", archivev1.ArchivePart_TXS)
-	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, rep); err != nil {
+	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, nil, rep); err != nil {
 		t.Fatalf("importTxPart: %v", err)
 	}
 }
@@ -299,7 +299,59 @@ func TestImportTxPart_WeighsASplitGroupsShortfall(t *testing.T) {
 			archivePosting("AAPL", "10", typev1.TxType_TRADE_ASSET),
 		},
 	}}}
-	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, archiveimport.NewDetachedReporter()); err != nil {
+	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, nil, archiveimport.NewDetachedReporter()); err != nil {
 		t.Fatalf("importTxPart: %v", err)
+	}
+}
+
+// The document's envelope says when its data was current, and its transaction
+// part's identifiers are stated as of that moment. Every window is resolved
+// against the one vintage: knowledge time that differs between one file's own
+// windows is not knowledge time.
+func TestImportTxPart_ResolvesAgainstTheEnvelopeVintage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
+	database.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	database.EXPECT().AppendIdentificationErrors(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().InstrumentsWithSplits(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	database.EXPECT().ReplaceTxsInPeriod(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").
+		Return([]db.StockSplit{{ExDate: mustParseDay("2024-08-01"), SplitFrom: "1", SplitTo: "4"}}, nil).AnyTimes()
+
+	// The OCC as resolution decided to spell it, once the vintage has been read.
+	var looked []string
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, value string) (string, string, string, string, error) {
+			looked = append(looked, value)
+			return "", "", "", "", nil
+		}).AnyTimes()
+
+	option := archivePosting("AAPL 250117C00760000", "1", typev1.TxType_TRADE_ASSET)
+	option.IdentifierHints = []*archivev1.InstrumentRef{{
+		Type: typev1.IdentifierType_OCC, Value: "AAPL250117C00760000",
+	}}
+	part := &archivev1.TxPart{Windows: []*archivev1.TxWindow{{
+		Broker:       typev1.Broker_IBKR,
+		PeriodFrom:   timestamppb.New(mustParseDay("2024-01-01")),
+		PeriodBefore: timestamppb.New(mustParseDay("2025-01-01")),
+		Source:       "IBKR:archive:export",
+		Postings:     []*archivev1.Posting{option},
+	}}}
+
+	// Exported after the ex_date, so the file already carries the restated strike
+	// and the stored contract is the one that symbol names.
+	asOf := mustParseDay("2024-09-01")
+	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, &asOf, archiveimport.NewDetachedReporter()); err != nil {
+		t.Fatalf("importTxPart: %v", err)
+	}
+	if len(looked) != 1 || looked[0] != "AAPL250117C00760000" {
+		t.Errorf("OCC looked up = %v, want [AAPL250117C00760000]", looked)
 	}
 }

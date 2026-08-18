@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Server implements IngestionService.
@@ -41,6 +42,11 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	if len(periodErrs) > 0 {
 		return nil, status.Error(codes.InvalidArgument, periodErrs[0].Message)
 	}
+	// An upload that states no vintage is its own export, so the clock that
+	// stamps it is this one. Stamped into the payload rather than read when the
+	// job runs, because a job re-enqueued by the restart recovery path would
+	// otherwise take the vintage of the retry instead of the upload.
+	req = withUploadVintage(req)
 	payload, err := proto.Marshal(req)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
@@ -92,7 +98,7 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 			Postings: []*archivev1.Posting{req.GetPosting()},
 		},
 	}
-	payload, err := proto.Marshal(wrapped)
+	payload, err := proto.Marshal(withUploadVintage(wrapped))
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
 	}
@@ -112,4 +118,21 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 		return nil, status.Error(codes.Unavailable, "job queue full")
 	}
 	return &ingestionv1.CreateTxResponse{JobId: jobID}, nil
+}
+
+// withUploadVintage returns req with exported_at filled in from this server's
+// clock when the caller stated none. The identifiers a posting names are as of
+// the moment its file was written; an uploader that knows that moment says so,
+// and for one that does not the upload is the closest thing to it.
+//
+// The request is cloned rather than mutated: it belongs to the gRPC call, and a
+// handler that writes to it makes the vintage visible to an interceptor reading
+// the same message.
+func withUploadVintage(req *ingestionv1.UpsertTxsRequest) *ingestionv1.UpsertTxsRequest {
+	if req.GetExportedAt() != nil {
+		return req
+	}
+	out := proto.CloneOf(req)
+	out.ExportedAt = timestamppb.Now()
+	return out
 }

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Stamp instrument identity from the export date, not the trade date
 milestone: M21
 ---

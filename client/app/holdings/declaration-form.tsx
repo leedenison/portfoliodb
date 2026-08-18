@@ -13,7 +13,7 @@ import {
   protoDateToStr,
 } from "@/lib/portfolio-api";
 import type { BrokerAccounts } from "@/lib/portfolio-api";
-import { IdentifierType } from "@/gen/type/v1/type_pb";
+import { currentTicker } from "@/lib/identifiers";
 import type { HoldingDeclaration, Instrument } from "@/gen/api/v1/api_pb";
 
 function todayStr(): string {
@@ -22,9 +22,7 @@ function todayStr(): string {
 
 /** Ticker if the instrument has one, else its name, else the bare id. */
 function instrumentDisplayLabel(decl: HoldingDeclaration): string {
-  const ticker = decl.instrument?.identifiers?.find(
-    (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-  )?.value;
+  const ticker = currentTicker(decl.instrument);
   return ticker || decl.instrument?.name || decl.instrumentId;
 }
 
@@ -109,9 +107,7 @@ export function DeclarationForm({
   };
 
   const selectInstrument = (inst: Instrument) => {
-    const ticker = inst.identifiers?.find(
-      (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-    )?.value;
+    const ticker = currentTicker(inst);
     setPicked({ id: inst.id, label: ticker || inst.name || inst.id });
     // Clearing the term disables the search query, so the results go with it.
     setInstrumentSearch("");
@@ -207,9 +203,7 @@ export function DeclarationForm({
                 {searchResults.length > 0 && (
                   <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-surface shadow-lg">
                     {searchResults.map((inst) => {
-                      const ticker = inst.identifiers?.find(
-                        (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-                      )?.value;
+                      const ticker = currentTicker(inst);
                       return (
                         <button
                           key={inst.id}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { IdentifierTypeSchema } from "@/gen/type/v1/type_pb";
-import { VALID_IDENTIFIER_TYPES } from "./identifiers";
+import { create } from "@bufbuild/protobuf";
+import { IdentifierType, IdentifierTypeSchema } from "@/gen/type/v1/type_pb";
+import { InstrumentIdentifierSchema } from "@/gen/api/v1/api_pb";
+import { currentTicker, VALID_IDENTIFIER_TYPES } from "./identifiers";
 
 /**
  * The set an import parser checks a hint against. It is derived from the proto
@@ -31,5 +33,51 @@ describe("VALID_IDENTIFIER_TYPES", () => {
 
   it.each(["", "ticker", "NOT_A_TYPE", "0"])("does not hold %j", (s) => {
     expect(VALID_IDENTIFIER_TYPES.has(s)).toBe(false);
+  });
+});
+
+/**
+ * An instrument holds the names it has worn, not just the one it wears. A label
+ * has to pick the current one, which is the row with no closing bound.
+ */
+describe("currentTicker", () => {
+  const ident = (type: IdentifierType, value: string, validBefore?: string) =>
+    create(InstrumentIdentifierSchema, { type, value, validBefore });
+
+  it("takes the ticker in force over one the instrument has given up", () => {
+    const inst = {
+      identifiers: [
+        ident(IdentifierType.MIC_TICKER, "OLD", "2024-06-10"),
+        ident(IdentifierType.MIC_TICKER, "NEW"),
+      ],
+    };
+    expect(currentTicker(inst)).toBe("NEW");
+  });
+
+  it("ignores the order the identifiers arrive in", () => {
+    const inst = {
+      identifiers: [
+        ident(IdentifierType.MIC_TICKER, "NEW"),
+        ident(IdentifierType.MIC_TICKER, "OLD", "2024-06-10"),
+      ],
+    };
+    expect(currentTicker(inst)).toBe("NEW");
+  });
+
+  it("falls back to an OpenFIGI ticker", () => {
+    const inst = { identifiers: [ident(IdentifierType.OPENFIGI_TICKER, "FIGI")] };
+    expect(currentTicker(inst)).toBe("FIGI");
+  });
+
+  it("returns undefined when every ticker has been given up", () => {
+    // Better no label than a name the instrument no longer answers to.
+    const inst = { identifiers: [ident(IdentifierType.MIC_TICKER, "OLD", "2024-06-10")] };
+    expect(currentTicker(inst)).toBeUndefined();
+  });
+
+  it("returns undefined for an instrument with no ticker, and for none at all", () => {
+    expect(currentTicker({ identifiers: [ident(IdentifierType.ISIN, "US0000000001")] })).toBeUndefined();
+    expect(currentTicker({ identifiers: [] })).toBeUndefined();
+    expect(currentTicker(undefined)).toBeUndefined();
   });
 });

@@ -122,8 +122,10 @@ test.describe("stock split: tx uploaded before split", () => {
       .filter({ hasText: /Option/i });
     await expect(optionRow).toBeVisible();
     await optionRow.click();
+    // The symbol the contract answers to now. A restated option keeps the one it
+    // traded under before the ex_date too, so the locator has to say which.
     const occId = adminPage.locator(
-      "[data-testid='instrument-identifier'][data-identifier-type='OCC']",
+      "[data-testid='instrument-identifier'][data-identifier-type='OCC'][data-identifier-current='true']",
     );
     await expect(occId).toContainText("AAPL250117C00190000");
     await adminCtx.close();
@@ -231,8 +233,10 @@ test.describe("stock split: split uploaded before tx", () => {
       .filter({ hasText: /Option/i });
     await expect(optionRow).toBeVisible();
     await optionRow.click();
+    // The symbol the contract answers to now. A restated option keeps the one it
+    // traded under before the ex_date too, so the locator has to say which.
     const occId = adminPage.locator(
-      "[data-testid='instrument-identifier'][data-identifier-type='OCC']",
+      "[data-testid='instrument-identifier'][data-identifier-type='OCC'][data-identifier-current='true']",
     );
     await expect(occId).toContainText("AAPL250117C00190000");
     await adminCtx.close();

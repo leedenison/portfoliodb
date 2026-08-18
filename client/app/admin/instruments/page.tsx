@@ -35,6 +35,14 @@ function idLabel(id: InstrumentIdentifier): string {
   return IDENTIFIER_LABELS[id.type] ?? String(id.type);
 }
 
+// A name with a closed validity interval is one the instrument has given up --
+// an option's pre-split OCC symbol, say. It is kept so a file naming it still
+// resolves, and shown so an administrator can see why the instrument answers to
+// two symbols. See docs/adr/0055-identifier-validity-is-an-interval.md.
+function isCurrent(id: InstrumentIdentifier): boolean {
+  return !id.validBefore;
+}
+
 function isIdentified(inst: Instrument): boolean {
   return inst.identifiers.some((id) => id.canonical);
 }
@@ -271,7 +279,14 @@ function InstrumentList({
 
 function ExpandedDetail({ inst }: { inst: Instrument }) {
   const identified = isIdentified(inst);
-  const canonicalIds = inst.identifiers.filter((id) => id.canonical);
+  // Current names first, then the ones given up, most recent first.
+  const canonicalIds = inst.identifiers
+    .filter((id) => id.canonical)
+    .sort((a, b) =>
+      isCurrent(a) === isCurrent(b)
+        ? (b.validBefore ?? "").localeCompare(a.validBefore ?? "")
+        : Number(isCurrent(b)) - Number(isCurrent(a))
+    );
   const brokerDescs = inst.identifiers.filter(
     (id) => id.type === IdentifierType.BROKER_DESCRIPTION
   );
@@ -339,17 +354,36 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
           <div className="flex flex-wrap gap-1.5">
             {canonicalIds.map((id) => (
               <span
-                key={`${id.type}-${id.value}`}
+                key={`${id.type}-${id.value}-${id.validFrom ?? ""}`}
                 data-testid="instrument-identifier"
                 data-identifier-type={idLabel(id)}
-                className="inline-flex items-center gap-1 rounded-sm bg-primary-dark/10 px-1.5 py-0.5 font-mono text-xs"
+                data-identifier-current={isCurrent(id) ? "true" : "false"}
+                title={
+                  isCurrent(id)
+                    ? undefined
+                    : `No longer in force from ${id.validBefore}`
+                }
+                className={
+                  "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-xs " +
+                  (isCurrent(id)
+                    ? "bg-primary-dark/10"
+                    : "bg-text-muted/10 opacity-60")
+                }
               >
-                <span className="font-semibold text-primary-dark">
+                <span
+                  className={
+                    "font-semibold " +
+                    (isCurrent(id) ? "text-primary-dark" : "text-text-muted")
+                  }
+                >
                   {idLabel(id)}
                 </span>
                 <span className="text-text-primary">{id.value}</span>
                 {id.domain && (
                   <span className="text-text-muted">({id.domain})</span>
+                )}
+                {!isCurrent(id) && (
+                  <span className="text-text-muted">until {id.validBefore}</span>
                 )}
               </span>
             ))}

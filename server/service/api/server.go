@@ -10,6 +10,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/worker"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -87,7 +88,14 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	}
 	identifiers := make([]*apiv1.InstrumentIdentifier, 0, len(row.Identifiers))
 	for _, idn := range row.Identifiers {
-		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: identifierTypeFromString(idn.Type), Domain: idn.Domain, Value: idn.Value, Canonical: idn.Canonical})
+		pi := &apiv1.InstrumentIdentifier{Type: identifierTypeFromString(idn.Type), Domain: idn.Domain, Value: idn.Value, Canonical: idn.Canonical}
+		if idn.ValidFrom != nil {
+			pi.ValidFrom = proto.String(idn.ValidFrom.Format("2006-01-02"))
+		}
+		if idn.ValidBefore != nil {
+			pi.ValidBefore = proto.String(idn.ValidBefore.Format("2006-01-02"))
+		}
+		identifiers = append(identifiers, pi)
 	}
 	out := &apiv1.Instrument{
 		Id:          row.ID,

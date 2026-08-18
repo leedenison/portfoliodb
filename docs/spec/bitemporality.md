@@ -122,6 +122,14 @@ they state when the supplied data was current, and drive OCC split adjustment
 during instrument resolution. See [prices.md](prices.md) and
 [corporate-events.md](corporate-events.md).
 
+Transaction ingestion states the same thing on `UpsertTxsRequest.exported_at`,
+and an archive's transaction part takes it from the envelope. It is one value per
+upload or per document rather than one per posting: a file has one export, and the
+symbol it names a contract by is the one current at that export. An upload that
+states nothing is its own export and the server stamps its clock at receipt --
+the vintage is never inferred from a posting's `trade_date`, which is the error
+this rule exists to stop.
+
 Corporate events also carry knowledge time per event: `Split.first_known_at`
 and `CashDividend.first_known_at` make an export/import round trip lossless.
 An importing row resolves its knowledge time from the row, else the request's
@@ -143,7 +151,7 @@ uploads:
 | A posting | its own `trade_date` | A trade happened in the share count of the day it happened in. |
 | A price bar | its own `price_date` | The bar is the market as it printed that day, so a provider is asked for unadjusted output. |
 | A holding declaration | its own `as_of_date` | The assertion is about a date, so it is denominated in that date. |
-| An identifier | the exporting file's `exported_at` | An OCC symbol encodes a strike, so it moves under a split. A file states identity as it stood when the file was written. |
+| An identifier | the exporting file's `exported_at`, else the upload's own receipt | An OCC symbol encodes a strike, so it moves under a split. A file states identity as it stood when the file was written. |
 
 The alternative was a per-row `share_count_basis` that let a source say which
 basis it had used. It was carried on postings, price rows and declarations, and

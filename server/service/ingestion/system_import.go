@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -83,11 +82,7 @@ func processSystemImport(ctx context.Context, deps ingestDeps, j *JobRequest) sy
 
 	// Knowledge time declared once for the whole document: every part reads it
 	// the same way, which is the point of the envelope carrying it.
-	var asOf *time.Time
-	if ts := a.GetEnvelope().GetExportedAt(); ts != nil {
-		t := ts.AsTime()
-		asOf = &t
-	}
+	asOf := vintage(a.GetEnvelope().GetExportedAt())
 
 	// One cache for the whole archive. An instrument named in both the price and
 	// the corporate event part is the ordinary case, and resolving it twice means

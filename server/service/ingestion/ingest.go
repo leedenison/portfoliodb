@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -60,6 +61,11 @@ type ingestParams struct {
 	// PeriodFrom and PeriodBefore make this a replacement rather than an append.
 	// Both nil appends the batch as one group, which is the manual-entry path.
 	PeriodFrom, PeriodBefore *timestamppb.Timestamp
+	// ExportedAt is the point in market time this batch's identifiers are stated
+	// as of: one value for the whole batch, because a file has one export rather
+	// than one per row. nil leaves resolution to treat the hints as current, which
+	// is what a vintage of now computes to anyway.
+	ExportedAt *time.Time
 	// RowIndices maps each tx back to the index the caller wants a problem
 	// reported against, so an error points at the file rather than at the
 	// filtered slice. nil means the tx's own position.
@@ -86,6 +92,17 @@ type ingestResult struct {
 	// and need not be: a money residual resolves to a currency, which has no
 	// splits, and one in a security carries the instrument of a leg already here.
 	InstrumentIDs []string
+}
+
+// vintage reads a declared knowledge time into the form the resolver takes.
+// Absent stays absent: a document or an upload that states nothing has its hints
+// treated as current, and there is no date to invent for it.
+func vintage(ts *timestamppb.Timestamp) *time.Time {
+	if ts == nil {
+		return nil
+	}
+	t := ts.AsTime()
+	return &t
 }
 
 // ingestBatch resolves, balances and stores one batch of postings.
@@ -145,7 +162,7 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		rep.Errf(-1, "txs", err.Error())
 		return out, fmt.Errorf("extract description hints: %w", err)
 	}
-	instrumentIDs, idErrs, err := resolveInstruments(ctx, deps, p.Broker, p.Source, txs, rowIdx, cache, extractedHints, extraction, rep)
+	instrumentIDs, idErrs, err := resolveInstruments(ctx, deps, p.Broker, p.Source, txs, rowIdx, cache, extractedHints, extraction, p.ExportedAt, rep)
 	if err != nil {
 		rep.Errf(-1, "instrument_description", err.Error())
 		return out, fmt.Errorf("resolve instruments: %w", err)

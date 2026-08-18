@@ -15,7 +15,7 @@ import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { ACCOUNT_TYPE_LABEL, TX_TYPE_LABEL } from "@/lib/tx-type";
 import { groupTxs, type TxGroup } from "@/lib/tx-groups";
-import { IdentifierType } from "@/gen/type/v1/type_pb";
+import { currentTicker } from "@/lib/identifiers";
 import type { PortfolioTx } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 
@@ -233,9 +233,7 @@ function TxRow({
   const date = leg ? tx.orderDate : (tx.groupTimestamp ?? tx.orderDate);
   const isSynthetic = !!tx.syntheticPurpose;
   const accountTypeLabel = ACCOUNT_TYPE_LABEL[tx.accountType];
-  const ticker = ptx.instrument?.identifiers?.find(
-    (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-  )?.value;
+  const ticker = currentTicker(ptx.instrument);
   const label = ticker || ptx.instrument?.name || tx.instrumentDescription || "\u2014";
   const currency = tx.tradingCurrency || tx.settlementCurrency || "";
 

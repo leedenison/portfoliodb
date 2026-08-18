@@ -30,6 +30,13 @@ message InstrumentIdentifier {
   string value = 2;
   bool canonical = 3;
   string domain = 4; // optional; MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER, source for BROKER_DESCRIPTION
+  // The half-open [valid_from, valid_before) interval in market time the name
+  // was correct for the instrument. An absent valid_before means it is the name
+  // the instrument wears now; an absent valid_from means the name predates
+  // everything known about it.
+  // See docs/adr/0055-identifier-validity-is-an-interval.md.
+  optional string valid_from = 5; // "YYYY-MM-DD"
+  optional string valid_before = 6; // "YYYY-MM-DD"
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.

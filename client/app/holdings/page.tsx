@@ -10,8 +10,8 @@ import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { getHoldings, listHoldingDeclarations } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
+import { currentTicker } from "@/lib/identifiers";
 import { DeclarationKind } from "@/gen/api/v1/api_pb";
-import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { OpeningBalances } from "./opening-balances";
 
@@ -155,9 +155,7 @@ export default function UserHoldingsPage() {
                           </tr>
                         ) : (
                           holdings.holdings.map((h, i) => {
-                            const ticker = h.instrument?.identifiers?.find(
-                              (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-                            )?.value;
+                            const ticker = currentTicker(h.instrument);
                             return (
                               <tr
                                 key={i}

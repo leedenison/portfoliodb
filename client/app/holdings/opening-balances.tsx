@@ -7,6 +7,7 @@ import { useAuthedQuery } from "@/hooks/use-authed-query";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
+import { currentTicker } from "@/lib/identifiers";
 import {
   listHoldingDeclarations,
   deleteHoldingDeclaration,
@@ -14,7 +15,6 @@ import {
   protoDateToStr,
 } from "@/lib/portfolio-api";
 import { DeclarationKind } from "@/gen/api/v1/api_pb";
-import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { DeclarationForm } from "./declaration-form";
 
@@ -171,9 +171,7 @@ export function OpeningBalances() {
                   </tr>
                 ) : (
                   declarations.map((d) => {
-                    const ticker = d.instrument?.identifiers?.find(
-                      (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-                    )?.value;
+                    const ticker = currentTicker(d.instrument);
                     return (
                       <tr
                         key={d.id}

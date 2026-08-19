@@ -1,6 +1,7 @@
 ---
 status: open
 title: Carry broker contract identifiers through ingestion
+milestone: M19
 ---
 
 IBKR names every contract by a CONID that survives corporate actions: the same
@@ -20,6 +21,16 @@ enum member, a domain naming the broker that issued it the way `MIC_TICKER` name
 a MIC, and extraction from the OFX/QFX `UNIQUEID` whose `UNIQUEIDTYPE` is
 `CONID`. The identifier is opaque and carries no strike, expiry or ticker, so
 nothing rebases it and nothing has to state what it is denominated in.
+
+The member is broker-internal identifiers generally rather than CONID
+specifically. A broker's own contract number is meaningless without the broker
+that issued it, so the domain is what makes the value resolvable and is what
+keeps two brokers' numbering from colliding; CONID is the first instance because
+IBKR is the source already in the tree, not because the type is IBKR's.
+
+Transactions are not the only place they arrive. A QFX `INVPOSLIST` names option
+positions by CONID too, so 0088 cannot import an options position list without
+this.
 
 0122 asks how to resolve identity as of a date. A stable broker identifier is the
 kind of identifier that question prefers, and it is the one already on offer from

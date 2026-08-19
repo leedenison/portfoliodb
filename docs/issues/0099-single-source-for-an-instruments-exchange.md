@@ -57,6 +57,12 @@ trigger settles the equivalent `OPENFIGI_TICKER` case with `ORDER BY ii.domain
 LIMIT 1`), and what an instrument with no ticker identifier at all gets -- an
 `OCC` row carries no domain, so an option's exchange has no source here.
 
+0129 adds a third case. An instrument whose provider named only a composite --
+some US venue, without saying which -- carries the composite code as a provider
+identifier and no MIC at all, deliberately. The derivation has to leave that null
+rather than pick a venue out of the composite, which is the fabrication 0129
+removes.
+
 Touches the trigger in `server/migrations/001_initial.sql`, the write paths in
 `server/db/postgres/instruments.go`, `server/archiveimport/instruments.go`, and
 `Instrument.exchange_mic` in `proto/archive/v1/instruments.proto`.

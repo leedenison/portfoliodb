@@ -1,7 +1,7 @@
 ---
 status: open
 title: Daily corporate-event scheduler and blanket split recompute
-milestone: M17
+milestone: M23
 ---
 
 Add the daily scheduler specified in docs/spec/corporate-events.md so newly

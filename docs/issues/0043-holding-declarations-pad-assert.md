@@ -1,6 +1,7 @@
 ---
 status: closed
 title: Split holding declarations into pads and checked assertions
+milestone: M10
 dependencies: [0042]
 ---
 

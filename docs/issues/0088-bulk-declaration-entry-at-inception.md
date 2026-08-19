@@ -1,7 +1,7 @@
 ---
 status: open
 title: Bulk entry of holding declarations at inception
-milestone: M19
+milestone: M18
 dependencies: [0123]
 ---
 

@@ -1,7 +1,7 @@
 ---
 status: closed
 title: Stamp instrument identity from the export date, not the trade date
-milestone: M21
+milestone: M16
 ---
 
 An option is named in a broker file under the name current at the file's export,

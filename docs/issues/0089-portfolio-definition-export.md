@@ -1,7 +1,8 @@
 ---
 status: open
 title: Export and import portfolio definitions
-dependencies: [0078, 0080]
+milestone: M22
+dependencies: [0078, 0080, 0108]
 ---
 
 Carry `portfolios` and `portfolio_filters` across a rebuild. Deliberately

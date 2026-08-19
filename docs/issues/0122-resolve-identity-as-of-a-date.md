@@ -1,6 +1,7 @@
 ---
 status: open
 title: Resolve instrument identity as of a date, not as of now
+milestone: M16
 dependencies: [0125]
 ---
 

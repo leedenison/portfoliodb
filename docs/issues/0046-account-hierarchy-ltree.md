@@ -1,7 +1,8 @@
 ---
 status: open
 title: Account hierarchy with ltree
-dependencies: [0037]
+milestone: M22
+dependencies: [0037, 0108]
 ---
 
 Model accounts as a hierarchy using the Postgres `ltree` type rather than flat

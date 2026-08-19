@@ -1,6 +1,7 @@
 ---
 status: open
 title: A portfolio selects postings, not the events they are legs of
+milestone: M22
 ---
 
 `portfolio_matched_txs` matches one posting at a time, so a filter can take part

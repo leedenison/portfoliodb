@@ -1,6 +1,7 @@
 ---
 status: open
 title: Check proto compatibility in CI once the wire format is stable
+milestone: P01
 ---
 
 Add a `buf breaking` check to CI, run against the proto definitions on `main`,

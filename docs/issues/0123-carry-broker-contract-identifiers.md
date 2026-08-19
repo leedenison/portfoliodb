@@ -1,7 +1,7 @@
 ---
 status: open
 title: Carry broker contract identifiers through ingestion
-milestone: M19
+milestone: M16
 ---
 
 IBKR names every contract by a CONID that survives corporate actions: the same

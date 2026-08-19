@@ -1,7 +1,7 @@
 ---
 status: closed
 title: Retire OCC hint rebasing from identification
-milestone: M21
+milestone: M16
 dependencies: [0125]
 ---
 

@@ -1,6 +1,7 @@
 ---
 status: closed
 title: Compute holdings in one share count rather than summing raw quantities
+milestone: M10
 dependencies: [0043]
 ---
 

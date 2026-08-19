@@ -1,6 +1,8 @@
 ---
 status: open
 title: Manually correct a misidentified instrument
+milestone: M21
+dependencies: [0066]
 ---
 
 Let a person say that a row resolved to the wrong instrument, and have the

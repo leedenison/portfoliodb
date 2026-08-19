@@ -1,7 +1,7 @@
 ---
 status: closed
 title: Identifier validity intervals replace identity_as_of
-milestone: M21
+milestone: M16
 dependencies: [0124]
 ---
 

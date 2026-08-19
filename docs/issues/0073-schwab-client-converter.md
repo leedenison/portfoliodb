@@ -1,6 +1,7 @@
 ---
 status: open
 title: Client-side Schwab transaction converter
+milestone: M18
 dependencies: [0040]
 ---
 

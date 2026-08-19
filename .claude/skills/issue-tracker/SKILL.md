@@ -45,7 +45,7 @@ Frontmatter fields:
 
 - `status` (required) -- `open` or `closed`.
 - `title` (required) -- a single line; the slug is derived from it.
-- `milestone` (optional) -- a milestone label (`M06`); omit for unscheduled issues.
+- `milestone` (optional) -- a milestone label (`M06`, `P01`); omit for unscheduled issues.
 - `dependencies` (optional) -- a list of issue numbers this issue depends on
   (`[0029, 0030]`); omit when there are none. Reference issues by number, not slug.
 
@@ -61,12 +61,20 @@ frontmatter in the body.
 
 ## Milestones
 
-`docs/issues/milestones.md` lists milestone labels (`M01`, `M02`, ...) each with
-a one-sentence description, followed by an `## Unscheduled` section listing
-future milestone ideas that have no label yet. Milestones carry no status of
-their own -- completion is read from the `status` of the issues assigned to them.
-Add a new milestone by appending the next `M`-number; promote an unscheduled idea
-by giving it a label and moving it into the main list.
+`docs/issues/milestones.md` lists milestone labels each with a one-sentence
+description, followed by an `## Unscheduled` section listing future milestone
+ideas that have no label yet. Milestones carry no status of their own --
+completion is read from the `status` of the issues assigned to them.
+
+There are two label schemes. **M** (`M01`, `M02`, ...) is functionality: the
+system does something it did not do before. **P** (`P01`, ...) is
+productionisation: the same functionality running somewhere other than a dev
+laptop -- credentials, origins, tuning, compatibility guarantees. Pick the scheme
+by that test, not by who does the work.
+
+Add a new milestone by appending the next number in its scheme; promote an
+unscheduled idea by giving it a label and moving it into the main list. Milestone
+numbers are not reused, so a gap in the sequence is a retired milestone.
 
 For architecture decision records see the `adr` skill; issues track work, ADRs
 record why decisions were made.

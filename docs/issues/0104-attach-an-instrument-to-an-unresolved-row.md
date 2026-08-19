@@ -1,7 +1,8 @@
 ---
 status: open
 title: Let a user attach an instrument to a row an import could not resolve
-milestone: M16
+milestone: M21
+dependencies: [0066]
 ---
 
 Give a user a way to find an instrument and attach it to a row the system could
@@ -22,5 +23,5 @@ The user can already find the instrument: the declaration form searches them.
 What is missing is the attachment -- searching from the error and saying "this
 one", so the row resolves and the surface that reported it closes.
 
-M16 is where a person repairs what the engine cannot derive, and this is the
+M21 is where a person repairs what the engine cannot derive, and this is the
 same shape as the grouping and transfer-pairing repairs.

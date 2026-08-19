@@ -1,6 +1,7 @@
 ---
 status: open
 title: Schedule the telemetry retention purge
+milestone: M23
 dependencies: [0115]
 ---
 

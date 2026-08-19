@@ -1,6 +1,7 @@
 ---
 status: open
 title: Measure the OpenAI description plugin's accuracy and decide whether to keep it
+milestone: M17
 ---
 
 Measure how often the OpenAI description plugin identifies the right instrument,

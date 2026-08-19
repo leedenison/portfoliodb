@@ -1,6 +1,7 @@
 ---
 status: open
 title: Attribute cash dividends to the security that paid them
+milestone: M18
 ---
 
 A cash dividend resolves to the cash instrument and carries no record of which

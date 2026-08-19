@@ -1,7 +1,7 @@
 ---
 status: open
 title: Keep planner statistics current across bulk writes
-milestone: M17
+milestone: P01
 ---
 
 Decide and implement when PortfolioDB refreshes planner statistics, so a query

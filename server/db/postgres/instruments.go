@@ -903,6 +903,23 @@ func (p *Postgres) normalizeToOperatingMIC(ctx context.Context, mic string) stri
 	return opMIC
 }
 
+// LookupMICCountry implements db.InstrumentDB.
+//
+// The country is what makes a provider's market-level answer comparable to
+// another provider's venue: a composite exchange code names a country's venues
+// as a group, and ISO 10383 already records which country each MIC is in.
+func (p *Postgres) LookupMICCountry(ctx context.Context, mic string) (string, error) {
+	var code string
+	err := p.q.QueryRowContext(ctx, `SELECT country_code FROM exchanges WHERE mic = $1`, mic).Scan(&code)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("lookup mic country: %w", err)
+	}
+	return code, nil
+}
+
 // LookupOperatingMIC implements db.InstrumentDB.
 func (p *Postgres) LookupOperatingMIC(ctx context.Context, mic string) (string, error) {
 	var opMIC string

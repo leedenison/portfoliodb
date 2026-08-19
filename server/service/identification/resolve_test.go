@@ -164,6 +164,7 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
@@ -194,10 +195,11 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"}},
 	})
 
@@ -240,10 +242,11 @@ func TestResolveWithPlugins_DatesNamesOnPluginSuccess(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	})
 
@@ -288,6 +291,7 @@ func TestResolveWithPlugins_DatesNamesFromTheHintVintage(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
@@ -335,6 +339,7 @@ func TestResolveWithPlugins_NoDatedNameOnFallback(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
@@ -364,6 +369,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
@@ -412,6 +418,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("slow", &fakePlugin{err: context.DeadlineExceeded})
@@ -451,6 +458,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
@@ -483,6 +491,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
@@ -535,6 +544,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("bad", &fakePlugin{err: errors.New("connection refused")})
@@ -720,14 +730,14 @@ func (p *cancelOnRetryPlugin) DisplayName() string                        { retu
 
 func TestConsistentWith_AllMatch(t *testing.T) {
 	w := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	}
 	o := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
 		t.Error("expected consistent")
 	}
 }
@@ -739,33 +749,33 @@ func TestConsistentWith_CurrencyMismatch(t *testing.T) {
 	o := &pluginResult{
 		inst: &identifier.Instrument{Currency: "EUR"},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
 		t.Error("expected inconsistent on currency mismatch")
 	}
 }
 
 func TestConsistentWith_ExchangeMismatch(t *testing.T) {
 	w := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"},
 	}
 	o := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "XNYS", Currency: "USD"},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: "XNYS"}, Currency: "USD"},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
 		t.Error("expected inconsistent on exchange mismatch")
 	}
 }
 
 func TestConsistentWith_EmptyFieldsSkipped(t *testing.T) {
 	w := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	}
 	o := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "", Currency: ""},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: ""}, Currency: ""},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
 		t.Error("expected consistent when other has empty exchange/currency")
 	}
 }
@@ -779,7 +789,7 @@ func TestConsistentWith_IdentifierValueMismatch(t *testing.T) {
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB1234567890"}},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
 		t.Error("expected inconsistent on ISIN value mismatch")
 	}
 }
@@ -793,7 +803,7 @@ func TestConsistentWith_IdentifierValueMatch(t *testing.T) {
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
 		t.Error("expected consistent when ISIN values match")
 	}
 }
@@ -807,17 +817,18 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Plugin A (higher precedence): XNAS/USD with ISIN
 	registry.Register("pluginA", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	})
 	// Plugin B (lower precedence): XNYS/EUR with FIGI -- inconsistent
 	registry.Register("pluginB", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNYS", Currency: "EUR", Name: "Pomme"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNYS"}, Currency: "EUR", Name: "Pomme"},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG999999999"}},
 	})
 
@@ -933,7 +944,7 @@ func TestCompareHints_SecurityTypeUnknownSkipped(t *testing.T) {
 func TestCompareHints_ExchangeViaMICTickerDomain(t *testing.T) {
 	hints := identifier.Hints{}
 	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
-	inst := &identifier.Instrument{Exchange: "XNYS"}
+	inst := &identifier.Instrument{Venue: identifier.Venue{MIC: "XNYS"}}
 
 	diffs := CompareHints(context.Background(), hints, idnHints, inst, nil, nil)
 	if len(diffs) != 1 {
@@ -946,7 +957,7 @@ func TestCompareHints_ExchangeViaMICTickerDomain(t *testing.T) {
 
 func TestCompareHints_ExchangeViaMICTickerMatch(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
-	inst := &identifier.Instrument{Exchange: "XNAS"}
+	inst := &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}}
 
 	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, nil, nil)
 	if len(diffs) != 0 {
@@ -956,7 +967,7 @@ func TestCompareHints_ExchangeViaMICTickerMatch(t *testing.T) {
 
 func TestCompareHints_ExchangeEmptyDomainSkipped(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "", Value: "AAPL"}}
-	inst := &identifier.Instrument{Exchange: "XNAS"}
+	inst := &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}}
 
 	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, nil, nil)
 	if len(diffs) != 0 {
@@ -993,7 +1004,7 @@ func TestCompareHints_MultipleDiffs(t *testing.T) {
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
 		{Type: "ISIN", Value: "US0378331005"},
 	}
-	inst := &identifier.Instrument{Currency: "EUR", AssetClass: "ETF", Exchange: "XNYS"}
+	inst := &identifier.Instrument{Currency: "EUR", AssetClass: "ETF", Venue: identifier.Venue{MIC: "XNYS"}}
 	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}}
 
 	diffs := CompareHints(context.Background(), hints, idnHints, inst, resolvedIDs, nil)
@@ -1027,17 +1038,18 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Plugin A (higher precedence): XNAS/USD with ISIN
 	registry.Register("pluginA", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	})
 	// Plugin B (lower precedence): XNAS/USD with FIGI -- consistent
 	registry.Register("pluginB", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	})
 
@@ -1095,26 +1107,26 @@ func testMICNormalizer() MICNormalizer {
 
 func TestConsistentWith_SegmentVsOperatingMIC(t *testing.T) {
 	w := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	}
 	o := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "XNGS", Currency: "USD"},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: "XNGS"}, Currency: "USD"},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}},
 	}
 	// Without normalizer: different exchanges are inconsistent.
-	if consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
 		t.Error("expected inconsistent without normalizer")
 	}
 	// With normalizer: XNGS and XNAS map to the same operating MIC.
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer()) {
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
 		t.Error("expected consistent with normalizer (XNGS -> XNAS)")
 	}
 }
 
 func TestCompareHints_SegmentMICNormalized(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL"}}
-	inst := &identifier.Instrument{Exchange: "XNAS"}
+	inst := &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}}
 
 	// Without normalizer: segment vs operating produces a diff.
 	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, nil, nil)
@@ -1133,7 +1145,7 @@ func TestCompareHints_SegmentMICNormalized(t *testing.T) {
 
 func TestResultMatchesHints_CurrencyConfirmed(t *testing.T) {
 	r := &pluginResult{
-		inst: &identifier.Instrument{Currency: "USD", Exchange: "XNAS"},
+		inst: &identifier.Instrument{Currency: "USD", Venue: identifier.Venue{MIC: "XNAS"}},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	}
 	hints := identifier.Hints{Currency: "USD"}
@@ -1156,7 +1168,7 @@ func TestResultMatchesHints_CurrencyMismatch(t *testing.T) {
 func TestResultMatchesHints_SparseResultNoConfirmation(t *testing.T) {
 	// Plugin returns empty currency and exchange -- no field is confirmed.
 	r := &pluginResult{
-		inst: &identifier.Instrument{Currency: "", Exchange: "", AssetClass: "STOCK"},
+		inst: &identifier.Instrument{Currency: "", Venue: identifier.Venue{MIC: ""}, AssetClass: "STOCK"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	}
 	hints := identifier.Hints{Currency: "GBX"}
@@ -1167,7 +1179,7 @@ func TestResultMatchesHints_SparseResultNoConfirmation(t *testing.T) {
 
 func TestResultMatchesHints_ExchangeConfirmed(t *testing.T) {
 	r := &pluginResult{
-		inst: &identifier.Instrument{Exchange: "XLON", Currency: ""},
+		inst: &identifier.Instrument{Venue: identifier.Venue{MIC: "XLON"}, Currency: ""},
 		ids:  []identifier.Identifier{},
 	}
 	hints := identifier.Hints{}
@@ -1221,12 +1233,12 @@ func TestResolveWithPlugins_HintMatchPrefersLowerPrecedence(t *testing.T) {
 
 	// Plugin A (higher precedence): wrong exchange/currency
 	registry.Register("pluginA", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "BAC"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "BAC"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0605051046"}},
 	})
 	// Plugin B (lower precedence): matches hints (XLON/GBX)
 	registry.Register("pluginB", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XLON", Currency: "GBX", Name: "BAE Systems"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBX", Name: "BAE Systems"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}},
 	})
 
@@ -1270,11 +1282,11 @@ func TestResolveWithPlugins_NoHintMatch_FallsBackToPrecedence(t *testing.T) {
 
 	// Both plugins return wrong currency -- neither matches hints.
 	registry.Register("pluginA", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	})
 	registry.Register("pluginB", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNYS", Currency: "EUR", Name: "Apple EU"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNYS"}, Currency: "EUR", Name: "Apple EU"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "EU0000000001"}},
 	})
 
@@ -1318,11 +1330,11 @@ func TestResolveWithPlugins_NoHints_PurePrecedence(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	registry.Register("pluginA", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	})
 	registry.Register("pluginB", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XLON", Currency: "GBX", Name: "BAE"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBX", Name: "BAE"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}},
 	})
 
@@ -1367,11 +1379,11 @@ func TestResolveWithPlugins_AllMatch_HighestPrecedenceWins(t *testing.T) {
 
 	// Both plugins match hints (XLON/GBX).
 	registry.Register("pluginA", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XLON", Currency: "GBX", Name: "BAE Systems A"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBX", Name: "BAE Systems A"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}},
 	})
 	registry.Register("pluginB", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XLON", Currency: "GBX", Name: "BAE Systems B"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBX", Name: "BAE Systems B"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}},
 	})
 
@@ -1412,13 +1424,13 @@ func TestResolveWithPlugins_SparseResultDoesNotVacuouslyMatch(t *testing.T) {
 
 	// Plugin A (higher precedence): rich data, currency mismatch with hints.
 	registry.Register("pluginA", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple"},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	})
 	// Plugin B (lower precedence): sparse -- empty currency/exchange.
 	// Zero diffs vacuously but should NOT win because no field is confirmed.
 	registry.Register("pluginB", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Currency: "", Exchange: "", Name: "Unknown"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Currency: "", Venue: identifier.Venue{MIC: ""}, Name: "Unknown"},
 		ids:  []identifier.Identifier{{Type: "SEDOL", Value: "B0YQ5W0"}},
 	})
 
@@ -1529,4 +1541,241 @@ func TestOptionFieldsFromIdentifiers_NoOCC(t *testing.T) {
 	if got != nil {
 		t.Errorf("expected nil, got %+v", got)
 	}
+}
+
+// A higher-precedence plugin that answers with a composite names no venue, so
+// the exchange it supplies is empty while a lower-precedence result names the
+// venue outright. Without the fill the instrument is stored with a null
+// exchange_mic beside a MIC_TICKER whose domain says exactly which exchange it
+// is -- the divergence 0099 is about, written by the same statement.
+func TestResolveWithPlugins_WinnerBlanksFilledFromConsistentLoser(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	// Highest precedence: a composite answer. No venue, no currency, no CIK.
+	registry.Register("composite", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "BERKSHIRE HATHAWAY INC-CL B"},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_TICKER", Domain: "US", Value: "BRK/B"}},
+	})
+	// Lower precedence: names the venue and the currency.
+	registry.Register("venue", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNYS"}, Currency: "USD", Name: "Berkshire Hathaway Inc", CIK: "0001067983"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK.B"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "BRK.B").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "BRK.B").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "BRK.B").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "composite", Precedence: 20}, {PluginID: "venue", Precedence: 10}}, nil)
+	// The winner still supplies the name it gave; only the blanks are filled.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNYS", "USD", "BERKSHIRE HATHAWAY INC-CL B", "0001067983", "", gomock.Any(), "", nil, nil, nil).
+		Return("new-id", nil)
+
+	result, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}},
+		false, nil, Attempt{}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if !result.Identified {
+		t.Error("expected Identified = true")
+	}
+}
+
+// A field the winner did supply is never replaced: adr/0004 makes the
+// identifier the source of truth for the instrument it matched.
+func TestResolveWithPlugins_WinnerValuesNotOverwrittenByLoser(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	registry.Register("winner", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBP", Name: "Winner Plc"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "WIN"}},
+	})
+	// Same exchange, so consistentWith keeps it; its name and currency differ
+	// and must not displace the winner's.
+	registry.Register("loser", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBP", Name: "Loser Ltd"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0000000001"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "WIN").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "WIN").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "WIN").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "winner", Precedence: 20}, {PluginID: "loser", Precedence: 10}}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XLON", "GBP", "Winner Plc", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("new-id", nil)
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}},
+		false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+// An inconsistent result contributes nothing, fills included -- it is excluded
+// from the merge entirely, not merely outranked.
+func TestResolveWithPlugins_InconsistentLoserFillsNothing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	registry.Register("winner", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Currency: "GBP", Name: "Winner Plc"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "", Value: "WIN"}},
+	})
+	// Contradicts the winner's currency, so it is discarded before any fill.
+	registry.Register("other", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XSTO"}, Currency: "SEK", Name: "Other AB"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "SE0000000001"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "WIN").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "WIN").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "WIN").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "winner", Precedence: 20}, {PluginID: "other", Precedence: 10}}, nil)
+	// Exchange stays empty: XSTO came from a result excluded from the merge.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "", "GBP", "Winner Plc", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("new-id", nil)
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}},
+		false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+// The hazard a market-level answer exists to catch. A plugin answering with a
+// composite names no venue, so a comparison that looks only at MICs reads it as
+// no opinion and a foreign listing passes as consistent -- and then fills its
+// venue onto the instrument and merges its ISIN. The answer says the security
+// trades in the United States, and XLON is not there.
+func TestResolveWithPlugins_ForeignVenueContradictsTheWinnersMarket(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	registry.Register("composite", &fakePlugin{
+		inst: &identifier.Instrument{
+			AssetClass: "STOCK",
+			Name:       "US LISTED CO",
+			Venue:      identifier.Venue{Country: "US"},
+		},
+		ids: []identifier.Identifier{{Type: "OPENFIGI_TICKER", Domain: "US", Value: "X"}},
+	})
+	// Same ticker, different company, London. No overlapping identifier type
+	// with the winner and no currency hint, so nothing else would catch it.
+	registry.Register("foreign", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBP", Name: "Unrelated Plc"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0000000001"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "X").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "X").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "X").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "composite", Precedence: 20}, {PluginID: "foreign", Precedence: 10}}, nil)
+	// Exchange stays empty and the London currency is not adopted. The ISIN is
+	// checked separately below.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "", "", "US LISTED CO", "", "",
+			gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			for _, id := range ids {
+				if id.Type == "ISIN" {
+					t.Errorf("ISIN %q merged from a listing outside the market the winner named", id.Value)
+				}
+			}
+			return "new-id", nil
+		})
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
+		false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+// A venue inside the market named is exactly what the fill is for.
+func TestResolveWithPlugins_VenueInsideTheMarketIsAdopted(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	registry.Register("composite", &fakePlugin{
+		inst: &identifier.Instrument{
+			AssetClass: "STOCK",
+			Name:       "BERKSHIRE HATHAWAY INC-CL B",
+			Venue:      identifier.Venue{Country: "US"},
+		},
+		ids: []identifier.Identifier{{Type: "OPENFIGI_TICKER", Domain: "US", Value: "BRK/B"}},
+	})
+	registry.Register("venue", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNYS"}, Currency: "USD", Name: "Berkshire Hathaway Inc"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK.B"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "BRK.B").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "BRK.B").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "BRK.B").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "composite", Precedence: 20}, {PluginID: "venue", Precedence: 10}}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNYS", "USD", "BERKSHIRE HATHAWAY INC-CL B", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("new-id", nil)
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}},
+		false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+// testMICCountry answers the MIC-to-country question the way the seeded ISO
+// reference data does, for the venues these tests name.
+func testMICCountry(_ context.Context, mic string) (string, error) {
+	switch mic {
+	case "XNYS", "XNAS", "OTCM", "XCIS", "BATS", "IEXG":
+		return "US", nil
+	case "XLON":
+		return "GB", nil
+	case "XSTO":
+		return "SE", nil
+	case "XWBO":
+		return "AT", nil
+	}
+	return "", nil
 }

@@ -53,7 +53,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 	if res.Instrument == nil {
 		t.Fatal("expected instrument")
 	}
-	if res.Instrument.AssetClass != "STOCK" || res.Instrument.Name != "INTL BUSINESS MACHINES CORP" || res.Instrument.Exchange != "" {
+	if res.Instrument.AssetClass != "STOCK" || res.Instrument.Name != "INTL BUSINESS MACHINES CORP" || res.Instrument.Venue.MIC != "" {
 		t.Errorf("instrument = %+v", res.Instrument)
 	}
 	hasOpenFIGITicker, hasMICTicker := false, false
@@ -913,8 +913,8 @@ func TestResolveResults_ExchangeHintOutranksSecurityType(t *testing.T) {
 	if inst.Name != "WISE PLC" {
 		t.Errorf("Name = %q, want %q", inst.Name, "WISE PLC")
 	}
-	if inst.Exchange != "XLON" {
-		t.Errorf("Exchange = %q, want XLON", inst.Exchange)
+	if inst.Venue.MIC != "XLON" {
+		t.Errorf("Exchange = %q, want XLON", inst.Venue.MIC)
 	}
 }
 
@@ -931,8 +931,8 @@ func TestResolveResults_ExchangeHintPreferredOverTypeMatch(t *testing.T) {
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
-	if inst.Exchange != "XLON" {
-		t.Errorf("Exchange = %q, want XLON", inst.Exchange)
+	if inst.Venue.MIC != "XLON" {
+		t.Errorf("Exchange = %q, want XLON", inst.Venue.MIC)
 	}
 	// The asset class still comes from the selected result, not the hint.
 	if inst.AssetClass != "STOCK" {
@@ -954,6 +954,81 @@ func TestResolveResults_ExchangeHintUnmatched_FallsBackToType(t *testing.T) {
 	}
 	if inst.AssetClass != "ETF" {
 		t.Errorf("AssetClass = %q, want ETF", inst.AssetClass)
+	}
+}
+
+// figiPtr returns a pointer to s, for building a result's compositeFIGI.
+func figiPtr(s string) *string { return &s }
+
+// OpenFIGI answers a mapping call with rows from both of its code namespaces,
+// and a US listing usually leads with the composite one. Read as a venue code
+// it matched nothing, so every American result scored zero on exchange and the
+// ranking fell back to security type -- no constraint at all for a ticker
+// listed in a dozen countries, which is how a query settled on Vienna.
+func TestResolveResults_CompositeCoveringHintedVenueOutranksAForeignListing(t *testing.T) {
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_AT", Ticker: "BRK/B", ExchCode: "AV", Name: "OTHER AG", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+		{FIGI: "BBG_US", Ticker: "BRK/B", ExchCode: "US", Name: "BERKSHIRE HATHAWAY INC-CL B", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+	}
+	p := NewPlugin(nil, nil, exchangemap.New())
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK/B"}}
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	if inst.Name != "BERKSHIRE HATHAWAY INC-CL B" {
+		t.Errorf("Name = %q, want the US listing", inst.Name)
+	}
+	// The composite says the listing is somewhere in that group, not that it is
+	// on XNYS, so nothing is asserted about the venue.
+	if inst.Venue.MIC != "" {
+		t.Errorf("Exchange = %q, want empty: a composite names no single venue", inst.Venue.MIC)
+	}
+}
+
+// A composite is the weaker claim of the two and must not outrank a result that
+// names the venue outright, even when the composite also matches the type hint.
+func TestResolveResults_NamedVenueOutranksCompositeThatCoversIt(t *testing.T) {
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_COMPOSITE", Ticker: "X", ExchCode: "US", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+		{FIGI: "BBG_VENUE", Ticker: "X", ExchCode: "UN", SecurityType: "ETP", SecurityType2: "ETP", MarketSector: "Equity"},
+	}
+	p := NewPlugin(nil, nil, exchangemap.New())
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}}
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	if inst.Venue.MIC != "XNYS" {
+		t.Errorf("Exchange = %q, want XNYS: naming the venue beats spanning it", inst.Venue.MIC)
+	}
+}
+
+// With nothing to discriminate on, the composite is taken over whichever venue
+// the provider happened to list first: it is the consolidated line for the
+// market, and choosing it leaves the exchange unset rather than asserting a
+// venue nobody named.
+func TestResolveResults_UnrankedPrefersTheCompositeOverAnArbitraryVenue(t *testing.T) {
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_VENUE", CompositeFIGI: figiPtr("BBG_COMPOSITE"), Ticker: "X", ExchCode: "UA", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+		{FIGI: "BBG_COMPOSITE", CompositeFIGI: figiPtr("BBG_COMPOSITE"), Ticker: "X", ExchCode: "US", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+	}
+	p := NewPlugin(nil, nil, exchangemap.New())
+	inst, ids, ok := p.resolveResults(results, identifier.Hints{}, nil, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	if inst.Venue.MIC != "" {
+		t.Errorf("Exchange = %q, want empty", inst.Venue.MIC)
+	}
+	var domain string
+	for _, id := range ids {
+		if id.Type == "OPENFIGI_TICKER" {
+			domain = id.Domain
+		}
+	}
+	if domain != "US" {
+		t.Errorf("OPENFIGI_TICKER domain = %q, want US: the composite row was chosen", domain)
 	}
 }
 
@@ -990,12 +1065,12 @@ func TestPlugin_Identify_MICTickerDomainDroppedOnExchangeMismatch(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	if res.Instrument.Exchange != "XSTO" {
-		t.Fatalf("Exchange = %q, want XSTO", res.Instrument.Exchange)
+	if res.Instrument.Venue.MIC != "XSTO" {
+		t.Fatalf("Exchange = %q, want XSTO", res.Instrument.Venue.MIC)
 	}
 	for _, id := range res.Identifiers {
 		if id.Type == "MIC_TICKER" {
-			t.Errorf("MIC_TICKER %+v asserted against an instrument on %s", id, res.Instrument.Exchange)
+			t.Errorf("MIC_TICKER %+v asserted against an instrument on %s", id, res.Instrument.Venue.MIC)
 		}
 	}
 }

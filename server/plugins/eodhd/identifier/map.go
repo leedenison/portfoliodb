@@ -15,10 +15,11 @@ func stockFromSearch(r *client.SearchResult, exchMap *exchangemap.ExchangeMap) (
 	if !isStockType(r.Type) {
 		return nil, nil
 	}
-	exchange := resolveExchange(r.Exchange, exchMap)
+	venue := resolveVenue(r.Exchange, r.Country, exchMap)
+	exchange := venue.MIC
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassStock,
-		Exchange:   exchange,
+		Venue:      venue,
 		Currency:   strings.ToUpper(r.Currency),
 		Name:       r.Name,
 	}
@@ -36,16 +37,38 @@ func stockFromSearch(r *client.SearchResult, exchMap *exchangemap.ExchangeMap) (
 	return inst, ids
 }
 
-// resolveExchange maps an EODHD exchange code to the first operating MIC.
-func resolveExchange(eodhdCode string, exchMap *exchangemap.ExchangeMap) string {
-	if exchMap == nil || eodhdCode == "" {
+// resolveVenue reads an EODHD exchange code as what it says about where the
+// instrument trades: an operating MIC when the code names one venue, and the
+// country when it does not.
+//
+// US is the case that matters. EODHD reports it for every American listing and
+// its own reference data spells it as XNAS, XNYS and OTCM, so the code cannot
+// say which. Taking the first wrote XNAS on NYSE issues and stored it as the
+// domain of a canonical MIC_TICKER, which then made a correct XNYS from another
+// plugin read as a contradiction and got it discarded. The code itself is still
+// recorded, as the EODHD_EXCH_CODE provider identifier.
+//
+// The country comes from the search result, which states it per listing, so no
+// mapping of EODHD's codes to countries is needed.
+func resolveVenue(eodhdCode, country string, exchMap *exchangemap.ExchangeMap) identifier.Venue {
+	if exchMap != nil && eodhdCode != "" {
+		if mics := exchMap.EODHDCodeToMICs(eodhdCode); len(mics) == 1 {
+			return identifier.Venue{MIC: mics[0]}
+		}
+	}
+	return identifier.Venue{Country: isoCountry(country)}
+}
+
+// isoCountry maps the country names EODHD returns to ISO 3166 codes. It knows
+// only the spellings that appear in search results; anything else yields "",
+// which constrains nothing rather than constraining wrongly.
+func isoCountry(name string) string {
+	switch strings.ToUpper(strings.TrimSpace(name)) {
+	case "USA", "US", "UNITED STATES":
+		return "US"
+	default:
 		return ""
 	}
-	mics := exchMap.EODHDCodeToMICs(eodhdCode)
-	if len(mics) == 0 {
-		return ""
-	}
-	return mics[0]
 }
 
 // bestMatch selects the best search result for a stock. It filters to stock

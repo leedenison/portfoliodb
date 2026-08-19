@@ -203,7 +203,7 @@ func openFIGIResultToInstrument(r *OpenFIGIResult, exchMap *exchangemap.Exchange
 	}
 	inst := &identifier.Instrument{
 		AssetClass: assetClass,
-		Exchange:   resolveExchange(r.ExchCode, exchMap),
+		Venue:      resolveVenue(r.ExchCode, exchMap),
 		Currency:   "", // OpenFIGI does not return currency; caller sets from hints
 		Name:       name,
 	}
@@ -224,16 +224,26 @@ func openFIGIResultToInstrument(r *OpenFIGIResult, exchMap *exchangemap.Exchange
 	return inst, ids
 }
 
-// resolveExchange maps an OpenFIGI exchange code to the first operating MIC.
-func resolveExchange(exchCode string, exchMap *exchangemap.ExchangeMap) string {
+// resolveVenue reads an OpenFIGI exchange code as what it says about where the
+// instrument trades: an operating MIC when the code names a venue, the country
+// when it names a composite, and nothing when the code is unknown.
+//
+// A composite deliberately yields no MIC. It spans a market, and picking a
+// member of it would store a venue nobody stated -- which then reads as a
+// contradiction of the correct venue when another plugin supplies one. The code
+// itself is not lost: it travels as the domain of the OPENFIGI_TICKER
+// identifier.
+//
+// The handful of venue codes covering more than one operating MIC are treated
+// the same way, since they are no more specific than a composite.
+func resolveVenue(exchCode string, exchMap *exchangemap.ExchangeMap) identifier.Venue {
 	if exchMap == nil || exchCode == "" {
-		return ""
+		return identifier.Venue{}
 	}
-	mics := exchMap.ExchCodeToMICs(exchCode)
-	if len(mics) == 0 {
-		return ""
+	if mics := exchMap.ExchCodeToMICs(exchCode); len(mics) == 1 {
+		return identifier.Venue{MIC: mics[0]}
 	}
-	return mics[0]
+	return identifier.Venue{Country: exchMap.CompositeCountry(exchCode)}
 }
 
 // isDerivative returns true if the result is an option or future.

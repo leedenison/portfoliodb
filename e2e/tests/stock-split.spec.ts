@@ -29,7 +29,7 @@ test.describe("stock split: tx uploaded before split", () => {
 
   test.beforeAll(async () => {
     await loadCassette("stock-split-tx-first");
-    await resetAndSeedBase();
+    await resetAndSeedBase("stock-split-tx-first");
     userSession = await seedSession("user");
     adminSession = await seedSession("admin");
   });
@@ -148,7 +148,7 @@ test.describe("stock split: split uploaded before tx", () => {
 
   test.beforeAll(async () => {
     await loadCassette("stock-split-split-first");
-    await resetAndSeedBase();
+    await resetAndSeedBase("stock-split-split-first");
     userSession = await seedSession("user");
     adminSession = await seedSession("admin");
   });

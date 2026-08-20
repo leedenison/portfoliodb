@@ -9,7 +9,7 @@ import { isRecordingSuite } from "../helpers/vcr";
 
 test.beforeAll(async () => {
   await loadCassette("ingestion-flow");
-  await resetAndSeedBase();
+  await resetAndSeedBase("ingestion-flow");
 });
 
 test.afterAll(async () => {

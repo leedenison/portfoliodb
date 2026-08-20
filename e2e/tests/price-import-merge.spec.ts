@@ -34,7 +34,7 @@ let db: Client;
 
 test.beforeAll(async () => {
   await loadCassette("price-import-merge");
-  await resetAndSeedBase();
+  await resetAndSeedBase("price-import-merge");
   db = new Client(DATABASE_URL);
   await db.connect();
 });

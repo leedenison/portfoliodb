@@ -68,7 +68,7 @@ function intcBuy(name: string, at: Date, quantity: string, unitPrice: string): A
 test.beforeAll(async ({ browser }) => {
   await loadCassette("tx-update-price-fetch");
   await waitForWorkersIdle(browser);
-  await resetAndSeedBase();
+  await resetAndSeedBase("tx-update-price-fetch");
 });
 
 test.afterAll(async () => {

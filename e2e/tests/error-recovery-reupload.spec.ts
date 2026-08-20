@@ -9,7 +9,7 @@ import { uploadArchiveAndWait } from "../helpers/upload";
 
 test.beforeAll(async () => {
   await loadCassette("error-recovery-reupload");
-  await resetAndSeedBase();
+  await resetAndSeedBase("error-recovery-reupload");
 });
 
 test.afterAll(async () => {

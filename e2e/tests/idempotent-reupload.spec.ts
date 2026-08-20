@@ -9,7 +9,7 @@ import { uploadArchiveAndWait } from "../helpers/upload";
 
 test.beforeAll(async () => {
   await loadCassette("idempotent-reupload");
-  await resetAndSeedBase();
+  await resetAndSeedBase("idempotent-reupload");
 });
 
 test.afterAll(async () => {

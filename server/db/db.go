@@ -2013,12 +2013,16 @@ const (
 // by DB lookup, and for one whose every posting names an identifier, because
 // extraction exists to find an identifier and is a paid call.
 const (
-	TelemetryExtractionHintsFound                = "hints_found"
-	TelemetryExtractionNoHints                   = "no_hints"
-	TelemetryExtractionNotAttemptedDBHit         = "not_attempted_db_hit"
-	TelemetryExtractionNotAttemptedHintsSupplied = "not_attempted_hints_supplied"
-	TelemetryExtractionNotAttemptedTypeFilter    = "not_attempted_type_filter"
-	TelemetryExtractionNotAttemptedNoPlugins     = "not_attempted_no_plugins"
+	TelemetryCandidateFieldsProposed  = "fields_proposed"
+	TelemetryCandidateNothingProposed = "nothing_proposed"
+	// The skips, each naming a different thing to act on. See the column comment
+	// in 005_telemetry.sql.
+	TelemetryCandidateNotAttemptedDBHit            = "not_attempted_db_hit"
+	TelemetryCandidateNotAttemptedIdentityComplete = "not_attempted_identity_complete"
+	TelemetryCandidateNotAttemptedConflictingHints = "not_attempted_conflicting_hints"
+	TelemetryCandidateNotAttemptedRunKind          = "not_attempted_run_kind"
+	TelemetryCandidateNotAttemptedTypeFilter       = "not_attempted_type_filter"
+	TelemetryCandidateNotAttemptedNoPlugins        = "not_attempted_no_plugins"
 )
 
 // Resolution outcomes, stage 2 of a resolution key. The two db_ members are
@@ -2134,9 +2138,10 @@ type TelemetryResolutionKey struct {
 // TelemetryResolutionKeyOutcome is what became of a resolution key, stamped onto
 // the row when it resolves. InstrumentID is empty when it did not.
 type TelemetryResolutionKeyOutcome struct {
-	RunID             string
-	ExtractionOutcome string
-	Outcome           string
+	RunID string
+	// CandidateOutcome is stage 1: what the candidate stage did for this key.
+	CandidateOutcome string
+	Outcome          string
 	// MismatchDetected names the probe that found two ways of naming this key's
 	// instrument disagreeing, empty when none did. A name rather than a flag:
 	// two different findings must not share one boolean, or neither can be
@@ -2194,15 +2199,49 @@ type TelemetryTokens struct {
 // rates are not comparable between them. Precedence is what makes that order
 // readable afterwards, higher first.
 type TelemetryCandidatePluginCall struct {
-	RunID          string
-	PluginID       string
-	Precedence     int
-	BatchSize      int
-	ItemsWithHints int
+	RunID      string
+	PluginID   string
+	Precedence int
+	BatchSize  int
+	// ItemsCompleted is the items the plugin filled at least one field for, and
+	// FieldsProposed the fields it filled across them. They are different
+	// denominators: one item can be given a ticker, a venue and a currency at
+	// once, and cost per item answers a different question from cost per field.
+	ItemsCompleted int
+	FieldsProposed int
 	Outcome        string
 	Tokens         *TelemetryTokens
 	Duration       time.Duration
 }
+
+// TelemetryCandidateField is one field a candidate plugin proposed for one
+// resolution key, and what became of it. It names two parents because neither
+// alone can answer whether completion helped: the call covers many keys, and the
+// key does not know which call offered the value.
+//
+// Confidence is what the plugin said about its own answer, recorded so it can be
+// bucketed against Outcome, and gated on by nothing. Nil for a plugin that
+// reports none.
+type TelemetryCandidateField struct {
+	RunID           string
+	ResolutionKeyID string
+	CallID          string
+	Field           string
+	Value           string
+	Confidence      *float64
+	Outcome         string
+}
+
+// Outcomes for a proposed field. confirmed and contradicted are what the
+// resolution was able to check; untested and unused are the two ways it could
+// not, kept apart because their fixes differ -- untested is a provider that does
+// not return the field, unused is a proposal nothing needed.
+const (
+	TelemetryCandidateFieldConfirmed    = "confirmed"
+	TelemetryCandidateFieldContradicted = "contradicted"
+	TelemetryCandidateFieldUntested     = "untested"
+	TelemetryCandidateFieldUnused       = "unused"
+)
 
 // TelemetryPriceGap is one instrument a price fetch cycle set out to fill, as it
 // stands before any plugin is put to it. Not one price row and not one provider
@@ -2278,7 +2317,11 @@ type TelemetryDB interface {
 	// for the plugin calls written under it.
 	WriteIdentificationAttempt(ctx context.Context, a TelemetryIdentificationAttempt) string
 	WriteIdentifierPluginCall(ctx context.Context, c TelemetryIdentifierPluginCall)
-	WriteCandidatePluginCall(ctx context.Context, c TelemetryCandidatePluginCall)
+	// WriteCandidatePluginCall records a finished call and returns its id, which
+	// the fields proposed by that call reference.
+	WriteCandidatePluginCall(ctx context.Context, c TelemetryCandidatePluginCall) string
+	// WriteCandidateField records one proposed field against its key and its call.
+	WriteCandidateField(ctx context.Context, f TelemetryCandidateField)
 
 	// StartPriceGap creates a price gap and returns its id, for the reason
 	// StartResolutionKey does: its plugin calls reference it, so it must exist
@@ -2328,7 +2371,11 @@ func (NopTelemetry) WriteIdentificationAttempt(context.Context, TelemetryIdentif
 
 func (NopTelemetry) WriteIdentifierPluginCall(context.Context, TelemetryIdentifierPluginCall) {}
 
-func (NopTelemetry) WriteCandidatePluginCall(context.Context, TelemetryCandidatePluginCall) {}
+func (NopTelemetry) WriteCandidatePluginCall(context.Context, TelemetryCandidatePluginCall) string {
+	return ""
+}
+
+func (NopTelemetry) WriteCandidateField(context.Context, TelemetryCandidateField) {}
 
 func (NopTelemetry) StartPriceGap(context.Context, TelemetryPriceGap) string { return "" }
 

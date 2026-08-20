@@ -258,7 +258,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  coalesce(extraction_outcome, '(not stamped)') AS extraction_outcome,\n  count(*) AS keys\nFROM telemetry.v_resolution_key\nWHERE run_id = '${run}'::uuid\nGROUP BY 1\nORDER BY 2 DESC",
+          "rawSql": "SELECT\n  coalesce(candidate_outcome, '(not stamped)') AS candidate_outcome,\n  count(*) AS keys\nFROM telemetry.v_resolution_key\nWHERE run_id = '${run}'::uuid\nGROUP BY 1\nORDER BY 2 DESC",
           "refId": "A"
         }
       ],
@@ -454,7 +454,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  k.description,\n  k.source,\n  k.tx_count,\n  k.outcome,\n  k.extraction_outcome,\n  k.had_attempt,\n  k.had_identifier_hints,\n  k.security_type_hint,\n  k.instrument_kind,\n  k.mismatch_detected\nFROM telemetry.v_resolution_key k\nWHERE k.run_id = '${run}'::uuid\n  AND NOT k.resolved\nORDER BY k.tx_count DESC, k.description",
+          "rawSql": "SELECT\n  k.description,\n  k.source,\n  k.tx_count,\n  k.outcome,\n  k.candidate_outcome,\n  k.had_attempt,\n  k.had_identifier_hints,\n  k.security_type_hint,\n  k.instrument_kind,\n  k.mismatch_detected\nFROM telemetry.v_resolution_key k\nWHERE k.run_id = '${run}'::uuid\n  AND NOT k.resolved\nORDER BY k.tx_count DESC, k.description",
           "refId": "A"
         }
       ],
@@ -888,7 +888,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  precedence,\n  plugin_id,\n  outcome,\n  batch_size,\n  items_with_hints,\n  round(100.0 * items_with_hints / nullif(batch_size, 0), 1) AS hit_pct,\n  duration_ms,\n  prompt_tokens,\n  completion_tokens,\n  total_tokens\nFROM telemetry.v_candidate_plugin_call\nWHERE run_id = '${run}'::uuid\nORDER BY precedence DESC",
+          "rawSql": "SELECT\n  precedence,\n  plugin_id,\n  outcome,\n  batch_size,\n  items_completed,\n  round(100.0 * items_completed / nullif(batch_size, 0), 1) AS hit_pct,\n  duration_ms,\n  prompt_tokens,\n  completion_tokens,\n  total_tokens\nFROM telemetry.v_candidate_plugin_call\nWHERE run_id = '${run}'::uuid\nORDER BY precedence DESC",
           "refId": "A"
         }
       ],

@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
+	"github.com/leedenison/portfoliodb/server/service/identification"
 	"go.uber.org/mock/gomock"
 )
 
@@ -65,7 +66,7 @@ func TestResolutionKeyCountsItsFanOut(t *testing.T) {
 	txs := []*apiv1.Tx{tx("APPLE INC"), tx("APPLE INC"), tx("APPLE INC"), tx("MSFT")}
 	hints := make([][]identifier.Identifier, len(txs))
 
-	newResolutionKeys(context.Background(), tel, "run-1", "FIDELITY_CSV", txs, hints, nil)
+	newResolutionKeys(context.Background(), tel, "run-1", "FIDELITY_CSV", txs, hints, prePass{})
 
 	if len(spy.started) != 2 {
 		t.Fatalf("wrote %d keys, want 2", len(spy.started))
@@ -101,7 +102,7 @@ func TestResolutionKeyHintsSplitTheKey(t *testing.T) {
 		{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
 	}
 
-	newResolutionKeys(context.Background(), tel, "run-1", "FIDELITY_CSV", txs, hints, nil)
+	newResolutionKeys(context.Background(), tel, "run-1", "FIDELITY_CSV", txs, hints, prePass{})
 
 	if len(started) != 2 {
 		t.Fatalf("wrote %d keys, want 2", len(started))
@@ -115,12 +116,12 @@ func TestResolutionKeyHintsSplitTheKey(t *testing.T) {
 	}
 }
 
-// TestResolutionKeyExtractionOutcome pins stage one landing on the key. The
+// TestResolutionKeyCandidateOutcome pins stage one landing on the key. The
 // pre-pass works at the key's own grain and says what became of each one, so
 // this maps its answer onto the key rather than deriving a reason of its own --
 // including for a key that carried identifier hints, which the pre-pass records
 // as not attempted for that reason.
-func TestResolutionKeyExtractionOutcome(t *testing.T) {
+func TestResolutionKeyCandidateOutcome(t *testing.T) {
 	tests := []struct {
 		name       string
 		hints      []identifier.Identifier
@@ -129,21 +130,21 @@ func TestResolutionKeyExtractionOutcome(t *testing.T) {
 	}{
 		{
 			name:       "proposed",
-			extraction: map[string]string{cacheKeyWithHints("SRC", "APPLE INC", nil): db.TelemetryExtractionHintsFound},
-			want:       db.TelemetryExtractionHintsFound,
+			extraction: map[string]string{cacheKeyWithHints("SRC", "APPLE INC", nil): db.TelemetryCandidateFieldsProposed},
+			want:       db.TelemetryCandidateFieldsProposed,
 		},
 		{
 			name:       "db hit",
-			extraction: map[string]string{cacheKeyWithHints("SRC", "APPLE INC", nil): db.TelemetryExtractionNotAttemptedDBHit},
-			want:       db.TelemetryExtractionNotAttemptedDBHit,
+			extraction: map[string]string{cacheKeyWithHints("SRC", "APPLE INC", nil): db.TelemetryCandidateNotAttemptedDBHit},
+			want:       db.TelemetryCandidateNotAttemptedDBHit,
 		},
 		{
 			name:  "hints supplied",
 			hints: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 			extraction: map[string]string{
-				cacheKeyWithHints("SRC", "APPLE INC", []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}): db.TelemetryExtractionNotAttemptedHintsSupplied,
+				cacheKeyWithHints("SRC", "APPLE INC", []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}): db.TelemetryCandidateNotAttemptedIdentityComplete,
 			},
-			want: db.TelemetryExtractionNotAttemptedHintsSupplied,
+			want: db.TelemetryCandidateNotAttemptedIdentityComplete,
 		},
 	}
 
@@ -156,14 +157,14 @@ func TestResolutionKeyExtractionOutcome(t *testing.T) {
 
 			txs := []*apiv1.Tx{tx("APPLE INC")}
 			keys := newResolutionKeys(context.Background(), tel, "run-1", "SRC", txs,
-				[][]identifier.Identifier{tc.hints}, tc.extraction)
+				[][]identifier.Identifier{tc.hints}, prePass{outcome: tc.extraction})
 			keys.end(context.Background(),
 				cacheKeyWithHints("SRC", "APPLE INC", tc.hints),
 				db.TelemetryResolutionIdentified, "inst-1")
 
 			got := spy.ended["APPLE INC"]
-			if got.ExtractionOutcome != tc.want {
-				t.Errorf("extraction outcome = %q, want %q", got.ExtractionOutcome, tc.want)
+			if got.CandidateOutcome != tc.want {
+				t.Errorf("extraction outcome = %q, want %q", got.CandidateOutcome, tc.want)
 			}
 			if got.Outcome != db.TelemetryResolutionIdentified {
 				t.Errorf("outcome = %q, want %q", got.Outcome, db.TelemetryResolutionIdentified)
@@ -192,7 +193,7 @@ func TestResolutionKeyStampsOnce(t *testing.T) {
 
 	ctx := context.Background()
 	txs := []*apiv1.Tx{tx("APPLE INC")}
-	keys := newResolutionKeys(ctx, tel, "run-1", "SRC", txs, make([][]identifier.Identifier, 1), nil)
+	keys := newResolutionKeys(ctx, tel, "run-1", "SRC", txs, make([][]identifier.Identifier, 1), prePass{})
 	key := cacheKeyWithHints("SRC", "APPLE INC", nil)
 	keys.end(ctx, key, db.TelemetryResolutionIdentified, "inst-1")
 	keys.end(ctx, key, db.TelemetryResolutionDBSourceDescription, "inst-1")
@@ -205,10 +206,10 @@ func TestNilLedgerRecordsNothing(t *testing.T) {
 	keys.mismatch("k", db.TelemetryMismatchFIGIvsTicker)
 	keys.end(context.Background(), "k", db.TelemetryResolutionIdentified, "inst-1")
 
-	if got := newResolutionKeys(context.Background(), nil, "run-1", "SRC", nil, nil, nil); got != nil {
+	if got := newResolutionKeys(context.Background(), nil, "run-1", "SRC", nil, nil, prePass{}); got != nil {
 		t.Error("a ledger with no writer is not nil")
 	}
-	if got := newResolutionKeys(context.Background(), mock.NewMockTelemetryDB(gomock.NewController(t)), "", "SRC", nil, nil, nil); got != nil {
+	if got := newResolutionKeys(context.Background(), mock.NewMockTelemetryDB(gomock.NewController(t)), "", "SRC", nil, nil, prePass{}); got != nil {
 		t.Error("a ledger outside a run is not nil")
 	}
 }
@@ -318,8 +319,8 @@ func TestDescriptionPluginCallRows(t *testing.T) {
 			if got.Outcome != tc.wantOut {
 				t.Errorf("outcome = %q, want %q", got.Outcome, tc.wantOut)
 			}
-			if got.ItemsWithHints != tc.wantHints {
-				t.Errorf("items_with_hints = %d, want %d", got.ItemsWithHints, tc.wantHints)
+			if got.ItemsCompleted != tc.wantHints {
+				t.Errorf("items_with_hints = %d, want %d", got.ItemsCompleted, tc.wantHints)
 			}
 			switch {
 			case tc.wantTokens == nil && got.Tokens != nil:
@@ -331,10 +332,10 @@ func TestDescriptionPluginCallRows(t *testing.T) {
 	}
 }
 
-// TestExtractionOutcomesPerItem pins where the skips live. An item no enabled
+// TestCandidateOutcomesPerItem pins where the skips live. An item no enabled
 // plugin accepted was never put to one, which is not the same as one that was
 // asked about and yielded nothing.
-func TestExtractionOutcomesPerItem(t *testing.T) {
+func TestCandidateOutcomesPerItem(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	database := mock.NewMockDB(ctrl)
@@ -360,9 +361,9 @@ func TestExtractionOutcomesPerItem(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"found":    db.TelemetryExtractionHintsFound,
-		"missed":   db.TelemetryExtractionNoHints,
-		"filtered": db.TelemetryExtractionNotAttemptedTypeFilter,
+		"found":    db.TelemetryCandidateFieldsProposed,
+		"missed":   db.TelemetryCandidateNothingProposed,
+		"filtered": db.TelemetryCandidateNotAttemptedTypeFilter,
 	}
 	for id, w := range want {
 		if outcomes[id] != w {
@@ -388,8 +389,8 @@ func TestExtractionNotAttemptedWithoutPlugins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runCandidatePluginsBatch: %v", err)
 	}
-	if outcomes["item-1"] != db.TelemetryExtractionNotAttemptedNoPlugins {
-		t.Errorf("outcome = %q, want %q", outcomes["item-1"], db.TelemetryExtractionNotAttemptedNoPlugins)
+	if outcomes["item-1"] != db.TelemetryCandidateNotAttemptedNoPlugins {
+		t.Errorf("outcome = %q, want %q", outcomes["item-1"], db.TelemetryCandidateNotAttemptedNoPlugins)
 	}
 }
 
@@ -425,12 +426,12 @@ func TestMismatchCheckProbesAreTheirOwnAttempts(t *testing.T) {
 
 	ctx := context.Background()
 	txs := []*apiv1.Tx{tx(desc)}
-	keys := newResolutionKeys(ctx, tel, "run-1", source, txs, make([][]identifier.Identifier, 1), nil)
-	extracted := map[string][]identifier.Identifier{
-		cacheKey(source, desc): {
-			{Type: "MIC_TICKER", Value: "AAPL"},
-			{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"},
-		},
+	keys := newResolutionKeys(ctx, tel, "run-1", source, txs, make([][]identifier.Identifier, 1), prePass{})
+	extracted := map[string]keyProposals{
+		cacheKey(source, desc): {Proposals: []candpkg.Proposal{
+			{Field: candpkg.FieldTicker, Identifier: identifier.Identifier{Type: "MIC_TICKER", Value: "AAPL"}},
+			{Field: candpkg.FieldKey, Identifier: identifier.Identifier{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
+		}},
 	}
 
 	if _, err := Resolve(ctx, database, identifier.NewRegistry(), "IBKR", source, desc,
@@ -458,4 +459,83 @@ func TestMismatchCheckProbesAreTheirOwnAttempts(t *testing.T) {
 	if got := spy.ended[desc].MismatchDetected; got != "" {
 		t.Errorf("mismatch_detected = %q, want empty for two hints that agreed", got)
 	}
+}
+
+// One row per proposed field, naming both parents, written when the key is
+// stamped. It cannot be written when the proposal is made: the pre-pass runs
+// before the ledger exists, so the key row a field must name is not there yet.
+func TestResolutionKeys_WritesAFieldRowPerProposal(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	tel := mock.NewMockTelemetryDB(ctrl)
+	tel.EXPECT().StartResolutionKey(gomock.Any(), gomock.Any()).Return("key-1")
+	tel.EXPECT().EndResolutionKey(gomock.Any(), gomock.Any(), gomock.Any())
+
+	var written []db.TelemetryCandidateField
+	tel.EXPECT().WriteCandidateField(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, f db.TelemetryCandidateField) { written = append(written, f) }).Times(2)
+
+	ctx := context.Background()
+	source, desc := "SRC", "APPLE INC"
+	key := cacheKey(source, desc)
+	txs := []*apiv1.Tx{tx(desc)}
+	ticker := identifier.Identifier{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}
+	currency := identifier.Identifier{Type: "CURRENCY", Value: "USD"}
+	keys := newResolutionKeys(ctx, tel, "run-1", source, txs, make([][]identifier.Identifier, 1), prePass{
+		outcome: map[string]string{key: db.TelemetryCandidateFieldsProposed},
+		proposed: map[string]keyProposals{key: {CallID: "call-1", Proposals: []candpkg.Proposal{
+			{Field: candpkg.FieldExchange, Identifier: ticker, Confidence: 0.7},
+			{Field: candpkg.FieldCurrency, Identifier: currency, Confidence: 0.9},
+		}}},
+	})
+
+	// Only the ticker was checked; the currency proposal reached no verdict.
+	keys.fields(key, []identification.ProposalOutcome{
+		{Identifier: ticker, Outcome: db.TelemetryCandidateFieldConfirmed},
+	})
+	keys.end(ctx, key, db.TelemetryResolutionIdentified, "inst-1")
+
+	if len(written) != 2 {
+		t.Fatalf("wrote %d field rows, want one per proposal", len(written))
+	}
+	byField := map[string]db.TelemetryCandidateField{}
+	for _, f := range written {
+		byField[f.Field] = f
+	}
+	ex := byField[candpkg.FieldExchange]
+	if ex.Outcome != db.TelemetryCandidateFieldConfirmed || ex.Value != "AAPL" {
+		t.Errorf("exchange row = %+v, want the confirmed ticker", ex)
+	}
+	if ex.ResolutionKeyID != "key-1" || ex.CallID != "call-1" {
+		t.Errorf("exchange row parents = (%q, %q), want (key-1, call-1)", ex.ResolutionKeyID, ex.CallID)
+	}
+	if ex.Confidence == nil || *ex.Confidence != 0.7 {
+		t.Errorf("confidence = %v, want the plugin's 0.7", ex.Confidence)
+	}
+	// A proposal the resolution never reported on was paid for and not needed,
+	// which is unused rather than untested.
+	if got := byField[candpkg.FieldCurrency].Outcome; got != db.TelemetryCandidateFieldUnused {
+		t.Errorf("currency outcome = %q, want %q", got, db.TelemetryCandidateFieldUnused)
+	}
+}
+
+// No call id means no call row, and a field row names its call. Nothing is
+// written rather than written against a null.
+func TestResolutionKeys_NoCallMeansNoFieldRows(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	tel := mock.NewMockTelemetryDB(ctrl)
+	tel.EXPECT().StartResolutionKey(gomock.Any(), gomock.Any()).Return("key-1")
+	tel.EXPECT().EndResolutionKey(gomock.Any(), gomock.Any(), gomock.Any())
+	// No WriteCandidateField expectation: calling it fails the test.
+
+	ctx := context.Background()
+	key := cacheKey("SRC", "APPLE INC")
+	keys := newResolutionKeys(ctx, tel, "run-1", "SRC", []*apiv1.Tx{tx("APPLE INC")},
+		make([][]identifier.Identifier, 1), prePass{
+			proposed: map[string]keyProposals{key: {Proposals: []candpkg.Proposal{
+				{Field: candpkg.FieldTicker, Identifier: identifier.Identifier{Type: "MIC_TICKER", Value: "AAPL"}},
+			}}},
+		})
+	keys.end(ctx, key, db.TelemetryResolutionIdentified, "inst-1")
 }

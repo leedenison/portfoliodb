@@ -144,10 +144,10 @@ func (t *Telemetry) EndResolutionKey(ctx context.Context, keyID string, o db.Tel
 	}
 	if _, err := t.db.ExecContext(ctx, `
 		UPDATE telemetry.resolution_key
-		SET extraction_outcome = $2, outcome = $3, mismatch_detected = $4,
+		SET candidate_outcome = $2, outcome = $3, mismatch_detected = $4,
 		    hint_diffs = $5, instrument_id = $6
 		WHERE id = $1
-	`, id, nullStr(o.ExtractionOutcome), nullStr(o.Outcome), nullStr(o.MismatchDetected),
+	`, id, nullStr(o.CandidateOutcome), nullStr(o.Outcome), nullStr(o.MismatchDetected),
 		nullStr(o.HintDiffs), t.optUUID(o.InstrumentID, "end resolution key")); err != nil {
 		t.fail(ctx, o.RunID, "end resolution key", err)
 	}
@@ -191,23 +191,52 @@ func (t *Telemetry) WriteIdentifierPluginCall(ctx context.Context, c db.Telemetr
 }
 
 // WriteCandidatePluginCall implements db.TelemetryDB.
-func (t *Telemetry) WriteCandidatePluginCall(ctx context.Context, c db.TelemetryCandidatePluginCall) {
+func (t *Telemetry) WriteCandidatePluginCall(ctx context.Context, c db.TelemetryCandidatePluginCall) string {
 	runID, ok := t.parent(ctx, c.RunID, c.RunID, "write candidate plugin call")
 	if !ok {
-		return
+		return ""
 	}
 	var prompt, completion, total any
 	if c.Tokens != nil {
 		prompt, completion, total = c.Tokens.Prompt, c.Tokens.Completion, c.Tokens.Total
 	}
-	if _, err := t.db.ExecContext(ctx, `
+	var id string
+	if err := t.db.QueryRowContext(ctx, `
 		INSERT INTO telemetry.candidate_plugin_call
-			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome,
-			 prompt_tokens, completion_tokens, total_tokens, duration_ms)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, runID, c.PluginID, c.Precedence, c.BatchSize, c.ItemsWithHints, c.Outcome,
-		prompt, completion, total, ms(c.Duration)); err != nil {
+			(run_id, plugin_id, precedence, batch_size, items_completed, fields_proposed,
+			 outcome, prompt_tokens, completion_tokens, total_tokens, duration_ms)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id
+	`, runID, c.PluginID, c.Precedence, c.BatchSize, c.ItemsCompleted, c.FieldsProposed,
+		c.Outcome, prompt, completion, total, ms(c.Duration)).Scan(&id); err != nil {
 		t.fail(ctx, c.RunID, "write candidate plugin call", err)
+		return ""
+	}
+	return id
+}
+
+// WriteCandidateField implements db.TelemetryDB. Both parents must exist: a field
+// whose call or key failed to write has nothing to hang off, and is dropped rather
+// than written against a null.
+func (t *Telemetry) WriteCandidateField(ctx context.Context, f db.TelemetryCandidateField) {
+	keyID, ok := t.parent(ctx, f.RunID, f.ResolutionKeyID, "write candidate field")
+	if !ok {
+		return
+	}
+	callID, ok := t.parent(ctx, f.RunID, f.CallID, "write candidate field")
+	if !ok {
+		return
+	}
+	var confidence any
+	if f.Confidence != nil {
+		confidence = *f.Confidence
+	}
+	if _, err := t.db.ExecContext(ctx, `
+		INSERT INTO telemetry.candidate_field
+			(resolution_key_id, call_id, field, value, confidence, outcome)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, keyID, callID, f.Field, f.Value, confidence, f.Outcome); err != nil {
+		t.fail(ctx, f.RunID, "write candidate field", err)
 	}
 }
 

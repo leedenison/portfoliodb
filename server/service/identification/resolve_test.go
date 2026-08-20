@@ -2000,20 +2000,34 @@ func TestResolveWithPlugins_ProposalDoesNotPromoteAResultContradictingTheSource(
 	}
 }
 
-// --- FilterProposals ---
+// --- NewProposalFilter ---
+
+// filterAll applies the filter to each identifier in turn and collects what
+// survived, which is what the callers do with their own metadata attached.
+func filterAll(t *testing.T, database db.InstrumentDB, in []identifier.Identifier) []identifier.Identifier {
+	t.Helper()
+	f := NewProposalFilter(context.Background(), database, nil)
+	var out []identifier.Identifier
+	for _, id := range in {
+		if kept, ok := f(id); ok {
+			out = append(out, kept)
+		}
+	}
+	return out
+}
 
 // A candidate plugin has no database access, so a venue it proposes has been
 // checked against nothing. An unknown MIC costs the domain and keeps the ticker:
 // a good symbol under a venue that does not exist is still worth having, and
 // dropping the pair would throw away the half that was right.
-func TestFilterProposals_UnknownMICLosesTheDomainAndKeepsTheTicker(t *testing.T) {
+func TestProposalFilter_UnknownMICLosesTheDomainAndKeepsTheTicker(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().ValidateMIC(gomock.Any(), "XZZZ").Return(false, nil)
 
-	got := FilterProposals(context.Background(), database,
-		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XZZZ", Value: "AAPL"}}, nil)
+	got := filterAll(t, database,
+		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XZZZ", Value: "AAPL"}})
 
 	if len(got) != 1 {
 		t.Fatalf("got %d identifiers, want the ticker to survive", len(got))
@@ -2028,15 +2042,15 @@ func TestFilterProposals_UnknownMICLosesTheDomainAndKeepsTheTicker(t *testing.T)
 
 // A recognised segment MIC is normalised to its operating MIC, so a proposal is
 // compared and stored at the grain everything else uses (adr/0003).
-func TestFilterProposals_KnownMICIsNormalisedToItsOperatingMIC(t *testing.T) {
+func TestProposalFilter_KnownMICIsNormalisedToItsOperatingMIC(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().ValidateMIC(gomock.Any(), "XNGS").Return(true, nil)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XNGS").Return("XNAS", nil)
 
-	got := FilterProposals(context.Background(), database,
-		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL"}}, nil)
+	got := filterAll(t, database,
+		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL"}})
 
 	if len(got) != 1 || got[0].Domain != "XNAS" {
 		t.Fatalf("got %+v, want the domain normalised to XNAS", got)
@@ -2046,18 +2060,18 @@ func TestFilterProposals_KnownMICIsNormalisedToItsOperatingMIC(t *testing.T) {
 // The same venue proposed across a batch is looked up once: a batch proposes the
 // same handful of exchanges over and over, and the reference table does not
 // change underneath it. gomock enforces the count.
-func TestFilterProposals_LookupsAreMemoised(t *testing.T) {
+func TestProposalFilter_LookupsAreMemoised(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().ValidateMIC(gomock.Any(), "XLON").Return(true, nil).Times(1)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XLON").Return("XLON", nil).Times(1)
 
-	got := FilterProposals(context.Background(), database, []identifier.Identifier{
+	got := filterAll(t, database, []identifier.Identifier{
 		{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"},
 		{Type: "MIC_TICKER", Domain: "XLON", Value: "BP"},
 		{Type: "MIC_TICKER", Domain: "XLON", Value: "HSBA"},
-	}, nil)
+	})
 
 	if len(got) != 3 {
 		t.Fatalf("got %d identifiers, want 3", len(got))
@@ -2066,13 +2080,13 @@ func TestFilterProposals_LookupsAreMemoised(t *testing.T) {
 
 // A type outside the controlled vocabulary is dropped, as it is for a stated
 // hint: FilterProposals is that filter plus the checks needing reference data.
-func TestFilterProposals_DropsTypesOutsideTheVocabulary(t *testing.T) {
+func TestProposalFilter_DropsTypesOutsideTheVocabulary(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 
-	got := FilterProposals(context.Background(), database,
-		[]identifier.Identifier{{Type: "NOT_A_REAL_TYPE", Value: "x"}}, nil)
+	got := filterAll(t, database,
+		[]identifier.Identifier{{Type: "NOT_A_REAL_TYPE", Value: "x"}})
 
 	if len(got) != 0 {
 		t.Errorf("got %+v, want nothing", got)
@@ -2194,5 +2208,82 @@ func TestResolveWithPlugins_AStatedVenueDoesNarrowTheLookup(t *testing.T) {
 	}
 	if got.InstrumentID != "stated-id" {
 		t.Errorf("InstrumentID = %q, want stated-id", got.InstrumentID)
+	}
+}
+
+// --- per-field candidate telemetry (0134) ---
+
+// The verdict is about the identifier as a whole, venue included, because that
+// is what was proposed: confirming the symbol while the venue disagrees is not a
+// confirmation of what was said.
+func TestProposalOutcomes(t *testing.T) {
+	inst := func(venue, currency string) *identifier.Instrument {
+		return &identifier.Instrument{Currency: currency, Venue: identifier.Venue{MIC: venue}}
+	}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
+
+	cases := []struct {
+		name     string
+		proposed identifier.Identifier
+		inst     *identifier.Instrument
+		resolved []identifier.Identifier
+		want     string
+	}{
+		{"symbol and venue agree", identifier.Identifier{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
+			inst("XNAS", "USD"), ids, db.TelemetryCandidateFieldConfirmed},
+		{"symbol agrees, venue does not", identifier.Identifier{Type: "MIC_TICKER", Domain: "XNYS", Value: "AAPL"},
+			inst("XNAS", "USD"), ids, db.TelemetryCandidateFieldContradicted},
+		{"symbol differs", identifier.Identifier{Type: "MIC_TICKER", Domain: "XNAS", Value: "MSFT"},
+			inst("XNAS", "USD"), ids, db.TelemetryCandidateFieldContradicted},
+		{"venue differs, symbol not carried", identifier.Identifier{Type: "MIC_TICKER", Domain: "XLON", Value: "AAPL"},
+			inst("XNAS", "USD"), nil, db.TelemetryCandidateFieldContradicted},
+		{"result says nothing", identifier.Identifier{Type: "MIC_TICKER", Value: "AAPL"},
+			inst("", ""), nil, db.TelemetryCandidateFieldUntested},
+		{"currency agrees", identifier.Identifier{Type: "CURRENCY", Value: "USD"},
+			inst("XNAS", "USD"), nil, db.TelemetryCandidateFieldConfirmed},
+		{"currency differs", identifier.Identifier{Type: "CURRENCY", Value: "GBX"},
+			inst("XNAS", "USD"), nil, db.TelemetryCandidateFieldContradicted},
+		{"currency unknown to the result", identifier.Identifier{Type: "CURRENCY", Value: "USD"},
+			inst("XNAS", ""), nil, db.TelemetryCandidateFieldUntested},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := proposalOutcomes(context.Background(), []identifier.Identifier{c.proposed}, c.inst, c.resolved, nil)
+			if len(got) != 1 || got[0].Outcome != c.want {
+				t.Errorf("outcome = %v, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// Nothing resolved means nothing checked the proposal, which is unused rather
+// than untested: the two have different fixes and are kept apart.
+func TestProposalOutcomes_NothingResolvedIsUnused(t *testing.T) {
+	got := proposalOutcomes(context.Background(),
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, nil, nil, nil)
+	if len(got) != 1 || got[0].Outcome != db.TelemetryCandidateFieldUnused {
+		t.Errorf("outcome = %v, want %q", got, db.TelemetryCandidateFieldUnused)
+	}
+}
+
+// A key the database answered reached no plugin, so nothing consulted the
+// proposal it was paid for.
+func TestResolveWithPlugins_ADatabaseHitLeavesProposalsUnused(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("known-id", "STOCK", "XNAS", "USD", nil)
+
+	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "",
+		identifier.Identity{Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
+		false, nil, Attempt{}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if len(got.ProposalOutcomes) != 1 || got.ProposalOutcomes[0].Outcome != db.TelemetryCandidateFieldUnused {
+		t.Errorf("ProposalOutcomes = %+v, want one unused", got.ProposalOutcomes)
 	}
 }

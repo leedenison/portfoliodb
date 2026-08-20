@@ -101,18 +101,27 @@ CREATE TABLE telemetry.resolution_key (
   had_identifier_hints BOOLEAN NOT NULL,
   security_type_hint   TEXT,
   instrument_kind      TEXT,
-  -- Stage 1. The not_attempted_* members are where the skips live. The stage is
-  -- skipped for a key the database already answered, and for one whose stated
-  -- identifiers already pick out a listing -- a ticker with its MIC, a contract
-  -- symbol, a currency -- because it exists to complete a partial identity and is
-  -- a paid call. hints_supplied covers both of those refusals and one more: an
-  -- archive import states identifiers chosen out of an identity already resolved
-  -- elsewhere, and none of them is treated as partial.
-  extraction_outcome TEXT CHECK (extraction_outcome IN ('hints_found', 'no_hints',
-                                                        'not_attempted_db_hit',
-                                                        'not_attempted_hints_supplied',
-                                                        'not_attempted_type_filter',
-                                                        'not_attempted_no_plugins')),
+  -- Stage 1: what the candidate stage did for this key.
+  --
+  -- The not_attempted_* members are the skips, and each names a different thing to
+  -- act on. db_hit is the stage costing nothing because the database already
+  -- answered. identity_complete is the gate working: the source named where the
+  -- instrument trades, so there was nothing to complete. conflicting_hints is a key
+  -- already broken, whose stage 2 says so too -- recorded here as well so it can be
+  -- taken out of the denominator of "how often did we attempt". run_kind is an
+  -- archive import, which is never offered completion at all. type_filter is
+  -- routing, and no_plugins is a missing installation.
+  --
+  -- Telling them apart is the point. Lumped together they say only that a paid call
+  -- did not happen, and the interesting question is which of those numbers should
+  -- move.
+  candidate_outcome TEXT CHECK (candidate_outcome IN ('fields_proposed', 'nothing_proposed',
+                                                      'not_attempted_db_hit',
+                                                      'not_attempted_identity_complete',
+                                                      'not_attempted_conflicting_hints',
+                                                      'not_attempted_run_kind',
+                                                      'not_attempted_type_filter',
+                                                      'not_attempted_no_plugins')),
   -- Stage 2. The two db_* members are distinct lookups -- by stored (source,
   -- description) and by supplied identifier hints -- and conflating them hides which
   -- path is carrying an import. The three fallback members mirror the messages the
@@ -234,8 +243,12 @@ CREATE TABLE telemetry.candidate_plugin_call (
   precedence INT NOT NULL,
   -- Items passed to this plugin, after the type filter.
   batch_size       INT NOT NULL,
-  -- Items it returned hints for.
-  items_with_hints INT NOT NULL,
+  -- Items it completed at least one field for.
+  items_completed INT NOT NULL,
+  -- Fields it proposed across them, which is not items_completed: one item can be
+  -- given a ticker, a venue and a currency at once, and the cost of a call divided
+  -- by items answers a different question from the cost divided by fields.
+  fields_proposed INT NOT NULL,
   outcome   TEXT NOT NULL CHECK (outcome IN ('hints_returned', 'no_hints', 'error',
                                              'rate_limited', 'quota_exceeded',
                                              'model_not_found')),
@@ -247,6 +260,58 @@ CREATE TABLE telemetry.candidate_plugin_call (
 
 CREATE INDEX idx_telemetry_candidate_plugin_call_run
   ON telemetry.candidate_plugin_call (run_id);
+
+-- One field a candidate plugin proposed for one resolution key, and what became of
+-- it.
+--
+-- This is the only row in the schema that names two parents, and it has to. The call
+-- covers many keys at once, so a proposed value cannot be joined to the instrument
+-- that was eventually resolved from the call alone; the key knows the instrument but
+-- not which call or which plugin offered the value. Whether completion helps is
+-- exactly that join, and no counter at any granularity can stand in for it.
+--
+-- value is stored because the question is not only how often a field was confirmed
+-- but which values keep being wrong. A ticker the model reliably confabulates is a
+-- prompt problem, and it is invisible in a rate.
+--
+-- confidence is what the plugin said about its own answer, and is recorded so it can
+-- be bucketed against outcome. Nothing gates on it: an LLM's self-report is
+-- uncalibrated, and turning it into a threshold before this table has shown whether
+-- it correlates with correctness would be inventing a number. This table is the
+-- evidence that would justify one. Null for a plugin that reports none.
+--
+-- The outcome vocabulary is about what the resolution was able to say, not about
+-- whether the guess was any good:
+--
+--   confirmed     the instrument that resolved carries this field and agrees
+--   contradicted  it carries this field and differs
+--   untested      it says nothing about this field, so nothing was learned
+--   unused        no instrument resolved, or resolution never consulted the
+--                 proposal -- a key that short-circuited on the database reached
+--                 no plugin that could have used it
+--
+-- untested and unused are kept apart deliberately. Both mean the guess was not
+-- checked, and they have different fixes: untested is a provider that does not
+-- return the field, unused is a proposal that was paid for and never needed.
+CREATE TABLE telemetry.candidate_field (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  resolution_key_id UUID NOT NULL REFERENCES telemetry.resolution_key (id) ON DELETE CASCADE,
+  call_id           UUID NOT NULL REFERENCES telemetry.candidate_plugin_call (id) ON DELETE CASCADE,
+  field             TEXT NOT NULL CHECK (field IN ('ticker', 'exchange', 'currency', 'key')),
+  value             TEXT NOT NULL,
+  confidence        DOUBLE PRECISION CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+  outcome           TEXT NOT NULL CHECK (outcome IN ('confirmed', 'contradicted',
+                                                     'untested', 'unused'))
+);
+
+CREATE INDEX idx_telemetry_candidate_field_key
+  ON telemetry.candidate_field (resolution_key_id);
+CREATE INDEX idx_telemetry_candidate_field_call
+  ON telemetry.candidate_field (call_id);
+-- Serves the question the table exists for: accuracy by field, and confidence
+-- bucketed against outcome within one.
+CREATE INDEX idx_telemetry_candidate_field_field_outcome
+  ON telemetry.candidate_field (field, outcome);
 
 -- One instrument a price fetch cycle set out to fill, which is one entry in the gap
 -- list PriceGaps and FXGaps produce between them.
@@ -423,7 +488,7 @@ SELECT
   k.had_identifier_hints,
   k.security_type_hint,
   k.instrument_kind,
-  k.extraction_outcome,
+  k.candidate_outcome,
   k.outcome,
   k.mismatch_detected,
   k.instrument_id,
@@ -553,7 +618,8 @@ SELECT
   c.plugin_id,
   c.precedence,
   c.batch_size,
-  c.items_with_hints,
+  c.items_completed,
+  c.fields_proposed,
   c.outcome,
   -- The call did not produce an answer. no_hints is deliberately outside it: an
   -- empty answer is an answer, and counting it as a fault would make a plugin
@@ -575,6 +641,54 @@ SELECT
   r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
 FROM telemetry.candidate_plugin_call c
 JOIN telemetry.run r ON r.id = c.run_id;
+
+-- Every proposed field with the key it was proposed for and the call it came from,
+-- flattened so that accuracy by field, cost per resolution and confidence against
+-- outcome are each one query rather than a three-way join written by hand.
+--
+-- The key's own outcome travels with the field, because "the venue was confirmed"
+-- and "the key resolved at all" are different questions and a panel almost always
+-- wants both: a field confirmed on a key that ended broker-description-only did not
+-- help anybody.
+CREATE VIEW telemetry.v_candidate_field AS
+SELECT
+  f.id,
+  f.field,
+  f.value,
+  f.confidence,
+  f.outcome,
+  -- The guess was checked against something. The complement is not "wrong": it is
+  -- untested and unused together, which is the share of what was paid for that
+  -- nothing could evaluate.
+  f.outcome IN ('confirmed', 'contradicted') AS was_tested,
+  c.id         AS call_id,
+  c.plugin_id,
+  c.precedence,
+  c.total_tokens AS call_total_tokens,
+  c.batch_size   AS call_batch_size,
+  k.id         AS resolution_key_id,
+  k.source,
+  k.description,
+  k.tx_count,
+  k.had_identifier_hints,
+  k.security_type_hint,
+  k.candidate_outcome,
+  k.outcome    AS key_outcome,
+  k.instrument_id,
+  r.id         AS run_id,
+  r.kind       AS run_kind,
+  r.job_id     AS run_job_id,
+  r.user_id    AS run_user_id,
+  r.broker     AS run_broker,
+  r.source     AS run_source,
+  r.started_at AS run_started_at,
+  r.outcome    AS run_outcome,
+  r.telemetry_incomplete AS run_telemetry_incomplete,
+  r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
+FROM telemetry.candidate_field f
+JOIN telemetry.candidate_plugin_call c ON c.id = f.call_id
+JOIN telemetry.resolution_key k ON k.id = f.resolution_key_id
+JOIN telemetry.run r ON r.id = k.run_id;
 
 CREATE VIEW telemetry.v_price_gap AS
 SELECT

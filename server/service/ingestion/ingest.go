@@ -61,11 +61,11 @@ func (d ingestDeps) completesPartialIdentity() bool {
 
 // writeCandidatePluginCall records one ProposeBatch invocation against the run,
 // and does nothing when the batch is not part of one.
-func (d ingestDeps) writeCandidatePluginCall(ctx context.Context, c db.TelemetryCandidatePluginCall) {
+func (d ingestDeps) writeCandidatePluginCall(ctx context.Context, c db.TelemetryCandidatePluginCall) string {
 	if d.Telemetry == nil || d.RunID == "" {
-		return
+		return ""
 	}
-	d.Telemetry.WriteCandidatePluginCall(ctx, c)
+	return d.Telemetry.WriteCandidatePluginCall(ctx, c)
 }
 
 // ingestParams is one batch of postings and the scope they are stored under.

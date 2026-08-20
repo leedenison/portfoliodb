@@ -379,8 +379,9 @@ type prePass struct {
 	// instrument. Recorded rather than raised so one bad key does not stop the
 	// lookups for the rest; Resolve raises it at the row that carries it.
 	conflicts map[string]bool
-	// proposed is what the candidate plugins offered, already filtered.
-	proposed map[string][]identifier.Identifier
+	// proposed is what the candidate plugins offered, already filtered, with the
+	// call each came from so a field can name both its parents.
+	proposed map[string]keyProposals
 	// outcome is what became of each key here, stage one of its resolution record.
 	outcome map[string]string
 }
@@ -389,7 +390,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 	database := deps.DB
 	cache := make(map[string]resolveResult)
 	conflicts := make(map[string]bool)
-	var proposedHintsCache map[string][]identifier.Identifier
+	var proposedHintsCache map[string]keyProposals
 	outcome := make(map[string]string)
 	fail := func(err error) (prePass, error) { return prePass{}, err }
 
@@ -418,18 +419,27 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 				// A key that names two instruments is not a gap to be filled. It
 				// is about to fail at the row that carries it, and a proposal
 				// would be paid for and thrown away.
-				outcome[key] = db.TelemetryExtractionNotAttemptedHintsSupplied
+				outcome[key] = db.TelemetryCandidateNotAttemptedConflictingHints
 				continue
 			case len(ids) == 1:
 				cache[key] = resolveResult{InstrumentID: ids[0], DBHitOutcome: db.TelemetryResolutionDBIdentifierHints}
-				outcome[key] = db.TelemetryExtractionNotAttemptedDBHit
+				outcome[key] = db.TelemetryCandidateNotAttemptedDBHit
 				continue
 			}
 			// The database did not recognise what the source stated, so what the
 			// source stated is all there is -- and a plugin is asked to fill it
 			// out only where it is genuinely partial.
-			if !deps.completesPartialIdentity() || identityComplete(txHints[i]) {
-				outcome[key] = db.TelemetryExtractionNotAttemptedHintsSupplied
+			//
+			// The two refusals are recorded apart. One says the gate did its job
+			// and the source had already named a listing; the other says this kind
+			// of run is never offered completion at all. They move for different
+			// reasons and a rate that blends them says nothing.
+			if !deps.completesPartialIdentity() {
+				outcome[key] = db.TelemetryCandidateNotAttemptedRunKind
+				continue
+			}
+			if identityComplete(txHints[i]) {
+				outcome[key] = db.TelemetryCandidateNotAttemptedIdentityComplete
 				continue
 			}
 		} else {
@@ -439,7 +449,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 			}
 			if id != "" {
 				cache[key] = resolveResult{InstrumentID: id, DBHitOutcome: db.TelemetryResolutionDBSourceDescription}
-				outcome[key] = db.TelemetryExtractionNotAttemptedDBHit
+				outcome[key] = db.TelemetryCandidateNotAttemptedDBHit
 				continue
 			}
 		}
@@ -456,9 +466,11 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 	if len(batchItems) > 0 {
 		proposedByID, itemOutcomes, err := runCandidatePluginsBatch(ctx, deps, broker, source, batchItems)
 		if err == nil && proposedByID != nil {
-			proposedHintsCache = make(map[string][]identifier.Identifier)
+			proposedHintsCache = make(map[string]keyProposals)
 			for key, id := range idByKey {
-				proposedHintsCache[key] = proposedByID[id]
+				if kp, ok := proposedByID[id]; ok {
+					proposedHintsCache[key] = kp
+				}
 			}
 		}
 		for key, id := range idByKey {
@@ -478,7 +490,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 // the contract wore on each trade date. See docs/adr/0055-identifier-validity-is-an-interval.md
 // for the convention and docs/spec/bitemporality.md for where it is recorded.
 func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, txHints [][]identifier.Identifier, pre prePass, exportedAt *time.Time, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
-	keys := newResolutionKeys(ctx, deps.Telemetry, deps.RunID, source, txs, txHints, pre.outcome)
+	keys := newResolutionKeys(ctx, deps.Telemetry, deps.RunID, source, txs, txHints, pre)
 
 	instrumentIDs := make([]string, len(txs))
 	for i, tx := range txs {

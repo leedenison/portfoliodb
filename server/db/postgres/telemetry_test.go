@@ -130,9 +130,9 @@ func TestWriteNest(t *testing.T) {
 		Duration:  1500 * time.Millisecond,
 	})
 	tel.EndResolutionKey(ctx, keyID, db.TelemetryResolutionKeyOutcome{
-		RunID:             runID,
-		ExtractionOutcome: db.TelemetryExtractionHintsFound,
-		Outcome:           db.TelemetryResolutionIdentified,
+		RunID:            runID,
+		CandidateOutcome: db.TelemetryCandidateFieldsProposed,
+		Outcome:          db.TelemetryResolutionIdentified,
 	})
 	tel.EndRun(ctx, runID, db.TelemetryOutcomeSuccess)
 
@@ -172,11 +172,11 @@ func TestWriteNest(t *testing.T) {
 
 	var extraction, resolution string
 	if err := tel.db.QueryRow(`
-		SELECT extraction_outcome, outcome FROM telemetry.v_resolution_key WHERE id = $1::uuid
+		SELECT candidate_outcome, outcome FROM telemetry.v_resolution_key WHERE id = $1::uuid
 	`, keyID).Scan(&extraction, &resolution); err != nil {
 		t.Fatalf("read v_resolution_key: %v", err)
 	}
-	if extraction != db.TelemetryExtractionHintsFound || resolution != db.TelemetryResolutionIdentified {
+	if extraction != db.TelemetryCandidateFieldsProposed || resolution != db.TelemetryResolutionIdentified {
 		t.Errorf("key outcomes = (%s, %s), want (hints_found, identified)", extraction, resolution)
 	}
 }
@@ -193,7 +193,7 @@ func TestWriteDescriptionPluginCallTokens(t *testing.T) {
 		RunID:          runID,
 		PluginID:       "cash",
 		BatchSize:      12,
-		ItemsWithHints: 4,
+		ItemsCompleted: 4,
 		Outcome:        "hints_returned",
 		Duration:       3 * time.Millisecond,
 	})
@@ -201,7 +201,7 @@ func TestWriteDescriptionPluginCallTokens(t *testing.T) {
 		RunID:          runID,
 		PluginID:       "openai",
 		BatchSize:      8,
-		ItemsWithHints: 7,
+		ItemsCompleted: 7,
 		Outcome:        "hints_returned",
 		Tokens:         &db.TelemetryTokens{Prompt: 900, Completion: 120, Total: 1020},
 		Duration:       2 * time.Second,
@@ -407,7 +407,7 @@ func TestWriteDescriptionPluginCallPrecedence(t *testing.T) {
 		PluginID:       "cash",
 		Precedence:     100,
 		BatchSize:      40,
-		ItemsWithHints: 28,
+		ItemsCompleted: 28,
 		Outcome:        "hints_returned",
 		Duration:       time.Millisecond,
 	})
@@ -416,7 +416,7 @@ func TestWriteDescriptionPluginCallPrecedence(t *testing.T) {
 		PluginID:       "openai",
 		Precedence:     50,
 		BatchSize:      12,
-		ItemsWithHints: 9,
+		ItemsCompleted: 9,
 		Outcome:        "hints_returned",
 		Duration:       time.Second,
 	})

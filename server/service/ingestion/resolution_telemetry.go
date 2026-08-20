@@ -28,9 +28,17 @@ type resolutionKeys struct {
 	// was written as. An id missing or empty is a write that failed, and the
 	// writer already skips the children of one, so nothing here tests for it.
 	ids map[string]string
-	// extraction is stage 1, decided in the pre-pass before any key resolves and
+	// candidate is stage 1, decided in the pre-pass before any key resolves and
 	// held until the key is stamped, because one row carries both stages.
-	extraction map[string]string
+	candidate map[string]string
+	// proposed is what a candidate plugin offered for a key, held for the same
+	// reason and written as child rows when the key is stamped. It cannot be
+	// written when the proposal is made: the pre-pass runs before this ledger
+	// exists, so the key row a field must name is not there yet.
+	proposed map[string]keyProposals
+	// fieldOutcomes is what the resolution established about each of those, in
+	// the order they were proposed.
+	fieldOutcomes map[string][]identification.ProposalOutcome
 	// mismatched names the probe that disagreed, detected between the two stages
 	// and likewise held. A name rather than a flag: more than one probe can
 	// disagree about a key, and two findings sharing one boolean cannot be told
@@ -57,18 +65,21 @@ type resolutionKeys struct {
 // description) alone and this re-derived that key to read it, which held only
 // because the two coincide when no posting carries a hint. They no longer have
 // to: a hinted key is answered by the pre-pass too, and says so itself.
-func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source string, txs []*apiv1.Tx, hints [][]identifier.Identifier, outcome map[string]string) *resolutionKeys {
+func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source string, txs []*apiv1.Tx, hints [][]identifier.Identifier, pre prePass) *resolutionKeys {
+	outcome := pre.outcome
 	if tel == nil || runID == "" {
 		return nil
 	}
 	k := &resolutionKeys{
-		tel:        tel,
-		runID:      runID,
-		ids:        make(map[string]string),
-		extraction: make(map[string]string),
-		mismatched: make(map[string]string),
-		hintDiffs:  make(map[string]string),
-		stamped:    make(map[string]bool),
+		tel:           tel,
+		runID:         runID,
+		ids:           make(map[string]string),
+		candidate:     make(map[string]string),
+		proposed:      make(map[string]keyProposals),
+		fieldOutcomes: make(map[string][]identification.ProposalOutcome),
+		mismatched:    make(map[string]string),
+		hintDiffs:     make(map[string]string),
+		stamped:       make(map[string]bool),
 	}
 	type seed struct {
 		desc     string
@@ -91,7 +102,10 @@ func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source st
 	}
 	for _, key := range order {
 		s := seeds[key]
-		k.extraction[key] = outcome[key]
+		k.candidate[key] = outcome[key]
+		if kp, ok := pre.proposed[key]; ok {
+			k.proposed[key] = kp
+		}
 		k.ids[key] = tel.StartResolutionKey(ctx, db.TelemetryResolutionKey{
 			RunID:              runID,
 			Source:             source,
@@ -129,6 +143,54 @@ func (k *resolutionKeys) hintDiff(key, summary string) {
 	k.hintDiffs[key] = summary
 }
 
+// fields records what the resolution established about each identifier proposed
+// for this key. Held rather than written, like the hint diffs, because the row
+// the child records hang off is stamped once and the first stamp is the one that
+// stands.
+func (k *resolutionKeys) fields(key string, outcomes []identification.ProposalOutcome) {
+	if k == nil || len(outcomes) == 0 || k.fieldOutcomes[key] != nil {
+		return
+	}
+	k.fieldOutcomes[key] = outcomes
+}
+
+// writeFields emits one row per field proposed for this key. It runs after the
+// key is stamped, because the child names the key.
+//
+// A proposal whose verdict the resolution never reported is written as unused:
+// the field was paid for and no resolution consulted it, which is exactly what
+// the member is for and is not the same as having nothing to say about it.
+func (k *resolutionKeys) writeFields(ctx context.Context, key string) {
+	kp, ok := k.proposed[key]
+	if !ok || kp.CallID == "" {
+		return
+	}
+	byIdentifier := make(map[identifier.Identifier]string, len(k.fieldOutcomes[key]))
+	for _, o := range k.fieldOutcomes[key] {
+		byIdentifier[o.Identifier] = o.Outcome
+	}
+	for _, p := range kp.Proposals {
+		outcome := byIdentifier[p.Identifier]
+		if outcome == "" {
+			outcome = db.TelemetryCandidateFieldUnused
+		}
+		var confidence *float64
+		if p.Confidence > 0 {
+			c := p.Confidence
+			confidence = &c
+		}
+		k.tel.WriteCandidateField(ctx, db.TelemetryCandidateField{
+			RunID:           k.runID,
+			ResolutionKeyID: k.ids[key],
+			CallID:          kp.CallID,
+			Field:           p.Field,
+			Value:           p.Identifier.Value,
+			Confidence:      confidence,
+			Outcome:         outcome,
+		})
+	}
+}
+
 // end stamps a key with what became of it, filling stage 1 in from what the
 // pre-pass recorded.
 //
@@ -141,13 +203,14 @@ func (k *resolutionKeys) end(ctx context.Context, key, outcome, instrumentID str
 	}
 	k.stamped[key] = true
 	k.tel.EndResolutionKey(ctx, k.ids[key], db.TelemetryResolutionKeyOutcome{
-		RunID:             k.runID,
-		ExtractionOutcome: k.extraction[key],
-		Outcome:           outcome,
-		MismatchDetected:  k.mismatched[key],
-		HintDiffs:         k.hintDiffs[key],
-		InstrumentID:      instrumentID,
+		RunID:            k.runID,
+		CandidateOutcome: k.candidate[key],
+		Outcome:          outcome,
+		MismatchDetected: k.mismatched[key],
+		HintDiffs:        k.hintDiffs[key],
+		InstrumentID:     instrumentID,
 	})
+	k.writeFields(ctx, key)
 }
 
 // attempt returns the scope one ResolveWithPlugins call over this key records
@@ -221,13 +284,15 @@ func newIdentifierResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID 
 		return nil
 	}
 	k := &resolutionKeys{
-		tel:        tel,
-		runID:      runID,
-		ids:        make(map[string]string),
-		extraction: make(map[string]string),
-		mismatched: make(map[string]string),
-		hintDiffs:  make(map[string]string),
-		stamped:    make(map[string]bool),
+		tel:           tel,
+		runID:         runID,
+		ids:           make(map[string]string),
+		candidate:     make(map[string]string),
+		proposed:      make(map[string]keyProposals),
+		fieldOutcomes: make(map[string][]identification.ProposalOutcome),
+		mismatched:    make(map[string]string),
+		hintDiffs:     make(map[string]string),
+		stamped:       make(map[string]bool),
 	}
 	var order []identifierRef
 	counts := make(map[string]int)
@@ -240,7 +305,7 @@ func newIdentifierResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID 
 	}
 	for _, r := range order {
 		key := r.cacheKey()
-		k.extraction[key] = db.TelemetryExtractionNotAttemptedHintsSupplied
+		k.candidate[key] = db.TelemetryCandidateNotAttemptedRunKind
 		k.ids[key] = tel.StartResolutionKey(ctx, db.TelemetryResolutionKey{
 			RunID:              runID,
 			Description:        r.description(),

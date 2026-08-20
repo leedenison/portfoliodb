@@ -26,6 +26,9 @@ run
 ├── candidate_plugin_call              one plugin invocation over a batch
 └── price_gap                          one instrument a cycle set out to fill
       └── price_plugin_call            one outstanding range put to one plugin
+
+candidate_field                        one proposed field, naming both
+                                       resolution_key and candidate_plugin_call
 ```
 
 `candidate_plugin_call` hangs off the run rather than off a resolution key: one
@@ -33,6 +36,11 @@ run
 Identifier plugins are called once per plugin per attempt and do nest. This asymmetry
 is forced by the code and must not be flattened away -- it is what made the counters
 it replaces impossible to add up.
+
+`candidate_field` is drawn outside the tree because it is the one row with two
+parents, which the tree cannot show. It is what closes the asymmetry above: the call
+knows the cost and the key knows the instrument, and only a row naming both can say
+whether the field that was paid for turned out to be right.
 
 ### run
 
@@ -73,19 +81,21 @@ one affecting 1.
 | `run_id`, `source`, `description` | |
 | `tx_count` | transactions sharing this key |
 | `had_identifier_hints`, `security_type_hint`, `instrument_kind` | lets a spike be attributed rather than merely noticed |
-| `extraction_outcome` | stage 1, below |
+| `candidate_outcome` | stage 1, below |
 | `outcome` | stage 2, below |
 | `mismatch_detected` | which probe found two namings disagreeing, below |
 | `instrument_id` | null when unresolved |
 
-`extraction_outcome`: `hints_found`, `no_hints`, `not_attempted_db_hit`,
-`not_attempted_hints_supplied`, `not_attempted_type_filter`, `not_attempted_no_plugins`.
-The `not_attempted_*` members are where the skips live. The stage is skipped for a key
-the database already answered, and for one whose stated identifiers already pick out a
-listing -- a ticker with its MIC, a contract symbol, a currency -- because it exists to
-complete a partial identity and is a paid call. `not_attempted_hints_supplied` covers
-that second refusal, a key whose identifiers name two instruments, and an archive
-import, which is never offered completion at all.
+`candidate_outcome`: `fields_proposed`, `nothing_proposed`, `not_attempted_db_hit`,
+`not_attempted_identity_complete`, `not_attempted_conflicting_hints`,
+`not_attempted_run_kind`, `not_attempted_type_filter`, `not_attempted_no_plugins`.
+The `not_attempted_*` members are the skips, and each names a different thing to act
+on: `db_hit` is the stage costing nothing because the database already answered,
+`identity_complete` is the gate working because the source named where the instrument
+trades, `conflicting_hints` is a key already broken, `run_kind` is an archive import
+which is never offered completion at all, `type_filter` is routing and `no_plugins` is
+a missing installation. Lumped together they say only that a paid call did not happen,
+and the interesting question is which of those numbers should move.
 
 `outcome`: `db_source_description`, `db_identifier_hints`, `identified`,
 `broker_description_only`, `extraction_failed`, `plugin_timeout`, `plugin_unavailable`,
@@ -112,11 +122,46 @@ resolver, but from an identifier and no broker description. They still write a k
 because an identification attempt reaches its run through one. The identifier names it
 -- `description` is `TYPE:DOMAIN:VALUE` and `source` is empty, an archive being no
 broker's export -- and `tx_count` carries the archive groups sharing it, the fan-out
-this grain records whatever the things sharing it are called. `extraction_outcome` is
-`not_attempted_hints_supplied` for the same reason it is on any key the candidate
-stage was not offered, and an instrument ensured from the supplied identifier alone is
+this grain records whatever the things sharing it are called. `candidate_outcome` is
+`not_attempted_run_kind`, an archive part never being offered completion, and an instrument ensured from the supplied identifier alone is
 `broker_description_only`: no plugin resolved it and the row's own contents are what
 the instrument was built from, which is that member's shape.
+
+### candidate_field
+
+One field a candidate plugin proposed for one resolution key, and what became of it.
+The only row in the schema naming two parents, and it has to: the call covers many
+keys, so a proposed value cannot be joined to the instrument that was eventually
+resolved from the call alone, and the key does not know which call or which plugin
+offered it. Whether completion helps is exactly that join, and no counter at any
+granularity stands in for it.
+
+| column | meaning |
+| --- | --- |
+| `resolution_key_id` | the key it was proposed for |
+| `call_id` | the call it came from |
+| `field` | `ticker`, `exchange`, `currency` or `key` |
+| `value` | what was proposed |
+| `confidence` | the plugin's own estimate, null when it reports none |
+| `outcome` | below |
+
+`outcome`: `confirmed` when the instrument that resolved carries the field and agrees,
+`contradicted` when it carries it and differs, `untested` when it says nothing about
+it, and `unused` when no instrument resolved or resolution never consulted the
+proposal -- a key that short-circuited on the database reached no plugin that could
+have used it. `untested` and `unused` are kept apart because their fixes differ: one is
+a provider that does not return the field, the other is a proposal nothing needed.
+
+The verdict is about the identifier as a whole, venue included, because that is what
+was proposed: confirming a symbol while the venue disagrees is not a confirmation of
+what was said.
+
+`value` is stored because the question is not only how often a field was confirmed but
+which values keep being wrong -- a ticker a model reliably confabulates is a prompt
+problem, and it is invisible in a rate. **`confidence` is recorded and gated on by
+nothing.** A model's self-report is uncalibrated, and turning it into a threshold
+before this table has shown whether it correlates with correctness would be inventing a
+number; this table is the evidence that would justify one.
 
 ### identification_attempt
 
@@ -168,7 +213,8 @@ One plugin invocation over a batch.
 | `run_id`, `plugin_id` | |
 | `precedence` | where this plugin sat in the chain, higher first |
 | `batch_size` | items passed to this plugin, after the type filter |
-| `items_with_hints` | items it returned hints for |
+| `items_completed` | items it filled at least one field for |
+| `fields_proposed` | fields it filled across them |
 | `outcome` | `hints_returned`, `no_hints`, `error`, `rate_limited`, `quota_exceeded`, `model_not_found` |
 | `prompt_tokens`, `completion_tokens`, `total_tokens` | null for plugins with no token cost |
 | `duration_ms` | |

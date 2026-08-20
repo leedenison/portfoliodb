@@ -188,11 +188,11 @@ func candidateTokens(u *candidate.Usage) *db.TelemetryTokens {
 // calls that fail: a plugin populates its telemetry on every path, and a call that
 // errored is the one most worth having a row for. The row hangs off the run rather
 // than off a key because one call covers many descriptions at once.
-func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, source string, items []candidate.BatchItem) (map[string][]identifier.Identifier, map[string]string, error) {
+func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, source string, items []candidate.BatchItem) (map[string]keyProposals, map[string]string, error) {
 	outcomes := make(map[string]string, len(items))
 	noPlugins := func() map[string]string {
 		for _, item := range items {
-			outcomes[item.ID] = db.TelemetryExtractionNotAttemptedNoPlugins
+			outcomes[item.ID] = db.TelemetryCandidateNotAttemptedNoPlugins
 		}
 		return outcomes
 	}
@@ -203,13 +203,16 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 	if err != nil {
 		return nil, nil, err
 	}
+	// One filter for the whole batch, so the exchange lookups a chunk repeats are
+	// paid for once.
+	filter := identification.NewProposalFilter(ctx, deps.DB, ingestionLogger())
 	resolved := make(map[string]bool)
 	// attempted is an item that reached at least one plugin. One that reached none
 	// was excluded by every plugin's type filter, which is a skip rather than a
 	// failure to find anything.
 	attempted := make(map[string]bool)
 	anyPlugin := false
-	merged := make(map[string][]identifier.Identifier)
+	merged := make(map[string]keyProposals)
 	for _, c := range configs {
 		p := deps.CandidateRegistry.Get(c.PluginID)
 		if p == nil {
@@ -253,29 +256,33 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 			ingestionLogger().DebugContext(ctx, "candidate plugin batch result: error", "plugin_id", c.PluginID, "err", err)
 			continue
 		}
-		out := res.Proposed
-		hasAny := false
-		for id, proposals := range out {
-			ids := make([]identifier.Identifier, 0, len(proposals))
+		kept := make(map[string][]candidate.Proposal)
+		for id, proposals := range res.Proposed {
 			for _, pr := range proposals {
-				ids = append(ids, pr.Identifier)
+				filteredID, ok := filter(pr.Identifier)
+				if !ok {
+					continue
+				}
+				pr.Identifier = filteredID
+				kept[id] = append(kept[id], pr)
 			}
-			filteredHints := identification.FilterProposals(ctx, deps.DB, ids, ingestionLogger())
-			if len(filteredHints) > 0 {
-				merged[id] = filteredHints
+			if len(kept[id]) > 0 {
 				resolved[id] = true
-				hasAny = true
-				call.ItemsWithHints++
+				call.ItemsCompleted++
+				call.FieldsProposed += len(kept[id])
 			}
 		}
-		deps.writeCandidatePluginCall(ctx, call)
-		if hasAny {
-			for id := range out {
-				if len(merged[id]) > 0 {
-					ingestionLogger().DebugContext(ctx, "candidate plugin batch result: proposals", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "proposals", identification.HintsSummary(merged[id]))
-				}
+		// Written after the counts are known and before the fields that reference
+		// it: a field row names its call, so the call has to exist first.
+		callID := deps.writeCandidatePluginCall(ctx, call)
+		for id, proposals := range kept {
+			if len(proposals) == 0 {
+				continue
 			}
-		} else {
+			merged[id] = keyProposals{CallID: callID, Proposals: proposals}
+			ingestionLogger().DebugContext(ctx, "candidate plugin batch result: proposals", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "proposals", identification.HintsSummary(proposedIdentifiers(proposals)))
+		}
+		if call.ItemsCompleted == 0 {
 			ingestionLogger().DebugContext(ctx, "candidate plugin batch result: no hints", "plugin_id", c.PluginID, "batch_ids", batchItemIDs(filtered))
 		}
 	}
@@ -285,17 +292,37 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 	for _, item := range items {
 		switch {
 		case resolved[item.ID]:
-			outcomes[item.ID] = db.TelemetryExtractionHintsFound
+			outcomes[item.ID] = db.TelemetryCandidateFieldsProposed
 		case attempted[item.ID]:
-			outcomes[item.ID] = db.TelemetryExtractionNoHints
+			outcomes[item.ID] = db.TelemetryCandidateNothingProposed
 		default:
-			outcomes[item.ID] = db.TelemetryExtractionNotAttemptedTypeFilter
+			outcomes[item.ID] = db.TelemetryCandidateNotAttemptedTypeFilter
 		}
 	}
 	if len(merged) > 0 {
 		return merged, outcomes, nil
 	}
 	return nil, outcomes, nil
+}
+
+// keyProposals is what one candidate plugin offered for one resolution key, and
+// the call it came from. The call travels with them because a proposed field
+// names both its key and its call, and neither alone answers whether completion
+// helped: the call covers many keys, and the key does not know which call spoke
+// for it.
+type keyProposals struct {
+	CallID    string
+	Proposals []candidate.Proposal
+}
+
+// proposedIdentifiers is the identifiers alone, for the resolver -- which ranks
+// by value and has no use for the field a plugin filed it under.
+func proposedIdentifiers(ps []candidate.Proposal) []identifier.Identifier {
+	out := make([]identifier.Identifier, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.Identifier)
+	}
+	return out
 }
 
 // Resolve resolves (source, instrumentDescription) to an instrument_id using the
@@ -350,16 +377,13 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// They are passed apart from the stated ones and stay that way: they
 		// choose between the listings the stated identifier produced, and
 		// introduce none of their own. See adr/0057.
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Proposed: proposedHintsCache[key], Hints: hints}, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Proposed: proposedIdentifiers(proposedHintsCache[key].Proposals), Hints: hints}, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.
 	// DB lookup by (source, description) and batch description extraction are handled by the
 	// caller's pre-pass; DB hits are already in cache (caught above), misses proceed here.
-	var extractedHints []identifier.Identifier
-	if proposedHintsCache != nil {
-		extractedHints = proposedHintsCache[key]
-	}
+	extractedHints := proposedIdentifiers(proposedHintsCache[key].Proposals)
 	if len(extractedHints) == 0 {
 		// Extraction failed: ensure broker-description-only and record error.
 		// Identifier plugins are never called in this path, so no identification
@@ -473,6 +497,12 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		if purpose == db.TelemetryPurposePrimary {
 			keys.hintDiff(key, summary)
 		}
+	}
+	// Only the primary resolution's verdicts are kept. A mismatch-check probe
+	// resolves the same key by half its identifiers to answer a different
+	// question, and its view of a proposal is not what became of it.
+	if purpose == db.TelemetryPurposePrimary {
+		keys.fields(key, result.ProposalOutcomes)
 	}
 
 	r := resolveResult{InstrumentID: result.InstrumentID, FirstRowIndex: rowIndex}

@@ -200,13 +200,13 @@ test.describe("a candidate plugin completes a partial identity", () => {
     // states a CURRENCY, which the database already knows, and only the security
     // leg reached the candidate stage.
     const keys = (await rawQuery(
-      `SELECT had_identifier_hints, extraction_outcome, outcome
+      `SELECT had_identifier_hints, candidate_outcome, outcome
          FROM telemetry.resolution_key
         WHERE run_id = $1 AND description = $2`,
       [runId, DESCRIPTION]
     )) as {
       had_identifier_hints: boolean;
-      extraction_outcome: string;
+      candidate_outcome: string;
       outcome: string;
     }[];
 
@@ -214,7 +214,7 @@ test.describe("a candidate plugin completes a partial identity", () => {
     // hints, and the candidate stage ran for it anyway and found something.
     // Under the old gate a key with hints could only be
     // not_attempted_hints_supplied.
-    const completed = keys.filter((k) => k.extraction_outcome === "hints_found");
+    const completed = keys.filter((k) => k.candidate_outcome === "fields_proposed");
     expect(completed).toHaveLength(1);
     expect(completed[0].had_identifier_hints).toBe(true);
     expect(completed[0].outcome).toBe("identified");
@@ -226,6 +226,36 @@ test.describe("a candidate plugin completes a partial identity", () => {
       [runId]
     )) as { n: number }[];
     expect(calls[0].n).toBe(1);
+
+    // Every field the plugin proposed is recorded against both the call that
+    // produced it and the key it was proposed for. That join is the whole point
+    // of the table: the call knows the cost and the key knows the instrument, and
+    // only a row naming both can say whether what was paid for was right.
+    const fields = (await rawQuery(
+      `SELECT field, value, outcome, confidence, plugin_id, key_outcome
+         FROM telemetry.v_candidate_field
+        WHERE run_id = $1 AND description = $2
+        ORDER BY field`,
+      [runId, DESCRIPTION]
+    )) as {
+      field: string;
+      value: string;
+      outcome: string;
+      confidence: number | null;
+      plugin_id: string;
+      key_outcome: string;
+    }[];
+    expect(fields.length).toBeGreaterThan(0);
+    for (const f of fields) {
+      expect(["ticker", "exchange", "currency", "key"]).toContain(f.field);
+      expect(["confirmed", "contradicted", "untested", "unused"]).toContain(
+        f.outcome
+      );
+      expect(f.plugin_id).toBe("openai");
+      // The key's own outcome travels with the field, because a field confirmed
+      // on a key that ended broker-description-only helped nobody.
+      expect(f.key_outcome).toBe("identified");
+    }
 
     // The instrument still resolves from what the source stated. A proposal
     // ranks and never resolves, so the ISIN is what found the security.

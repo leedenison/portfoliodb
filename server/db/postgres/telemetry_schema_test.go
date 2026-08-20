@@ -188,8 +188,8 @@ func TestTelemetryRetentionCascades(t *testing.T) {
 	}
 	if _, err := p.q.ExecContext(ctx, `
 		INSERT INTO telemetry.candidate_plugin_call
-			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome, duration_ms)
-		VALUES ($1::uuid, 'openai', 100, 20, 18, 'hints_returned', 900)
+			(run_id, plugin_id, precedence, batch_size, items_completed, fields_proposed, outcome, duration_ms)
+		VALUES ($1::uuid, 'openai', 100, 20, 18, 26, 'hints_returned', 900)
 	`, oldRun); err != nil {
 		t.Fatalf("seed candidate plugin call: %v", err)
 	}
@@ -435,8 +435,8 @@ func seedCandidateCall(t *testing.T, p *Postgres, runID, outcome string) string 
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
 		INSERT INTO telemetry.candidate_plugin_call
-			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome, duration_ms)
-		VALUES ($1::uuid, 'openai', 100, 10, 4, $2, 900)
+			(run_id, plugin_id, precedence, batch_size, items_completed, fields_proposed, outcome, duration_ms)
+		VALUES ($1::uuid, 'openai', 100, 10, 4, 7, $2, 900)
 		RETURNING id
 	`, runID, outcome).Scan(&id)
 	if err != nil {
@@ -934,5 +934,93 @@ func TestTelemetryViews_PriceCallDaysAreDerived(t *testing.T) {
 	// The seed's half-open [2026-01-01, 2026-01-11).
 	if days != 10 {
 		t.Errorf("days = %d, want 10", days)
+	}
+}
+
+// A proposed field names two parents, and the view that joins them is what makes
+// "did completion help" a query. Neither parent alone can answer it: the call
+// covers many keys, and the key does not know which call spoke for it.
+func TestTelemetryViews_CandidateField(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+	keyID := seedResolutionKey(t, p, runID)
+	callID := seedCandidateCall(t, p, runID, "hints_returned")
+
+	for _, f := range []struct {
+		field, value, outcome string
+		confidence            any
+	}{
+		{"exchange", "AAPL", "confirmed", 0.7},
+		{"currency", "USD", "untested", nil},
+	} {
+		if _, err := p.q.ExecContext(ctx, `
+			INSERT INTO telemetry.candidate_field
+				(resolution_key_id, call_id, field, value, confidence, outcome)
+			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+		`, keyID, callID, f.field, f.value, f.confidence, f.outcome); err != nil {
+			t.Fatalf("seed candidate field %q: %v", f.field, err)
+		}
+	}
+
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT field, outcome, was_tested, plugin_id, key_outcome, run_kind, is_import
+		FROM telemetry.v_candidate_field WHERE run_id = $1::uuid ORDER BY field
+	`, runID)
+	if err != nil {
+		t.Fatalf("read v_candidate_field: %v", err)
+	}
+	defer rows.Close()
+	type row struct {
+		field, outcome, pluginID, keyOutcome, runKind string
+		wasTested, isImport                           bool
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.field, &r.outcome, &r.wasTested, &r.pluginID, &r.keyOutcome, &r.runKind, &r.isImport); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, r)
+	}
+	if len(got) != 2 {
+		t.Fatalf("read %d rows, want 2", len(got))
+	}
+	// The key's own outcome travels with the field: a field confirmed on a key
+	// that ended broker-description-only helped nobody.
+	if got[0].field != "currency" || got[0].wasTested {
+		t.Errorf("currency row = %+v, want untested and not counted as tested", got[0])
+	}
+	if got[1].field != "exchange" || !got[1].wasTested || got[1].pluginID != "openai" {
+		t.Errorf("exchange row = %+v, want a tested openai proposal", got[1])
+	}
+	if got[1].keyOutcome != "identified" || got[1].runKind != "tx_import" || !got[1].isImport {
+		t.Errorf("exchange row context = %+v, want the key and run it hangs off", got[1])
+	}
+}
+
+// Both parents are required, and a field outlives neither: deleting a run takes
+// the call, the key and the fields beneath them.
+func TestTelemetryCandidateField_CascadesFromItsParents(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+	keyID := seedResolutionKey(t, p, runID)
+	callID := seedCandidateCall(t, p, runID, "hints_returned")
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO telemetry.candidate_field (resolution_key_id, call_id, field, value, outcome)
+		VALUES ($1::uuid, $2::uuid, 'ticker', 'AAPL', 'confirmed')
+	`, keyID, callID); err != nil {
+		t.Fatalf("seed candidate field: %v", err)
+	}
+	if _, err := p.q.ExecContext(ctx, `DELETE FROM telemetry.run WHERE id = $1::uuid`, runID); err != nil {
+		t.Fatalf("delete run: %v", err)
+	}
+	var n int
+	if err := p.q.QueryRowContext(ctx, `SELECT count(*) FROM telemetry.candidate_field`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("candidate_field rows = %d, want 0 after the run was deleted", n)
 	}
 }

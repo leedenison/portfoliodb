@@ -48,6 +48,17 @@ type ResolveResult struct {
 	// therefore means "nothing independent agreed", which is what
 	// 0132 acts on. See adr/0057.
 	Confirmed []string
+	// ProposalOutcomes says what the resolution was able to establish about each
+	// identifier the caller proposed, in the order they were given. It is what
+	// 0134 records, and it says nothing about whether a guess was any good --
+	// only whether anything checked it.
+	ProposalOutcomes []ProposalOutcome
+}
+
+// ProposalOutcome is one proposed identifier and what became of it.
+type ProposalOutcome struct {
+	Identifier identifier.Identifier
+	Outcome    string
 }
 
 // ResolvedInstrument holds an instrument ID plus the metadata needed for
@@ -63,7 +74,7 @@ type ResolvedInstrument struct {
 // It must return an instrument ID, typically by calling EnsureInstrument.
 type FallbackFunc func(ctx context.Context, database db.DB) (string, error)
 
-// FilterProposals narrows a candidate plugin's output to what may be acted on.
+// NewProposalFilter narrows a candidate plugin's output to what may be acted on.
 //
 // It is FilterIdentifierHints plus the checks that need reference data, which is
 // why it takes a database and lives beside the resolver rather than in the
@@ -76,9 +87,14 @@ type FallbackFunc func(ctx context.Context, database db.DB) (string, error)
 // its operating MIC so it is compared and stored at the grain everything else
 // uses (adr/0003).
 //
-// Lookups are memoised for the call: a batch proposes the same handful of venues
-// over and over, and the exchange table does not change underneath it.
-func FilterProposals(ctx context.Context, database db.InstrumentDB, proposals []identifier.Identifier, logger *slog.Logger) []identifier.Identifier {
+// It returns a function applied to one identifier at a time rather than to a
+// slice, so a caller keeps whatever it has attached to each -- the field it was
+// proposed for and the plugin's confidence in it, which telemetry records
+// alongside the value and which a filtered slice would have separated from it.
+// Lookups are memoised across the returned function's whole life: a batch
+// proposes the same handful of venues over and over, and the exchange table does
+// not change underneath it.
+func NewProposalFilter(ctx context.Context, database db.InstrumentDB, logger *slog.Logger) func(identifier.Identifier) (identifier.Identifier, bool) {
 	l := resolveLogger(logger)
 	known := make(map[string]string)
 	// operatingMIC returns the operating MIC for a domain, or "" when the MIC is
@@ -98,22 +114,25 @@ func FilterProposals(ctx context.Context, database db.InstrumentDB, proposals []
 		known[mic] = v
 		return v
 	}
-
-	out := FilterIdentifierHints(ctx, proposals, l)
-	for i := range out {
-		if out[i].Type != "MIC_TICKER" || out[i].Domain == "" {
-			continue
+	return func(in identifier.Identifier) (identifier.Identifier, bool) {
+		out := FilterIdentifierHints(ctx, []identifier.Identifier{in}, l)
+		if len(out) == 0 {
+			return identifier.Identifier{}, false
 		}
-		op := operatingMIC(out[i].Domain)
+		id := out[0]
+		if id.Type != "MIC_TICKER" || id.Domain == "" {
+			return id, true
+		}
+		op := operatingMIC(id.Domain)
 		if op == "" {
 			l.DebugContext(ctx, "candidate proposed an unknown exchange; keeping the ticker without it",
-				"mic", out[i].Domain, "ticker", out[i].Value)
-			out[i].Domain = ""
-			continue
+				"mic", id.Domain, "ticker", id.Value)
+			id.Domain = ""
+			return id, true
 		}
-		out[i].Domain = op
+		id.Domain = op
+		return id, true
 	}
-	return out
 }
 
 // ResolveByHintsDBOnly looks up each hint by (type, domain, value) and returns unique instrument IDs (in order of first occurrence).
@@ -640,6 +659,69 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 	return out
 }
 
+// proposalOutcomes says what the resolution established about each proposal.
+//
+// The verdict is about the identifier as a whole, venue included, because that is
+// what was proposed: a ticker offered on a named venue is one claim about one
+// listing, and confirming the symbol while the venue disagrees is not a
+// confirmation of what was said.
+//
+// inst nil means nothing was resolved, so nothing could be checked.
+func proposalOutcomes(ctx context.Context, proposed []identifier.Identifier, inst *identifier.Instrument, resolvedIDs []identifier.Identifier, normalizeMIC MICNormalizer) []ProposalOutcome {
+	if len(proposed) == 0 {
+		return nil
+	}
+	out := make([]ProposalOutcome, 0, len(proposed))
+	if inst == nil {
+		for _, p := range proposed {
+			out = append(out, ProposalOutcome{Identifier: p, Outcome: db.TelemetryCandidateFieldUnused})
+		}
+		return out
+	}
+	byType := make(map[string]string, len(resolvedIDs))
+	for _, id := range resolvedIDs {
+		if id.Value != "" {
+			byType[id.Type] = id.Value
+		}
+	}
+	for _, p := range proposed {
+		out = append(out, ProposalOutcome{Identifier: p, Outcome: proposalOutcome(ctx, p, inst, byType, normalizeMIC)})
+	}
+	return out
+}
+
+func proposalOutcome(ctx context.Context, p identifier.Identifier, inst *identifier.Instrument, byType map[string]string, normalizeMIC MICNormalizer) string {
+	if p.Type == "CURRENCY" {
+		switch {
+		case inst.Currency == "":
+			return db.TelemetryCandidateFieldUntested
+		case strings.EqualFold(inst.Currency, p.Value):
+			return db.TelemetryCandidateFieldConfirmed
+		default:
+			return db.TelemetryCandidateFieldContradicted
+		}
+	}
+	resolved, carried := byType[p.Type]
+	if carried && !strings.EqualFold(resolved, p.Value) {
+		return db.TelemetryCandidateFieldContradicted
+	}
+	// The venue half of the claim, checked whether or not the symbol was carried:
+	// a proposal naming the wrong venue is contradicted even by a result that
+	// says nothing about the symbol.
+	if p.Domain != "" && inst.Venue.MIC != "" {
+		if !strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, p.Domain), normalizeMICValue(ctx, normalizeMIC, inst.Venue.MIC)) {
+			return db.TelemetryCandidateFieldContradicted
+		}
+		if carried {
+			return db.TelemetryCandidateFieldConfirmed
+		}
+	}
+	if carried {
+		return db.TelemetryCandidateFieldConfirmed
+	}
+	return db.TelemetryCandidateFieldUntested
+}
+
 // ResolveWithPlugins calls enabled identifier plugins with the given hints, merges results, and ensures the instrument.
 // When storeSourceDescription is true and a plugin succeeds, (source, instrumentDescription) is added as a
 // non-canonical BROKER_DESCRIPTION identifier. If no plugin identifies the instrument, fallback is called.
@@ -722,7 +804,10 @@ func ResolveWithPlugins(
 		row.Outcome = db.TelemetryAttemptDBShortCircuit
 		row.AssetClass = resolved[0].AssetClass
 		tel.write(ctx, row)
-		return ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs, Confirmed: confirmed}, nil
+		// The database answered before any plugin ran, so nothing consulted the
+		// proposals -- which is what unused means and why it is not untested.
+		return ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs, Confirmed: confirmed,
+			ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, nil, nil, normMIC)}, nil
 	}
 
 	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryIdentifier)
@@ -1033,7 +1118,8 @@ func ResolveWithPlugins(
 				return ResolveResult{}, fbErr
 			}
 			writeAttempt(db.TelemetryAttemptProposalUnconfirmed, "")
-			return ResolveResult{InstrumentID: fb, Unconfirmed: true, HintDiffs: diffs}, nil
+			return ResolveResult{InstrumentID: fb, Unconfirmed: true, HintDiffs: diffs,
+				ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, inst, mergedIds, normMIC)}, nil
 		}
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Venue.MIC, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validBefore, optFields)
 		if err != nil {
@@ -1045,7 +1131,8 @@ func ResolveWithPlugins(
 			}
 		}
 		writeAttempt(db.TelemetryAttemptIdentified, inst.AssetClass)
-		return ResolveResult{InstrumentID: id, Identified: true, HintDiffs: diffs, Confirmed: confirmed}, nil
+		return ResolveResult{InstrumentID: id, Identified: true, HintDiffs: diffs, Confirmed: confirmed,
+			ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, inst, mergedIds, normMIC)}, nil
 	}
 
 	// Nothing identified it. A plugin removed by the eligibility filter made no
@@ -1068,9 +1155,12 @@ func ResolveWithPlugins(
 		if err != nil {
 			return ResolveResult{}, err
 		}
-		return ResolveResult{InstrumentID: id, HadTimeout: hadTimeout, HadError: hadOtherErr}, nil
+		// Nothing identified it, so nothing checked the proposals either.
+		return ResolveResult{InstrumentID: id, HadTimeout: hadTimeout, HadError: hadOtherErr,
+			ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, nil, nil, normMIC)}, nil
 	}
-	return ResolveResult{HadTimeout: hadTimeout, HadError: hadOtherErr}, nil
+	return ResolveResult{HadTimeout: hadTimeout, HadError: hadOtherErr,
+		ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, nil, nil, normMIC)}, nil
 }
 
 // HintsSummary returns a short summary of hints for debug logging (e.g. "TICKER:AAPL, FIGI:...").

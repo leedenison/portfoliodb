@@ -44,9 +44,18 @@ var stockHints = identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintS
 // tickerHintsCache builds an extractedHintsCache for tests where description
 // extraction would have returned a TICKER hint with value equal to the
 // instrument description.
-func tickerHintsCache(source, desc string) map[string][]identifier.Identifier {
-	return map[string][]identifier.Identifier{
-		cacheKey(source, desc): {{Type: "MIC_TICKER", Domain: "", Value: desc}},
+func tickerHintsCache(source, desc string) map[string]keyProposals {
+	return map[string]keyProposals{
+		cacheKey(source, desc): {
+			// A call id, because a proposal that reached the resolver came from
+			// one and telemetry writes no field row without it.
+			CallID: "call-1",
+			Proposals: []candpkg.Proposal{{
+				Field:      candpkg.FieldTicker,
+				Identifier: identifier.Identifier{Type: "MIC_TICKER", Domain: "", Value: desc},
+				Confidence: 0.9,
+			}},
+		},
 	}
 }
 
@@ -687,10 +696,10 @@ func TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes(t *te
 	if got == nil {
 		t.Fatal("expected non-nil result map")
 	}
-	if hints, ok := got["cash-1"]; !ok || len(hints) == 0 {
+	if hints, ok := got["cash-1"]; !ok || len(hints.Proposals) == 0 {
 		t.Errorf("cash-1: expected CURRENCY hint, got %v", hints)
 	}
-	if hints, ok := got["stock-1"]; !ok || len(hints) == 0 {
+	if hints, ok := got["stock-1"]; !ok || len(hints.Proposals) == 0 {
 		t.Error("stock-1: expected MIC_TICKER hint, got nothing (stock plugin was never called)")
 	}
 }
@@ -746,15 +755,16 @@ func TestRunDescriptionPluginsBatch_TransferSkipsCash(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil result map")
 	}
-	hints, ok := got["t-1"]
-	if !ok || len(hints) == 0 {
+	kp, ok := got["t-1"]
+	if !ok || len(kp.Proposals) == 0 {
 		t.Fatal("t-1: expected hints from stock plugin, got nothing")
 	}
-	if hints[0].Type == "CURRENCY" {
+	first := kp.Proposals[0].Identifier
+	if first.Type == "CURRENCY" {
 		t.Error("t-1: TRANSFER should NOT be routed to cash plugin, but got CURRENCY hint")
 	}
-	if hints[0].Type != "MIC_TICKER" || hints[0].Value != "ABNB" {
-		t.Errorf("t-1: expected MIC_TICKER=ABNB from stock plugin, got %+v", hints)
+	if first.Type != "MIC_TICKER" || first.Value != "ABNB" {
+		t.Errorf("t-1: expected MIC_TICKER=ABNB from stock plugin, got %+v", kp.Proposals)
 	}
 }
 
@@ -1036,12 +1046,15 @@ func TestResolve_PathAPassesProposalsApartFromWhatTheSourceStated(t *testing.T) 
 	registry.Register("p", plugin)
 
 	stated := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
-	proposed := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
 	key := cacheKeyWithHints("SRC", "APPLE INC", stated)
 	pre := prePass{
 		resolved:  map[string]resolveResult{},
 		conflicts: map[string]bool{},
-		proposed:  map[string][]identifier.Identifier{key: proposed},
+		proposed: map[string]keyProposals{key: {CallID: "call-1", Proposals: []candpkg.Proposal{{
+			Field:      candpkg.FieldExchange,
+			Identifier: identifier.Identifier{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
+			Confidence: 0.7,
+		}}}},
 	}
 
 	if _, err := Resolve(context.Background(), database, registry, "IBKR", "SRC", "APPLE INC",

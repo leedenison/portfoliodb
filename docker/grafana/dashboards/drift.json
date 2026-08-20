@@ -882,7 +882,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id AS metric,\n  sum(items_with_hints)::numeric / nullif(sum(batch_size), 0) AS value\nFROM telemetry.v_candidate_plugin_call\nWHERE $__timeFilter(run_started_at)\n  AND is_import\n  AND run_broker IN (${broker:sqlstring})\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id AS metric,\n  sum(items_completed)::numeric / nullif(sum(batch_size), 0) AS value\nFROM telemetry.v_candidate_plugin_call\nWHERE $__timeFilter(run_started_at)\n  AND is_import\n  AND run_broker IN (${broker:sqlstring})\nGROUP BY 1, 2\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -1506,6 +1506,190 @@
         "y": 74
       },
       "id": 22
+    },
+    {
+      "type": "timeseries",
+      "title": "Candidate field accuracy",
+      "description": "Of the fields a candidate plugin proposed and something was able to check, the share the resolved instrument agreed with. The denominator is deliberately the tested fields, not all of them: untested and unused mean nobody found out, and folding them in would move this line for reasons that have nothing to do with whether the guesses are good. Their share is the panel beside this one.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  field AS metric,\n  count(*) FILTER (WHERE outcome = 'confirmed')::numeric / nullif(count(*) FILTER (WHERE was_tested), 0) AS value\nFROM telemetry.v_candidate_field\nWHERE $__timeFilter(run_started_at)\n  AND is_import\n  AND run_broker IN (${broker:sqlstring})\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1,
+          "max": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 82
+      },
+      "id": 23
+    },
+    {
+      "type": "timeseries",
+      "title": "Candidate fields nothing checked",
+      "description": "The share of proposed fields that were paid for and never evaluated. untested is a provider that does not return the field; unused is a proposal no resolution needed. Both are cost without evidence, and they have different fixes, so they are separate series rather than one.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  count(*) FILTER (WHERE outcome = 'untested')::numeric / nullif(count(*), 0) AS \"untested\",\n  count(*) FILTER (WHERE outcome = 'unused')::numeric / nullif(count(*), 0) AS \"unused\"\nFROM telemetry.v_candidate_field\nWHERE $__timeFilter(run_started_at)\n  AND is_import\n  AND run_broker IN (${broker:sqlstring})\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1,
+          "max": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 82
+      },
+      "id": 24
     }
   ],
   "preload": false,

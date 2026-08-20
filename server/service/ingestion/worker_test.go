@@ -640,8 +640,8 @@ func TestProposeCandidates_HintedKeyIsLookedUpByItsIdentifiers(t *testing.T) {
 	if pre.resolved[key].DBHitOutcome != db.TelemetryResolutionDBIdentifierHints {
 		t.Errorf("DBHitOutcome = %q, want %q", pre.resolved[key].DBHitOutcome, db.TelemetryResolutionDBIdentifierHints)
 	}
-	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedDBHit {
-		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedDBHit)
+	if pre.outcome[key] != db.TelemetryCandidateNotAttemptedDBHit {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryCandidateNotAttemptedDBHit)
 	}
 	if len(pre.conflicts) != 0 {
 		t.Errorf("conflicts = %v, want none", pre.conflicts)
@@ -705,8 +705,8 @@ func TestProposeCandidates_ResolvedDescriptionIsNotProposedFor(t *testing.T) {
 	if pre.resolved[key].DBHitOutcome != db.TelemetryResolutionDBSourceDescription {
 		t.Errorf("DBHitOutcome = %q, want %q", pre.resolved[key].DBHitOutcome, db.TelemetryResolutionDBSourceDescription)
 	}
-	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedDBHit {
-		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedDBHit)
+	if pre.outcome[key] != db.TelemetryCandidateNotAttemptedDBHit {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryCandidateNotAttemptedDBHit)
 	}
 	if len(pre.proposed) != 0 {
 		t.Errorf("proposed = %v, want nothing: the description is already resolved", pre.proposed)
@@ -759,12 +759,17 @@ func TestProposeCandidates_AStatedIsinWithNoVenueIsCompleted(t *testing.T) {
 		t.Fatalf("proposeCandidates: %v", err)
 	}
 	key := cacheKeyWithHints("SRC", "APPLE INC", txHints[0])
-	got := pre.proposed[key]
-	if len(got) != 1 || got[0].Domain != "XNAS" || got[0].Value != "AAPL" {
+	got := pre.proposed[key].Proposals
+	if len(got) != 1 || got[0].Identifier.Domain != "XNAS" || got[0].Identifier.Value != "AAPL" {
 		t.Fatalf("proposed = %v, want one MIC_TICKER XNAS:AAPL", got)
 	}
-	if pre.outcome[key] != db.TelemetryExtractionHintsFound {
-		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionHintsFound)
+	// The field and the plugin's confidence travel with the value: telemetry
+	// records all three, and a filtered slice of identifiers would have lost two.
+	if got[0].Field != candpkg.FieldTicker {
+		t.Errorf("Field = %q, want %q", got[0].Field, candpkg.FieldTicker)
+	}
+	if pre.outcome[key] != db.TelemetryCandidateFieldsProposed {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryCandidateFieldsProposed)
 	}
 	// The plugin is asked to complete an identity, so it has to be shown the part
 	// of it the source did state.
@@ -800,11 +805,11 @@ func TestProposeCandidates_AStatedVenueIsNotCompleted(t *testing.T) {
 	if len(plugin.seen) != 0 {
 		t.Errorf("the plugin was called for a complete identity: %v", plugin.seen)
 	}
-	if len(pre.proposed[key]) != 0 {
-		t.Errorf("proposed = %v, want nothing", pre.proposed[key])
+	if len(pre.proposed[key].Proposals) != 0 {
+		t.Errorf("proposed = %v, want nothing", pre.proposed[key].Proposals)
 	}
-	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedHintsSupplied {
-		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedHintsSupplied)
+	if pre.outcome[key] != db.TelemetryCandidateNotAttemptedIdentityComplete {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryCandidateNotAttemptedIdentityComplete)
 	}
 }
 
@@ -837,8 +842,8 @@ func TestProposeCandidates_AnArchiveDoesNotCompleteAPartialIdentity(t *testing.T
 		t.Errorf("an archive import reached a candidate plugin: %v", plugin.seen)
 	}
 	key := cacheKeyWithHints("SRC", "APPLE INC", txHints[0])
-	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedHintsSupplied {
-		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedHintsSupplied)
+	if pre.outcome[key] != db.TelemetryCandidateNotAttemptedRunKind {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryCandidateNotAttemptedRunKind)
 	}
 }
 
@@ -869,8 +874,8 @@ func TestProposeCandidates_AnArchiveStillProposesForADescriptionAlone(t *testing
 		t.Fatalf("proposeCandidates: %v", err)
 	}
 	key := cacheKeyWithHints("SRC", "APPLE INC", nil)
-	if len(pre.proposed[key]) != 1 {
-		t.Errorf("proposed = %v, want the description to have been proposed for", pre.proposed[key])
+	if len(pre.proposed[key].Proposals) != 1 {
+		t.Errorf("proposed = %v, want the description to have been proposed for", pre.proposed[key].Proposals)
 	}
 }
 
@@ -910,7 +915,7 @@ func TestProposeCandidates_AConflictIsNotCompleted(t *testing.T) {
 	if len(plugin.seen) != 0 {
 		t.Errorf("a conflicting key reached a candidate plugin: %v", plugin.seen)
 	}
-	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedHintsSupplied {
-		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedHintsSupplied)
+	if pre.outcome[key] != db.TelemetryCandidateNotAttemptedConflictingHints {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryCandidateNotAttemptedConflictingHints)
 	}
 }

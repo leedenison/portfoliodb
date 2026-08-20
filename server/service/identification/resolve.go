@@ -674,8 +674,26 @@ func ResolveWithPlugins(
 	// value: ident keeps the true provenance, so the scoring and the confirmation
 	// below still know the key was guessed. See adr/0057.
 	keyed := ident
-	if len(keyed.Stated) == 0 && len(keyed.Proposed) > 0 {
+	guessedKey := len(keyed.Stated) == 0 && len(keyed.Proposed) > 0
+	if guessedKey {
 		keyed.Stated, keyed.Proposed = keyed.Proposed, nil
+	}
+	// A guessed venue must not narrow the database lookup, though it is exactly
+	// what the plugins want for ranking. A proposal is not evidence, so a key
+	// carrying one has to find the instrument the same key without one would
+	// have found: otherwise a guess about where a ticker trades forks a second
+	// instrument alongside the one that ticker already names -- which is what a
+	// price import, storing a ticker and no venue, leaves waiting. The plugins
+	// still receive the venue; only this lookup is widened. See adr/0057.
+	lookupIDs := keyed.Stated
+	if guessedKey {
+		lookupIDs = make([]identifier.Identifier, len(keyed.Stated))
+		copy(lookupIDs, keyed.Stated)
+		for i := range lookupIDs {
+			if lookupIDs[i].Type == "MIC_TICKER" {
+				lookupIDs[i].Domain = ""
+			}
+		}
 	}
 	// What the attempt row states about its inputs. Its outcome and the asset
 	// class it landed on are filled in at each of the returns below.
@@ -686,7 +704,7 @@ func ResolveWithPlugins(
 	}
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
-	resolved, err := ResolveByHintsDBOnly(ctx, database, keyed.Stated)
+	resolved, err := ResolveByHintsDBOnly(ctx, database, lookupIDs)
 	if err != nil {
 		return ResolveResult{}, err
 	}

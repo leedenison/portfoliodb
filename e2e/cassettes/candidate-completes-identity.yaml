@@ -6,9 +6,9 @@ interactions:
         proto: HTTP/1.1
         proto_major: 1
         proto_minor: 1
-        content_length: 819
+        content_length: 2557
         host: api.openai.com
-        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: a036cc70\ntype: STOCK\nDescription: BERKSHIRE HATHAWAY INC-CL B","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        body: '{"max_completion_tokens":12000,"messages":[{"content":"You complete partial instrument identities for a portfolio system.\n\nFor each item you are given a broker''s free-text description, the asset class the source stated, and any fields the source already supplied. Fill in every field you can determine.\n\nFields:\n- ticker: the exchange symbol the instrument is quoted under.\n- exchange: the ISO 10383 operating MIC of its primary listing venue. NASDAQ is XNAS, the New York Stock Exchange is XNYS, the London Stock Exchange is XLON, Xetra is XETR, Euronext Paris is XPAR, Toronto is XTSE, the Australian Securities Exchange is XASX, Tokyo is XJPX. If you can name the venue, give its MIC.\n- currency: the ISO 4217 code it trades in. London pence is GBX.\n- occ: the 21-character OCC option symbol, and only when the asset class is OPTION.\n- confidence: your own estimate for that field, between 0 and 1.\n\nReturn null for a field the source already supplied, and null for one you genuinely do not know. Set confidence to 0 whenever the value is null.\n\nReturn one entry per item, with the id exactly as given.","role":"system"},{"content":"id: a036cc70\nasset class: STOCK\ndescription: BERKSHIRE HATHAWAY INC-CL B\nknown currency: USD\nknown isin: US0846707026","role":"user"}],"model":"gpt-4o-mini","response_format":{"json_schema":{"name":"instrument_candidates","schema":{"additionalProperties":false,"properties":{"items":{"items":{"additionalProperties":false,"properties":{"currency":{"additionalProperties":false,"properties":{"confidence":{"type":"number"},"value":{"description":"ISO 4217 code","type":["string","null"]}},"required":["value","confidence"],"type":"object"},"exchange":{"additionalProperties":false,"properties":{"confidence":{"type":"number"},"value":{"description":"ISO 10383 operating MIC","type":["string","null"]}},"required":["value","confidence"],"type":"object"},"id":{"type":"string"},"occ":{"additionalProperties":false,"properties":{"confidence":{"type":"number"},"value":{"description":"21-character OCC option symbol, options only","type":["string","null"]}},"required":["value","confidence"],"type":"object"},"ticker":{"additionalProperties":false,"properties":{"confidence":{"type":"number"},"value":{"description":"exchange symbol","type":["string","null"]}},"required":["value","confidence"],"type":"object"}},"required":["id","ticker","exchange","currency","occ"],"type":"object"},"type":"array"}},"required":["items"],"type":"object"},"strict":true},"type":"json_schema"},"seed":20260401,"temperature":0}'
         headers:
             Authorization:
                 - Bearer REDACTED
@@ -24,16 +24,16 @@ interactions:
         uncompressed: true
         body: |
             {
-              "id": "chatcmpl-EEuMNroTLzHB5np9Ds8koUBtb8O5S",
+              "id": "chatcmpl-EEwIijDBU51xz4CYV1MRokZBntSFg",
               "object": "chat.completion",
-              "created": 1787221947,
+              "created": 1787229408,
               "model": "gpt-4o-mini-2024-07-18",
               "choices": [
                 {
                   "index": 0,
                   "message": {
                     "role": "assistant",
-                    "content": "{ \"a036cc70\": { \"TICKER\": \"BRK.B\" } }",
+                    "content": "{\"items\":[{\"currency\":{\"confidence\":1,\"value\":\"USD\"},\"exchange\":{\"confidence\":1,\"value\":\"XNYS\"},\"id\":\"a036cc70\",\"occ\":{\"confidence\":0,\"value\":null},\"ticker\":{\"confidence\":1,\"value\":\"BRK.B\"}}]}",
                     "refusal": null,
                     "annotations": []
                   },
@@ -42,9 +42,9 @@ interactions:
                 }
               ],
               "usage": {
-                "prompt_tokens": 196,
-                "completion_tokens": 20,
-                "total_tokens": 216,
+                "prompt_tokens": 477,
+                "completion_tokens": 57,
+                "total_tokens": 534,
                 "prompt_tokens_details": {
                   "cached_tokens": 0,
                   "audio_tokens": 0
@@ -57,7 +57,7 @@ interactions:
                 }
               },
               "service_tier": "default",
-              "system_fingerprint": "fp_f344a168a1"
+              "system_fingerprint": "fp_f282d56213"
             }
         headers:
             Access-Control-Expose-Headers:
@@ -71,9 +71,9 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 20 Aug 2026 10:32:27 GMT
+                - Thu, 20 Aug 2026 12:36:49 GMT
             Openai-Processing-Ms:
-                - "810"
+                - "1127"
             Openai-Version:
                 - "2020-10-01"
             Server:
@@ -91,16 +91,16 @@ interactions:
             X-Ratelimit-Remaining-Requests:
                 - "9999"
             X-Ratelimit-Remaining-Tokens:
-                - "199832"
+                - "199705"
             X-Ratelimit-Reset-Requests:
                 - 8.64s
             X-Ratelimit-Reset-Tokens:
-                - 50ms
+                - 88ms
             X-Request-Id:
-                - req_2ce51aa1796c41f09376c91e0ce71750
+                - req_bd3a58e870df480bb091d463abaef507
         status: 200 OK
         code: 200
-        duration: 1.899891621s
+        duration: 1.319219792s
     - id: 1
       request:
         proto: HTTP/1.1
@@ -137,7 +137,7 @@ interactions:
             Cross-Origin-Resource-Policy:
                 - same-origin
             Date:
-                - Thu, 20 Aug 2026 10:32:28 GMT
+                - Thu, 20 Aug 2026 12:36:49 GMT
             Expires:
                 - "0"
             Origin-Agent-Cluster:
@@ -167,18 +167,18 @@ interactions:
             X-Download-Options:
                 - noopen
             X-Envoy-Upstream-Service-Time:
-                - "14"
+                - "15"
             X-Frame-Options:
                 - SAMEORIGIN
             X-Permitted-Cross-Domain-Policies:
                 - none
             X-Request-Id:
-                - 6613cf16-45e9-4f46-b546-feea85ea3807
+                - 934ec4b6-e68e-4d37-9c5b-f4833e80be75
             X-Xss-Protection:
                 - "0"
         status: 200 OK
         code: 200
-        duration: 1.047510671s
+        duration: 443.946757ms
     - id: 2
       request:
         proto: HTTP/1.1
@@ -216,7 +216,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 20 Aug 2026 10:32:29 GMT
+                - Thu, 20 Aug 2026 12:36:49 GMT
             Server:
                 - nginx/1.19.10
             Vary:
@@ -227,7 +227,7 @@ interactions:
                 - "1199"
         status: 200 OK
         code: 200
-        duration: 1.445708222s
+        duration: 529.225613ms
     - id: 3
       request:
         proto: HTTP/1.1
@@ -250,12 +250,12 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '{"ticker":"BRK.B","queryCount":22,"resultsCount":22,"adjusted":false,"results":[{"v":4.473051165544e+06,"vw":489.6602,"o":489,"c":489.65,"h":491.2,"l":487.38,"t":1784606400000,"n":81519},{"v":3.179315977664e+06,"vw":489.489,"o":490.5,"c":489.39,"h":492.315,"l":487.81,"t":1784692800000,"n":70351},{"v":2.883047531172e+06,"vw":489.5551,"o":488.4,"c":490.85,"h":491,"l":486.06,"t":1784779200000,"n":78583},{"v":3.932974258036e+06,"vw":494.4006,"o":491.43,"c":494.93,"h":497.2899,"l":490.25,"t":1784865600000,"n":101770},{"v":3.484117449302e+06,"vw":496.4236,"o":497.25,"c":497.18,"h":498.77,"l":493.97,"t":1785124800000,"n":84041},{"v":6.369905690945e+06,"vw":510.676,"o":500.33,"c":512.37,"h":513.44,"l":499.5,"t":1785211200000,"n":142686},{"v":5.061272188635e+06,"vw":509.4036,"o":511.44,"c":509.16,"h":513.357,"l":507.2,"t":1785297600000,"n":100048},{"v":4.061797249076e+06,"vw":506.8962,"o":505.98,"c":509.68,"h":509.91,"l":501.27,"t":1785384000000,"n":110361},{"v":3.939816054426e+06,"vw":511.2668,"o":508.99,"c":511.54,"h":513.03,"l":506.7,"t":1785470400000,"n":97993},{"v":4.24898202966e+06,"vw":513.8078,"o":514.93,"c":513.14,"h":520.665,"l":510.825,"t":1785729600000,"n":117440},{"v":4.771273074269e+06,"vw":515.5757,"o":512.07,"c":517.22,"h":517.77,"l":508.81,"t":1785816000000,"n":106208},{"v":3.749422158331e+06,"vw":517.1621,"o":519,"c":518.85,"h":519.7677,"l":512.2,"t":1785902400000,"n":103271},{"v":4.352776862817e+06,"vw":522.7079,"o":524.105,"c":524.61,"h":525.44,"l":517.2135,"t":1785988800000,"n":112514},{"v":3.645147078302e+06,"vw":520.541,"o":520.26,"c":521.8,"h":521.99,"l":517.43,"t":1786075200000,"n":103509},{"v":6.094786809005e+06,"vw":531.2555,"o":524.6,"c":529.42,"h":537.74,"l":523,"t":1786334400000,"n":155476},{"v":4.718562904546e+06,"vw":519.6233,"o":528.76,"c":516.38,"h":530.3,"l":515.65,"t":1786420800000,"n":131336},{"v":4.59905411681e+06,"vw":510.1091,"o":513.98,"c":510,"h":514.38,"l":507.96,"t":1786507200000,"n":127485},{"v":4.713434218605e+06,"vw":507.4729,"o":511.29,"c":506.93,"h":512.01,"l":505.56,"t":1786593600000,"n":121579},{"v":3.969451656989e+06,"vw":505.3929,"o":507.235,"c":504.03,"h":509.17,"l":503.77,"t":1786680000000,"n":103487},{"v":4.789757814879e+06,"vw":500.0772,"o":504.45,"c":498.23,"h":505.31,"l":498.07,"t":1786939200000,"n":128422},{"v":3.380695659587e+06,"vw":502.7545,"o":501.04,"c":502.96,"h":504.5,"l":499.6032,"t":1787025600000,"n":117227},{"v":3.562320515536e+06,"vw":502.0022,"o":503.41,"c":499.62,"h":507.07,"l":499.41,"t":1787112000000,"n":108728}],"status":"DELAYED","request_id":"16418c4f63d7bbfa3cc4bbc3735eba15","count":22}'
+        body: '{"ticker":"BRK.B","queryCount":22,"resultsCount":22,"adjusted":false,"results":[{"v":4.473051165544e+06,"vw":489.6602,"o":489,"c":489.65,"h":491.2,"l":487.38,"t":1784606400000,"n":81519},{"v":3.179315977664e+06,"vw":489.489,"o":490.5,"c":489.39,"h":492.315,"l":487.81,"t":1784692800000,"n":70351},{"v":2.883047531172e+06,"vw":489.5551,"o":488.4,"c":490.85,"h":491,"l":486.06,"t":1784779200000,"n":78583},{"v":3.932974258036e+06,"vw":494.4006,"o":491.43,"c":494.93,"h":497.2899,"l":490.25,"t":1784865600000,"n":101770},{"v":3.484117449302e+06,"vw":496.4236,"o":497.25,"c":497.18,"h":498.77,"l":493.97,"t":1785124800000,"n":84041},{"v":6.369905690945e+06,"vw":510.676,"o":500.33,"c":512.37,"h":513.44,"l":499.5,"t":1785211200000,"n":142686},{"v":5.061272188635e+06,"vw":509.4036,"o":511.44,"c":509.16,"h":513.357,"l":507.2,"t":1785297600000,"n":100048},{"v":4.061797249076e+06,"vw":506.8962,"o":505.98,"c":509.68,"h":509.91,"l":501.27,"t":1785384000000,"n":110361},{"v":3.939816054426e+06,"vw":511.2668,"o":508.99,"c":511.54,"h":513.03,"l":506.7,"t":1785470400000,"n":97993},{"v":4.24898202966e+06,"vw":513.8078,"o":514.93,"c":513.14,"h":520.665,"l":510.825,"t":1785729600000,"n":117440},{"v":4.771273074269e+06,"vw":515.5757,"o":512.07,"c":517.22,"h":517.77,"l":508.81,"t":1785816000000,"n":106208},{"v":3.749422158331e+06,"vw":517.1621,"o":519,"c":518.85,"h":519.7677,"l":512.2,"t":1785902400000,"n":103271},{"v":4.352776862817e+06,"vw":522.7079,"o":524.105,"c":524.61,"h":525.44,"l":517.2135,"t":1785988800000,"n":112514},{"v":3.645147078302e+06,"vw":520.541,"o":520.26,"c":521.8,"h":521.99,"l":517.43,"t":1786075200000,"n":103509},{"v":6.094786809005e+06,"vw":531.2555,"o":524.6,"c":529.42,"h":537.74,"l":523,"t":1786334400000,"n":155476},{"v":4.718562904546e+06,"vw":519.6233,"o":528.76,"c":516.38,"h":530.3,"l":515.65,"t":1786420800000,"n":131336},{"v":4.59905411681e+06,"vw":510.1091,"o":513.98,"c":510,"h":514.38,"l":507.96,"t":1786507200000,"n":127485},{"v":4.713434218605e+06,"vw":507.4729,"o":511.29,"c":506.93,"h":512.01,"l":505.56,"t":1786593600000,"n":121579},{"v":3.969451656989e+06,"vw":505.3929,"o":507.235,"c":504.03,"h":509.17,"l":503.77,"t":1786680000000,"n":103487},{"v":4.789757814879e+06,"vw":500.0772,"o":504.45,"c":498.23,"h":505.31,"l":498.07,"t":1786939200000,"n":128422},{"v":3.380695659587e+06,"vw":502.7545,"o":501.04,"c":502.96,"h":504.5,"l":499.6032,"t":1787025600000,"n":117227},{"v":3.562320515536e+06,"vw":502.0022,"o":503.41,"c":499.62,"h":507.07,"l":499.41,"t":1787112000000,"n":108728}],"status":"DELAYED","request_id":"bbebf9af185e245014699948d4bcff15","count":22}'
         headers:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 20 Aug 2026 10:32:30 GMT
+                - Thu, 20 Aug 2026 12:36:50 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             Vary:
@@ -263,7 +263,7 @@ interactions:
             X-Polygon-Cluster-Name:
                 - polygon-ny5
             X-Request-Id:
-                - 16418c4f63d7bbfa3cc4bbc3735eba15
+                - bbebf9af185e245014699948d4bcff15
         status: 200 OK
         code: 200
-        duration: 838.594941ms
+        duration: 800.992407ms

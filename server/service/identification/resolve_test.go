@@ -1940,3 +1940,55 @@ func TestResolveWithPlugins_ContradictedProposalFallsBackToPrecedence(t *testing
 		t.Errorf("winner = %q, want the highest-precedence plugin", got)
 	}
 }
+
+// A guess must not promote a result that argues with the source. The
+// proposal-matching plugin contradicts the stated currency; the highest-precedence
+// one merely says nothing about it. Without the contradiction test the first
+// would win, which is a proposal outranking a statement by the back door.
+func TestResolveWithPlugins_ProposalDoesNotPromoteAResultContradictingTheSource(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	// Highest precedence. Says nothing about the currency, so it confirms
+	// nothing and contradicts nothing.
+	registry.Register("silent", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Says nothing"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "Q"}},
+	})
+	// Agrees with the proposed venue and disagrees with the stated currency.
+	registry.Register("contradicts", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNYS"}, Currency: "USD", Name: "Argues with the source"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", "", "", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "silent", Precedence: 30}, {PluginID: "contradicts", Precedence: 10}}, nil)
+
+	var chosen string
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, name, _, _ string, _ []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			chosen = name
+			return "id", nil
+		})
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Identity{
+			Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
+			Hints:    identifier.Hints{Currency: "GBP"},
+		},
+		false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if chosen != "Says nothing" {
+		t.Errorf("winner = %q, want the plugin that does not contradict the stated currency", chosen)
+	}
+}

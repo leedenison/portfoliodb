@@ -640,7 +640,15 @@ func ResolveWithPlugins(
 			if hasStated && firstStatedIdx < 0 && resultMatchesHints(ctx, hints, identifierHints, r, normMIC) {
 				firstStatedIdx = i
 			}
-			if hasProposed && firstProposedIdx < 0 && resultMatchesHints(ctx, identifier.Hints{}, ident.Proposed, r, normMIC) {
+			// A guess promotes only a result that does not argue with the source.
+			// Matching a proposal is not enough on its own: a result contradicting
+			// the stated currency would otherwise be lifted over one that merely
+			// failed to confirm it, which is a proposal outranking a statement by
+			// the back door. Contradicting nothing is a weaker test than the
+			// stated tier's, which also requires something to have been confirmed.
+			if hasProposed && firstProposedIdx < 0 &&
+				len(CompareHints(ctx, hints, identifierHints, r.inst, r.ids, normMIC)) == 0 &&
+				resultMatchesHints(ctx, identifier.Hints{}, ident.Proposed, r, normMIC) {
 				firstProposedIdx = i
 			}
 			continue

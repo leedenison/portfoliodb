@@ -39,6 +39,14 @@ A contradicted proposal costs a result its place in the middle tier and nothing
 more. It never removes a result from contention, because a guess being wrong says
 nothing about the plugin that disagreed with it.
 
+The middle tier also refuses a result that argues with the source. Matching a
+proposal is not enough on its own: a result contradicting a stated currency would
+otherwise be lifted over one that merely failed to confirm it, and a proposal
+would have outranked a statement by the back door -- the tiers alone do not stop
+that, because a stated hint nothing confirms leaves the top tier empty. The test
+is weaker than the top tier's: contradicting nothing, rather than confirming
+something.
+
 ## Barring the return does not blind us
 
 The confirmation is the response, not the value. OpenFIGI's mapping call returns

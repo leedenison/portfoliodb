@@ -2,7 +2,7 @@
 status: open
 title: Manually correct a misidentified instrument
 milestone: M21
-dependencies: [0066]
+dependencies: [0066, 0138]
 ---
 
 Let a person say that a row resolved to the wrong instrument, and have the
@@ -30,12 +30,18 @@ admin's, and one correction there lands on every user.
 
 How any of this happens is unsettled, and left so deliberately:
 
-- What a person corrects -- the row, the instrument, or the identifier that
-  linked the two.
+- What a person corrects. 0138 answers half of it: the row records the identifier
+  resolution was given, and a correction is a user-owned identifier with the same
+  name rather than a patch to the row. What is still open is the surface -- what
+  a person is shown and what they press.
 - Whether a user's correction is an override scoped to their own data or a
-  request for an admin to change shared reference data.
-- How a correction survives the next ingestion, and what keeps re-identification
-  from undoing it.
+  request for an admin to change shared reference data. 0138 makes both possible
+  and argues the answer differs by what resolved the row -- a broker description
+  is one user's reading of one source and is theirs, an ISIN is not.
+- What keeps re-identification from undoing a correction. Surviving the next
+  ingestion is answered by 0138: an override that is an identifier is re-derived
+  onto rather than remembered, where a per-row marker would be lost to the
+  delete-and-rewrite an upload performs.
 - What correcting means now that identity is an interval rather than current
   state (0125). Closing a name at a date and minting its replacement is the
   operation `ApplyOptionSplit` performs, and doing it by hand needs a shape.

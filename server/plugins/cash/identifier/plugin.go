@@ -48,7 +48,8 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 
 // Identify looks up an instrument by CURRENCY identifier. When identifierHints contain a CURRENCY type with non-empty value,
 // looks up the instrument in the DB (seeded at migration). Returns ErrNotIdentified when not found or no CURRENCY hint.
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, ident identifier.Identity) (identifier.Result, error) {
+	identifierHints := ident.Stated
 	var code string
 	for _, h := range identifierHints {
 		if strings.TrimSpace(h.Type) == "CURRENCY" && strings.TrimSpace(h.Value) != "" {

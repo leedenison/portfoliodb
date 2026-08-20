@@ -73,15 +73,7 @@ func TestIntegration_Massive_Identify(t *testing.T) {
 				t.Fatalf("marshal config: %v", err)
 			}
 
-			res, err := p.Identify(
-				context.Background(),
-				cfg,
-				"test-broker",
-				"test-source",
-				"test-description",
-				tc.hints,
-				tc.idHints,
-			)
+			res, err := p.Identify(context.Background(), cfg, "test-broker", "test-source", "test-description", identifier.Identity{Stated: tc.idHints, Hints: tc.hints})
 
 			if tc.wantErr != nil {
 				if !errors.Is(err, tc.wantErr) {

@@ -40,10 +40,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-	)
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -73,10 +70,7 @@ func TestPlugin_Identify_ISIN_Fallback(t *testing.T) {
 	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-		identifier.Hints{},
-		[]identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
-	)
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}, Hints: identifier.Hints{}})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -115,10 +109,7 @@ func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
 			p := NewPlugin(nil, httpClient, nil)
 			cfg := testConfig(t, srv.URL)
 
-			res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-				identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-				[]identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}},
-			)
+			res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}})
 			if err != nil {
 				t.Fatalf("Identify(%q): %v", tt.input, err)
 			}
@@ -142,10 +133,7 @@ func TestPlugin_Identify_NoHints(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := testConfig(t, "http://unused")
 
-	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-		identifier.Hints{},
-		nil,
-	)
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: nil, Hints: identifier.Hints{}})
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)
@@ -159,10 +147,7 @@ func TestPlugin_Identify_NoTickerOrISIN(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := testConfig(t, "http://unused")
 
-	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-		identifier.Hints{},
-		[]identifier.Identifier{{Type: "OCC", Value: "AAPL260316C00252500"}},
-	)
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "OCC", Value: "AAPL260316C00252500"}}, Hints: identifier.Hints{}})
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)
@@ -181,10 +166,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-		identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-	)
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}})
 
 	if err == nil {
 		t.Fatal("expected error")
@@ -209,10 +191,7 @@ func TestPlugin_Identify_EmptyResults(t *testing.T) {
 	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-		identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-	)
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}})
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)
@@ -233,10 +212,7 @@ func TestPlugin_Identify_NonStockFiltered(t *testing.T) {
 	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-		identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "SPY"}},
-	)
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "SPY"}}, Hints: identifier.Hints{}})
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)

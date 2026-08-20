@@ -24,7 +24,7 @@ type telPlugin struct {
 	calls     int
 }
 
-func (p *telPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (identifier.Result, error) {
+func (p *telPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Identity) (identifier.Result, error) {
 	p.calls++
 	if p.failFirst && p.calls == 1 {
 		return identifier.Result{Telemetry: identifier.Telemetry{Outcome: identifier.OutcomeError}}, errTransport
@@ -89,8 +89,7 @@ func TestAttemptDBShortCircuit(t *testing.T) {
 		Return("inst-1", "STOCK", "XNAS", "USD", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(),
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -136,8 +135,7 @@ func TestAttemptNoEligiblePlugins(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "cash-only", Precedence: 10}}, nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -206,8 +204,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 		Return("inst-1", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{Currency: "USD"},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "USD"}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -261,8 +258,7 @@ func TestPluginTransportOutcomePassesThrough(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "expired", Precedence: 10}}, nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -309,8 +305,7 @@ func TestPluginCallCountsRetries(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "flaky", Precedence: 10}}, nil)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, scope(tel), nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -361,8 +356,7 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 		Return("opt-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "OCC", Value: "AAPL240315C00100000"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "OCC", Value: "AAPL240315C00100000"}}, Hints: identifier.Hints{}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)

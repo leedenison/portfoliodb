@@ -56,7 +56,8 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	}
 }
 
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, ident identifier.Identity) (identifier.Result, error) {
+	identifierHints := ident.Stated
 	if len(identifierHints) == 0 {
 		return result(nil, nil, identifier.ErrNotIdentified)
 	}

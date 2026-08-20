@@ -58,6 +58,11 @@ type FallbackFunc func(ctx context.Context, database db.DB) (string, error)
 //     fallback FindInstrumentByTypeAndValue(type, value) matches any domain; if exactly one instrument has that
 //     (type, value), we use it. If multiple instruments match (same ticker on different exchanges), the fallback
 //     returns "" and we do not resolve (ambiguous).
+//
+// Only identifiers a source stated may be passed here. A lookup that a
+// proposal satisfied would resolve the instrument without any plugin having
+// confirmed the proposal, which is the one thing a proposal must never do.
+// See adr/0057.
 func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]ResolvedInstrument, error) {
 	seen := make(map[string]bool)
 	var resolved []ResolvedInstrument
@@ -110,6 +115,10 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 // returns only instrument IDs (no metadata). It uses FindInstrumentByIdentifier
 // (index-only lookup) instead of FindInstrumentWithMetaByIdentifier (JOIN),
 // making it cheaper for callers that don't need hint comparison.
+// Only identifiers a source stated may be passed here. A lookup that a
+// proposal satisfied would resolve the instrument without any plugin having
+// confirmed the proposal, which is the one thing a proposal must never do.
+// See adr/0057.
 func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]string, error) {
 	seen := make(map[string]bool)
 	var ids []string
@@ -502,8 +511,7 @@ func ResolveWithPlugins(
 	database db.DB,
 	registry *identifier.Registry,
 	broker, source, instrumentDescription string,
-	hints identifier.Hints,
-	identifierHints []identifier.Identifier,
+	ident identifier.Identity,
 	storeSourceDescription bool,
 	fallback FallbackFunc,
 	tel Attempt,
@@ -514,6 +522,11 @@ func ResolveWithPlugins(
 	l := resolveLogger(logger)
 	normMIC := NewDBMICNormalizer(database)
 	countryOf := NewDBMICCountry(ctx, database)
+	// Stated is what a source said and is the only thing allowed to stand in for
+	// a resolution: it satisfies the database lookup below, and it is the only
+	// thing that may raise conflicting hints. A proposal is tested by the
+	// plugins, never trusted ahead of them. See adr/0057.
+	hints, identifierHints := ident.Hints, ident.Stated
 	// What the attempt row states about its inputs. Its outcome and the asset
 	// class it landed on are filled in at each of the returns below.
 	row := db.TelemetryIdentificationAttempt{
@@ -577,7 +590,7 @@ func ResolveWithPlugins(
 			defer wg.Done()
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
-			res, stats, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout, PluginRetryBackoff)
+			res, stats, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, ident, timeout, PluginRetryBackoff)
 			results[idx] = pluginResult{inst: res.Instrument, ids: res.Identifiers, tel: res.Telemetry, stats: stats, err: err}
 		}(i)
 	}
@@ -604,15 +617,19 @@ func ResolveWithPlugins(
 		callOutcomes[i] = string(results[i].tel.Outcome)
 	}
 
-	// Check whether any meaningful hints are supplied (to avoid vacuous matching).
-	hasHints := hints.Currency != "" ||
+	// Whether there is anything to match against at all, checked separately for
+	// each provenance so that a proposal cannot make a stated match look possible
+	// where none was.
+	hasStated := hints.Currency != "" ||
 		(hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown) ||
 		len(identifierHints) > 0
+	hasProposed := len(ident.Proposed) > 0
 
 	var winner *pluginResult
 	var winnerIdx int
 	firstSuccessIdx := -1
-	firstMatchIdx := -1
+	firstStatedIdx := -1
+	firstProposedIdx := -1
 	var hadTimeout, hadOtherErr bool
 	for i := range results {
 		r := &results[i]
@@ -620,8 +637,11 @@ func ResolveWithPlugins(
 			if firstSuccessIdx < 0 {
 				firstSuccessIdx = i
 			}
-			if hasHints && firstMatchIdx < 0 && resultMatchesHints(ctx, hints, identifierHints, r, normMIC) {
-				firstMatchIdx = i
+			if hasStated && firstStatedIdx < 0 && resultMatchesHints(ctx, hints, identifierHints, r, normMIC) {
+				firstStatedIdx = i
+			}
+			if hasProposed && firstProposedIdx < 0 && resultMatchesHints(ctx, identifier.Hints{}, ident.Proposed, r, normMIC) {
+				firstProposedIdx = i
 			}
 			continue
 		}
@@ -634,18 +654,29 @@ func ResolveWithPlugins(
 			hadOtherErr = true
 		}
 	}
-	if firstMatchIdx >= 0 {
-		winnerIdx = firstMatchIdx
-	} else if firstSuccessIdx >= 0 {
-		winnerIdx = firstSuccessIdx
+	// Three tiers, in order. Agreeing with what a source stated outranks agreeing
+	// with what a plugin proposed, which outranks precedence alone. A proposal can
+	// break a tie among plugins that all answered; it can never outrank something
+	// a source said, and it never removes a result from contention -- a
+	// contradicted proposal costs a result its place in the middle tier and
+	// nothing more. See adr/0057.
+	decidedBy := ""
+	switch {
+	case firstStatedIdx >= 0:
+		winnerIdx, decidedBy = firstStatedIdx, "stated"
+	case firstProposedIdx >= 0:
+		winnerIdx, decidedBy = firstProposedIdx, "proposed"
+	case firstSuccessIdx >= 0:
+		winnerIdx, decidedBy = firstSuccessIdx, "precedence"
 	}
 	if firstSuccessIdx >= 0 {
 		winner = &results[winnerIdx]
 	}
-	if winner != nil && firstMatchIdx >= 0 && firstMatchIdx != firstSuccessIdx {
-		l.InfoContext(ctx, "identifier plugin preferred over higher-precedence plugin due to hint match",
+	if winner != nil && winnerIdx != firstSuccessIdx {
+		l.InfoContext(ctx, "identifier plugin preferred over higher-precedence plugin",
 			"chosen_plugin", inputs[winnerIdx].config.PluginID,
 			"bypassed_plugin", inputs[firstSuccessIdx].config.PluginID,
+			"decided_by", decidedBy,
 			"instrument_description", instrumentDescription)
 	}
 
@@ -771,13 +802,17 @@ func ResolveWithPlugins(
 			validBefore = inst.ValidBefore
 		}
 		if len(inst.UnderlyingIdentifiers) > 0 && depth < MaxResolveDepth {
-			uHints := identifier.Hints{
-				SecurityTypeHint: identifier.UnderlyingSecTypeHint(inst.AssetClass),
+			// The underlying's identity is its own. The plugin named these
+			// identifiers from the derivative it resolved, so they are stated
+			// rather than proposed, and no proposal about the derivative says
+			// anything about what it is written on.
+			uIdent := identifier.Identity{
+				Stated: make([]identifier.Identifier, len(inst.UnderlyingIdentifiers)),
+				Hints:  identifier.Hints{SecurityTypeHint: identifier.UnderlyingSecTypeHint(inst.AssetClass)},
 			}
-			uIdnHints := make([]identifier.Identifier, len(inst.UnderlyingIdentifiers))
-			copy(uIdnHints, inst.UnderlyingIdentifiers)
+			copy(uIdent.Stated, inst.UnderlyingIdentifiers)
 			// Underlying resolution: no source description, no fallback needed (use nil).
-			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, tel.underlying(), logger, depth+1, nil)
+			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uIdent, false, nil, tel.underlying(), logger, depth+1, nil)
 			if uErr != nil {
 				l.WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
 			} else if uResult.InstrumentID != "" {
@@ -889,7 +924,7 @@ type callStats struct {
 // callPluginWithRetry calls Identify with exponential backoff retry.
 // ErrNotIdentified is treated as a permanent error (no retry). Each attempt gets its own
 // context timeout derived from the parent so cancellation still propagates.
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout, initialBackoff time.Duration) (identifier.Result, callStats, error) {
+func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, ident identifier.Identity, timeout, initialBackoff time.Duration) (identifier.Result, callStats, error) {
 	var res identifier.Result
 	var calls int
 	started := time.Now()
@@ -904,7 +939,7 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		var attemptErr error
-		res, attemptErr = p.Identify(attemptCtx, config, broker, source, instrumentDescription, hints, identifierHints)
+		res, attemptErr = p.Identify(attemptCtx, config, broker, source, instrumentDescription, ident)
 		if attemptErr == nil {
 			return nil
 		}

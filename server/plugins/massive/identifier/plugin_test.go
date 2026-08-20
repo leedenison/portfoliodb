@@ -41,7 +41,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestPlugin_Identify_Stock_SplitTickerNormalized(t *testing.T) {
 			hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 			idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}}
 
-			res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+			res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 			if err != nil {
 				t.Fatalf("Identify(%q): %v", tt.input, err)
 			}
@@ -129,7 +129,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SPX"}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
 	}
@@ -140,7 +140,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 
 func TestPlugin_Identify_NoHints(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
-	res, err := p.Identify(context.Background(), nil, "", "", "", identifier.Hints{}, nil)
+	res, err := p.Identify(context.Background(), nil, "", "", "", identifier.Identity{Stated: nil, Hints: identifier.Hints{}})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
 	}
@@ -155,7 +155,7 @@ func TestPlugin_Identify_NoTickerHint(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
 	}
@@ -194,7 +194,7 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 	// Pass OCC with space-padding (21-char format).
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00230000"}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified when no underlying_ticker, got %v", err)
 	}
@@ -291,7 +291,7 @@ func TestPlugin_Identify_Option_NoOCC(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified for option without OCC hint, got %v", err)
 	}
@@ -311,7 +311,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if err == nil {
 		t.Fatal("expected error on 429")
 	}
@@ -392,7 +392,7 @@ func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
 	}
@@ -434,7 +434,7 @@ func TestPlugin_Identify_Option_ExpiredWithinHorizon(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
 	}
@@ -506,7 +506,7 @@ func TestPlugin_Identify_Option_FutureExpiry(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
-	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", identifier.Identity{Stated: idHints, Hints: hints})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

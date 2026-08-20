@@ -288,7 +288,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			return r, nil
 		}
 		// No DB hit: call identifier plugins with hints; do not persist (source, description) as BROKER_DESCRIPTION.
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Hints: hints}, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.
@@ -331,8 +331,8 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// is real work against real plugins, and calling them mismatch_check is
 		// what stops them inflating the denominator of a failure rate over primary
 		// attempts.
-		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
-		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: tickerHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: figiHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
 		idByTicker := resultByTicker.InstrumentID
 		idByFigi := resultByFigi.InstrumentID
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
@@ -346,7 +346,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 
 	// Resolve by (validated) hints; always store (source, description) when ensuring.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
+	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: hintsToUse, Hints: hints}, cache, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
 }
 
 // hintDiffsSummary formats hint diffs as a readable string (e.g. "Currency: USD->EUR, ISIN: US037->US038").
@@ -381,7 +381,7 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 // purpose names the attempt this call records. Only the primary one stamps the
 // key: the mismatch-check probes run against the same key and would otherwise
 // stamp it with their own answer before the resolution that decides it.
-func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, storeSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
+func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, ident identifier.Identity, cache map[string]resolveResult, key string, rowIndex int32, storeSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
 	// Ingestion-specific fallback: broker-description-only instrument.
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
@@ -389,7 +389,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 			"", nil, nil, nil)
 	}
 
-	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, storeSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
+	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, ident, storeSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
 	if err != nil {
 		return resolveResult{}, err
 	}

@@ -50,12 +50,12 @@ type resolutionKeys struct {
 // than derived a second time -- deriving them again would repeat the discard
 // logging that filtering does.
 //
-// extraction is keyed by cacheKey(source, description) -- no hints -- because that
-// is the grain the extraction pre-pass dedupes on. The two notions of distinct
-// coincide exactly when no posting carries a client hint, which is the only case
-// extraction runs in: a key that carries hints is never extracted, and is recorded
-// as not attempted for that reason.
-func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source string, txs []*apiv1.Tx, hints [][]identifier.Identifier, extraction map[string]string) *resolutionKeys {
+// outcome is keyed the same way, by cacheKeyWithHints, because the pre-pass now
+// dedupes at the resolution key's own grain. It used to dedupe on (source,
+// description) alone and this re-derived that key to read it, which held only
+// because the two coincide when no posting carries a hint. They no longer have
+// to: a hinted key is answered by the pre-pass too, and says so itself.
+func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source string, txs []*apiv1.Tx, hints [][]identifier.Identifier, outcome map[string]string) *resolutionKeys {
 	if tel == nil || runID == "" {
 		return nil
 	}
@@ -89,11 +89,7 @@ func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source st
 	}
 	for _, key := range order {
 		s := seeds[key]
-		ex := db.TelemetryExtractionNotAttemptedHintsSupplied
-		if !s.hasHints {
-			ex = extraction[cacheKey(source, s.desc)]
-		}
-		k.extraction[key] = ex
+		k.extraction[key] = outcome[key]
 		k.ids[key] = tel.StartResolutionKey(ctx, db.TelemetryResolutionKey{
 			RunID:              runID,
 			Source:             source,

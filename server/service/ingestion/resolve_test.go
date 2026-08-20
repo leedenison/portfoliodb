@@ -58,7 +58,7 @@ func TestResolve_CacheHit_FromPrePass(t *testing.T) {
 		cacheKey(source, "AAPL"): {InstrumentID: "existing-id"},
 	}
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", identifier.Hints{}, nil, cache, 0, nil, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", identifier.Hints{}, nil, prePass{resolved: cache, conflicts: nil, proposed: nil}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestResolve_TickerOnlyFallback_ResolvesByTypeAndValue(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("fallback-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "AAPL"), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "AAPL")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestResolve_CacheHit_NoPluginCall(t *testing.T) {
 	cache[key] = resolveResult{InstrumentID: "cached-id", FirstRowIndex: 0}
 
 	// No DB or plugin calls when cache has entry
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "GOOG", identifier.Hints{}, nil, cache, 1, nil, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "GOOG", identifier.Hints{}, nil, prePass{resolved: cache, conflicts: nil, proposed: nil}, 1, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestResolve_NoExtractedHints_ExtractionFailed(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "UNKNOWN", Canonical: false}}, "", nil, nil, nil).
 		Return("broker-only-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", identifier.Hints{}, nil, nil, 0, nil, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: nil}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestResolve_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *testing.T) 
 		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "UNKNOWN", Canonical: false}}, "", nil, nil, nil).
 		Return("broker-only-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "UNKNOWN"), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "UNKNOWN")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestResolve_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T) {
 			return "resolved-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "AAPL"), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "AAPL")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 			return "resolved-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, desc), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, desc)}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestResolve_PluginReturnsUnderlying_ResolvesUnderlyingThenDerivative(t *tes
 		EnsureInstrument(gomock.Any(), "OPTION", "SMART", "USD", "AAPL Call 20250117 200 C", gomock.Any(), gomock.Any(), gomock.Any(), "underlying-uuid", nil, nil, nil).
 		Return("option-uuid", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, desc), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, desc)}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "High", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("high-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "X", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "X"), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "X", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "X")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 			return "merged-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "Y", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "Y"), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "Y", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "Y")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 			return "id", nil
 		})
 
-	_, err := Resolve(ctx, database, registry, "IBKR", source, "Z", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "Z"), nil, nil)
+	_, err := Resolve(ctx, database, registry, "IBKR", source, "Z", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "Z")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "SLOW", Canonical: false}}, "", nil, nil, nil).
 		Return("fallback-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "SLOW", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "SLOW"), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "SLOW", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "SLOW")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "BAD", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "BAD", Canonical: false}}, "", nil, nil, nil).
 		Return("fallback-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "BAD", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "BAD"), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "BAD", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "BAD")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -792,27 +792,32 @@ func TestCacheKeyWithHints_DifferentHintsDifferentKeys(t *testing.T) {
 // a cache conflict error.  This is the scenario where e.g. a stock buy for
 // "MSFT MICROSOFT CORP" (CUSIP hint) and a cash trade for "MSFT MICROSOFT CORP"
 // (CURRENCY hint) appear in the same batch.
+// The cache key carries the stated identifiers, so a security posting and the
+// cash leg beside it -- same description, different hints -- resolve
+// independently rather than the first answer standing for both.
+//
+// The database lookups themselves belong to proposeCandidates now, so this seeds
+// the cache the way the pre-pass would and tests the key derivation alone, which
+// is what the property is about.
 func TestResolve_SameDescription_DifferentHints_NoCacheConflict(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
 	source := "IBKR:test:statement"
-	cache := make(map[string]resolveResult)
 	desc := "MSFT MICROSOFT CORP"
+	securityHints := []identifier.Identifier{{Type: "CUSIP", Value: "594918104"}}
+	cashHints := []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}}
 
-	// First: resolve the security transaction (CUSIP hint).
-	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "CUSIP", "", "594918104").
-		Return("msft-inst-id", nil)
+	cache := map[string]resolveResult{
+		cacheKeyWithHints(source, desc, securityHints): {InstrumentID: "msft-inst-id", DBHitOutcome: db.TelemetryResolutionDBIdentifierHints},
+		cacheKeyWithHints(source, desc, cashHints):     {InstrumentID: "usd-inst-id", DBHitOutcome: db.TelemetryResolutionDBIdentifierHints},
+	}
 
 	r1, err := Resolve(ctx, database, registry, "IBKR", source, desc,
-		identifier.Hints{}, []identifier.Identifier{{Type: "CUSIP", Value: "594918104"}},
-		cache, 0, nil, nil, nil)
+		identifier.Hints{}, securityHints, prePass{resolved: cache, conflicts: nil, proposed: nil}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve (security): %v", err)
 	}
@@ -820,19 +825,34 @@ func TestResolve_SameDescription_DifferentHints_NoCacheConflict(t *testing.T) {
 		t.Errorf("security InstrumentID = %q, want msft-inst-id", r1.InstrumentID)
 	}
 
-	// Second: resolve the cash transaction (CURRENCY hint) with the same description.
-	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "CURRENCY", "", "USD").
-		Return("usd-inst-id", nil)
-
 	r2, err := Resolve(ctx, database, registry, "IBKR", source, desc,
-		identifier.Hints{}, []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}},
-		cache, 1, nil, nil, nil)
+		identifier.Hints{}, cashHints, prePass{resolved: cache, conflicts: nil, proposed: nil}, 1, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve (cash): %v", err)
 	}
 	if r2.InstrumentID != "usd-inst-id" {
 		t.Errorf("cash InstrumentID = %q, want usd-inst-id", r2.InstrumentID)
+	}
+}
+
+// A key the pre-pass found to resolve to more than one instrument is raised at
+// the row that carries it, where the row index is known -- the pre-pass records
+// it rather than raising, so one bad key does not stop the lookups for the rest.
+func TestResolve_ConflictingHintsFromThePrePassAreRaised(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	source := "IBKR:test:statement"
+	desc := "AMBIGUOUS"
+	hints := []identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}}
+	conflicts := map[string]bool{cacheKeyWithHints(source, desc, hints): true}
+
+	_, err := Resolve(context.Background(), database, registry, "IBKR", source, desc,
+		identifier.Hints{}, hints, prePass{resolved: map[string]resolveResult{}, conflicts: conflicts, proposed: nil}, 0, nil, nil)
+	if err == nil {
+		t.Fatal("expected an error for conflicting identifier hints")
 	}
 }
 
@@ -910,7 +930,7 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "Retried", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("retried-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "RETRY", identifier.Hints{}, nil, nil, 0, tickerHintsCache(source, "RETRY"), nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "RETRY", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "RETRY")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

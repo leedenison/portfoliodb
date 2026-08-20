@@ -60,6 +60,11 @@ type resolveResult struct {
 	InstrumentID  string
 	IdErr         *db.IdentificationError
 	FirstRowIndex int32
+	// Which lookup answered, when the pre-pass answered from the database. A
+	// description and a set of identifiers are different questions with different
+	// costs, and a key that resolved by one must not be recorded as having
+	// resolved by the other. Empty for a result this batch worked out.
+	DBHitOutcome string
 }
 
 // cacheKey returns a key for the batch cache.  When no identifier hints are
@@ -251,20 +256,30 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 }
 
 // Resolve resolves (source, instrumentDescription) to an instrument_id using the batch cache, then (when no client
-// identifier_hints) pre-extracted description hints, then identifier plugins.
-// The caller is responsible for populating cache (DB hits by source+description) and extractedHintsCache
-// (hints from candidate plugins) before calling Resolve; see the pre-pass in process().
+// identifier_hints) pre-proposed candidate hints, then identifier plugins.
+//
+// pre is what proposeCandidates worked out, and arrives whole: the resolutions,
+// the conflicts and the proposals are answers to one question asked once, and a
+// caller holding the first without the second would resolve a conflicting key
+// through the plugins instead of raising it. Both database lookups happen there,
+// so this asks the database nothing a key has already been looked up by.
 // When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not persisted
 // to the DB as a BROKER_DESCRIPTION identifier (though results are still cached in the in-memory batch cache).
 // hints are optional (exchange, currency, MIC, security type).
-func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, extractedHintsCache map[string][]identifier.Identifier, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
+func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, pre prePass, rowIndex int32, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
+	cache, conflicts, proposedHintsCache := pre.resolved, pre.conflicts, pre.proposed
 	key := cacheKeyWithHints(source, instrumentDescription, identifierHints)
 	if cache != nil {
 		if r, ok := cache[key]; ok {
-			// A hit nothing in this batch resolved is the pre-pass's DB lookup by
-			// (source, description). One this batch did resolve has already
-			// stamped its key, and the first stamp is the one that stands.
-			keys.end(ctx, key, db.TelemetryResolutionDBSourceDescription, r.InstrumentID)
+			// A hit nothing in this batch resolved came from the pre-pass, and
+			// carries which lookup answered it -- by description or by the
+			// identifiers the source stated. One this batch did resolve has
+			// already stamped its key, and the first stamp is the one that stands.
+			outcome := r.DBHitOutcome
+			if outcome == "" {
+				outcome = db.TelemetryResolutionDBSourceDescription
+			}
+			keys.end(ctx, key, outcome, r.InstrumentID)
 			return r, nil
 		}
 	}
@@ -275,21 +290,12 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	// The in-memory batch cache above is still used to avoid repeated DB
 	// lookups within the same upload.
 	if len(identifierHints) > 0 {
-		ids, err := identification.ResolveIDsByHintsDBOnly(ctx, database, identifierHints)
-		if err != nil {
-			return resolveResult{}, err
-		}
-		if len(ids) > 1 {
+		// The pre-pass did the lookup: a single match is in the cache and was
+		// returned above, and more than one is recorded here. Asking again would
+		// be the same query for the same answer.
+		if conflicts[key] {
 			keys.end(ctx, key, db.TelemetryResolutionConflictingHints, "")
 			return resolveResult{}, fmt.Errorf("conflicting identifier hints resolve to different instruments")
-		}
-		if len(ids) == 1 {
-			r := resolveResult{InstrumentID: ids[0], FirstRowIndex: rowIndex}
-			if cache != nil {
-				cache[key] = r
-			}
-			keys.end(ctx, key, db.TelemetryResolutionDBIdentifierHints, r.InstrumentID)
-			return r, nil
 		}
 		// No DB hit: call identifier plugins with hints; do not persist (source, description) as BROKER_DESCRIPTION.
 		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Hints: hints}, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
@@ -299,8 +305,8 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	// DB lookup by (source, description) and batch description extraction are handled by the
 	// caller's pre-pass; DB hits are already in cache (caught above), misses proceed here.
 	var extractedHints []identifier.Identifier
-	if extractedHintsCache != nil {
-		extractedHints = extractedHintsCache[key]
+	if proposedHintsCache != nil {
+		extractedHints = proposedHintsCache[key]
 	}
 	if len(extractedHints) == 0 {
 		// Extraction failed: ensure broker-description-only and record error.

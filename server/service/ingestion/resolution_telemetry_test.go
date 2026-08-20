@@ -115,9 +115,11 @@ func TestResolutionKeyHintsSplitTheKey(t *testing.T) {
 	}
 }
 
-// TestResolutionKeyExtractionOutcome pins stage one landing on the key. A key
-// carrying identifier hints records not-attempted whatever the pre-pass did with
-// the description it shares, because extraction is not attempted for that key.
+// TestResolutionKeyExtractionOutcome pins stage one landing on the key. The
+// pre-pass works at the key's own grain and says what became of each one, so
+// this maps its answer onto the key rather than deriving a reason of its own --
+// including for a key that carried identifier hints, which the pre-pass records
+// as not attempted for that reason.
 func TestResolutionKeyExtractionOutcome(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -126,20 +128,22 @@ func TestResolutionKeyExtractionOutcome(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "extracted",
-			extraction: map[string]string{cacheKey("SRC", "APPLE INC"): db.TelemetryExtractionHintsFound},
+			name:       "proposed",
+			extraction: map[string]string{cacheKeyWithHints("SRC", "APPLE INC", nil): db.TelemetryExtractionHintsFound},
 			want:       db.TelemetryExtractionHintsFound,
 		},
 		{
 			name:       "db hit",
-			extraction: map[string]string{cacheKey("SRC", "APPLE INC"): db.TelemetryExtractionNotAttemptedDBHit},
+			extraction: map[string]string{cacheKeyWithHints("SRC", "APPLE INC", nil): db.TelemetryExtractionNotAttemptedDBHit},
 			want:       db.TelemetryExtractionNotAttemptedDBHit,
 		},
 		{
-			name:       "hints supplied",
-			hints:      []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-			extraction: map[string]string{cacheKey("SRC", "APPLE INC"): db.TelemetryExtractionHintsFound},
-			want:       db.TelemetryExtractionNotAttemptedHintsSupplied,
+			name:  "hints supplied",
+			hints: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+			extraction: map[string]string{
+				cacheKeyWithHints("SRC", "APPLE INC", []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}): db.TelemetryExtractionNotAttemptedHintsSupplied,
+			},
+			want: db.TelemetryExtractionNotAttemptedHintsSupplied,
 		},
 	}
 
@@ -430,7 +434,7 @@ func TestMismatchCheckProbesAreTheirOwnAttempts(t *testing.T) {
 	}
 
 	if _, err := Resolve(ctx, database, identifier.NewRegistry(), "IBKR", source, desc,
-		identifier.Hints{}, nil, nil, 0, extracted, nil, keys); err != nil {
+		identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: extracted}, 0, nil, keys); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

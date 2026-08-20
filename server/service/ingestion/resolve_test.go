@@ -21,7 +21,9 @@ type fakePlugin struct {
 	err  error
 }
 
-func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
+func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, ident identifier.Identity) (identifier.Result, error) {
+	hints, identifierHints := ident.Hints, ident.Stated
+	_, _ = hints, identifierHints
 	if ctx.Err() != nil {
 		return identifier.Result{}, ctx.Err()
 	}
@@ -857,7 +859,9 @@ type retryPlugin struct {
 	ids       []identifier.Identifier
 }
 
-func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
+func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, ident identifier.Identity) (identifier.Result, error) {
+	hints, identifierHints := ident.Hints, ident.Stated
+	_, _ = hints, identifierHints
 	p.callCount++
 	if p.callCount == 1 {
 		return identifier.Result{}, errors.New("temporary failure")

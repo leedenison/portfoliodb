@@ -72,7 +72,8 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 
 // Identify resolves using identifier hints (mapping) or returns ErrNotIdentified. Does not use Search API or OpenAI.
 // When identifierHints is empty, returns ErrNotIdentified. When non-empty, uses OpenFIGI Mapping only.
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, ident identifier.Identity) (identifier.Result, error) {
+	hints, identifierHints := ident.Hints, ident.Stated
 	var cfg configJSON
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
@@ -89,19 +90,29 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if len(identifierHints) == 0 {
 		return result(nil, nil, identifier.ErrNotIdentified)
 	}
-	// Use OpenFIGI Mapping only (no Search API); try first hint that we can map
+	// Use OpenFIGI Mapping only (no Search API); try first hint that we can map.
+	// Only stated identifiers are queried: mapping a proposed one would answer
+	// about whatever security that value belongs to, which is the question the
+	// resolver is trying to test rather than one this can settle. See adr/0057.
 	results, matchedHint, err := p.tryOpenFIGIFromHints(ctx, identifierHints, hints)
 	if err != nil {
 		return result(nil, nil, err)
 	}
-	if inst, ids, ok := p.resolveResults(results, hints, identifierHints, true); ok {
+	// Proposals rank but do not resolve: a proposed venue picks between listings
+	// the stated identifier already produced, and picks nothing on its own.
+	if inst, ids, ok := p.resolveResults(results, hints, identifierHints, ident.Proposed, true); ok {
 		if hints.Currency != "" {
 			inst.Currency = hints.Currency
 		}
-		// When the matched hint was a MIC_TICKER, include it in the returned
+		// When the matched hint was a stated MIC_TICKER, include it in the returned
 		// identifiers. A successful Mapping API response for that ticker proves
 		// the association. Other hint types (ISIN, CUSIP, etc.) are not appended
 		// because OpenFIGI may return corrected values for those.
+		//
+		// Only a stated hint can be echoed: tryOpenFIGIFromHints is given the
+		// stated identifiers alone, so matchedHint is one of those by
+		// construction. That is what keeps a proposal out of the identifier set
+		// EnsureInstrument merges and stores. See adr/0057.
 		//
 		// The mapping proves the ticker, not the venue: a bare ticker query
 		// returns every listing of that symbol worldwide, so the hint's exchange
@@ -251,17 +262,27 @@ func (p *Plugin) assertsExchange(inst *identifier.Instrument, mic string) bool {
 // for a UK stock settled on a same-ticker listing in another market. Ties keep
 // the earliest result; when nothing scores at all, fallbackFirst decides.
 //
+// A proposed venue is used only where no source named one, and once it is the
+// venue in play it ranks like a stated one -- ranking is where a proposal is
+// meant to help. What it must never do is come back out as an identifier, which
+// is Identify's rule rather than this function's. See adr/0057.
+//
 // The stored asset class is always derived from the selected result's OpenFIGI
 // fields via classify, never from the hint.
 // If fallbackFirst is true and no hint match is found, the first result is used.
 // It returns (inst, ids, true) when a result was chosen, (nil, nil, false) otherwise.
-func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints, identifierHints []identifier.Identifier, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
+func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints, identifierHints, proposed []identifier.Identifier, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
 	if len(results) == 0 {
 		return nil, nil, false
 	}
 	idx := 0
 	if len(results) > 1 {
+		// A stated venue decides; a proposed one is consulted only where no source
+		// named a venue at all, which is the case a proposal exists to serve.
 		mic := exchangeHintMIC(identifierHints)
+		if mic == "" {
+			mic = exchangeHintMIC(proposed)
+		}
 		idx = -1
 		best := 0
 		for i := range results {

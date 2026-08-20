@@ -343,9 +343,11 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		fallback := func(ctx context.Context, database db.DB) (string, error) {
 			return ensureWithSuppliedIdentifier(ctx, database, assetClass, currency, idType, domain, value, hintsValidAt)
 		}
+		// A price or corporate-event archive names the instrument itself, so
+		// everything here is stated and nothing is proposed.
+		ident := identifier.Identity{Stated: []identifier.Identifier{hint}, Hints: hints}
 		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry,
-			"", "", "", hints,
-			[]identifier.Identifier{hint},
+			"", "", "", ident,
 			false, fallback, keys.attempt(key, db.TelemetryPurposePrimary), nil, 0, hintsValidAt)
 		if err != nil {
 			return identification.ResolveResult{}, fmt.Errorf("identification error for %s %q: %v", idType, value, err)

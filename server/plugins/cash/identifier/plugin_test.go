@@ -29,7 +29,7 @@ func TestPlugin_Identify_CurrencyFound(t *testing.T) {
 		GetInstrument(gomock.Any(), "inst-uuid-usd").
 		Return(&db.InstrumentRow{ID: "inst-uuid-usd", AssetClass: strPtr("CASH"), Currency: strPtr("USD"), Name: strPtr("US Dollar")}, nil)
 
-	res, err := p.Identify(ctx, nil, "IBKR", "IBKR:test", "USD", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, nil, "IBKR", "IBKR:test", "USD", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestPlugin_Identify_CurrencyNotFound_ReturnsErrNotIdentified(t *testing.T) 
 		FindInstrumentByIdentifier(gomock.Any(), "CURRENCY", "", "XXX").
 		Return("", nil)
 
-	res, err := p.Identify(ctx, nil, "", "", "", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, nil, "", "", "", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
@@ -81,7 +81,7 @@ func TestPlugin_Identify_NoCurrency_ReturnsErrNotIdentified(t *testing.T) {
 	ctx := context.Background()
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
-	res, err := p.Identify(ctx, nil, "", "", "AAPL", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, nil, "", "", "AAPL", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}

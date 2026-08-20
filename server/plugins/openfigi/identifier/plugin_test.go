@@ -46,7 +46,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "IBM"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestPlugin_Identify_OpenFIGIMapping_ID_BB_GLOBAL_SHARE_CLASS_LEVEL(t *testi
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5S399"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestPlugin_Identify_OpenFIGIMapping_FromTickerHint(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestPlugin_Identify_OpenFIGIMapping_MICTickerDomainNotSentAsMICCode(t *test
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "ABNB", Domain: "XNAS"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "ABNB", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "ABNB", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDotConvertedToSlash(t *testing.T)
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK B BERKSHIRE HATHAWAY INC-CL B", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK B BERKSHIRE HATHAWAY INC-CL B", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDashConvertedToSlash(t *testing.T
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK-B"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK-B", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK-B", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDashConvertedToSlash(t *testing.T
 func TestPlugin_Identify_ErrNotIdentified_WhenNoHints(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
-	res, err := p.Identify(ctx, []byte("{}"), "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Hints{}, nil)
+	res, err := p.Identify(ctx, []byte("{}"), "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Identity{Stated: nil, Hints: identifier.Hints{}})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
@@ -370,7 +370,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsNoResults(t *testing
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "UNKNOWN"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "UNKNOWN THING XYZ", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "UNKNOWN THING XYZ", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
@@ -392,7 +392,7 @@ func TestPlugin_Identify_429_ReportsRateLimited(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "APPLE INC", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "APPLE INC", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	var rl *ErrRateLimit
 	if !errors.As(err, &rl) {
 		t.Fatalf("err = %T (%v), want *ErrRateLimit", err, err)
@@ -416,7 +416,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsEmpty(t *testing.T) 
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SOMEUNKNOWN"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "SOME UNKNOWN", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "SOME UNKNOWN", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v", err)
 	}
@@ -455,8 +455,7 @@ func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingUnparseable(t *te
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "UNPARSEABLE"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Some Exotic Option",
-		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Some Exotic Option", identifier.Identity{Stated: hints, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}})
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
@@ -505,8 +504,7 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
-		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call", identifier.Identity{Stated: hints, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -575,8 +573,7 @@ func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	// Pass OCC with space-padding already present.
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00200000"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
-		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call", identifier.Identity{Stated: hints, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -623,8 +620,7 @@ func TestPlugin_Identify_Option_ClassicTickerConvertedToOCC(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
-		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call", identifier.Identity{Stated: hints, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -660,7 +656,7 @@ func TestResolveResults_HintMatchesOneResult(t *testing.T) {
 		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
 	}
 	p := NewPlugin(nil, nil, nil)
-	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, nil, true)
+	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, nil, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -685,7 +681,7 @@ func TestResolveResults_HintMatchesNone_FallsBackToFirst(t *testing.T) {
 		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
 	}
 	p := NewPlugin(nil, nil, nil)
-	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, nil, true)
+	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, nil, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result (fallback to first)")
 	}
@@ -710,7 +706,7 @@ func TestResolveResults_NoHint_FallsBackToFirst(t *testing.T) {
 		{FIGI: "BBG_STOCK", Ticker: "X", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
 	}
 	p := NewPlugin(nil, nil, nil)
-	inst, _, ok := p.resolveResults(results, identifier.Hints{}, nil, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{}, nil, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -728,7 +724,7 @@ func TestResolveResults_AssetClassFromSelectedResult(t *testing.T) {
 		{FIGI: "BBG_ADR", Ticker: "X", SecurityType: "ADR", SecurityType2: "Depositary Receipt", MarketSector: "Equity"},
 	}
 	p := NewPlugin(nil, nil, nil)
-	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, nil, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, nil, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -765,7 +761,7 @@ func TestPlugin_Identify_MICTickerWithDomainPreserved(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "EQQQ"}}
-	res, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:standard", "EQQQ", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:standard", "EQQQ", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -810,7 +806,7 @@ func TestPlugin_Identify_NonTickerHintNotAppended(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5S399"}}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -866,8 +862,7 @@ func TestPlugin_Identify_ExpiredOptionKeepsAtExpiryOCC(t *testing.T) {
 	hints := []identifier.Identifier{
 		{Type: "OCC", Value: "NVDA240315P00510000"},
 	}
-	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "NVDA Mar 2024 510 Put",
-		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	res, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "NVDA Mar 2024 510 Put", identifier.Identity{Stated: hints, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -906,7 +901,7 @@ func TestResolveResults_ExchangeHintOutranksSecurityType(t *testing.T) {
 	}
 	p := NewPlugin(nil, nil, exchangemap.New())
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "WISE"}}
-	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -927,7 +922,7 @@ func TestResolveResults_ExchangeHintPreferredOverTypeMatch(t *testing.T) {
 	}
 	p := NewPlugin(nil, nil, exchangemap.New())
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "X"}}
-	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, hints, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, hints, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -948,7 +943,7 @@ func TestResolveResults_ExchangeHintUnmatched_FallsBackToType(t *testing.T) {
 	}
 	p := NewPlugin(nil, nil, exchangemap.New())
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "X"}}
-	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, hints, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, hints, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -972,7 +967,7 @@ func TestResolveResults_CompositeCoveringHintedVenueOutranksAForeignListing(t *t
 	}
 	p := NewPlugin(nil, nil, exchangemap.New())
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK/B"}}
-	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -995,7 +990,7 @@ func TestResolveResults_NamedVenueOutranksCompositeThatCoversIt(t *testing.T) {
 	}
 	p := NewPlugin(nil, nil, exchangemap.New())
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}}
-	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -1014,7 +1009,7 @@ func TestResolveResults_UnrankedPrefersTheCompositeOverAnArbitraryVenue(t *testi
 		{FIGI: "BBG_COMPOSITE", CompositeFIGI: figiPtr("BBG_COMPOSITE"), Ticker: "X", ExchCode: "US", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
 	}
 	p := NewPlugin(nil, nil, exchangemap.New())
-	inst, ids, ok := p.resolveResults(results, identifier.Hints{}, nil, true)
+	inst, ids, ok := p.resolveResults(results, identifier.Hints{}, nil, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -1061,7 +1056,7 @@ func TestPlugin_Identify_MICTickerDomainDroppedOnExchangeMismatch(t *testing.T) 
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, exchangemap.New())
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "WISE"}}
-	res, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:fidelity-csv", "WISE PLC (WISE)", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:fidelity-csv", "WISE PLC (WISE)", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -1101,7 +1096,7 @@ func TestPlugin_Identify_MICTickerDomainKeptOnExchangeMatch(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient, exchangemap.New())
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "WISE"}}
-	res, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:fidelity-csv", "WISE PLC (WISE)", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:fidelity-csv", "WISE PLC (WISE)", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -1117,5 +1112,47 @@ func TestPlugin_Identify_MICTickerDomainKeptOnExchangeMatch(t *testing.T) {
 	}
 	if found.Domain != "XLON" {
 		t.Errorf("MIC_TICKER domain = %q, want XLON", found.Domain)
+	}
+}
+
+// A proposal ranks and does not resolve. The venue nobody stated picks between
+// the listings the stated ticker already produced, and it must not come back as
+// an identifier: the resolver stores what a plugin returns, so a proposal that
+// came back would be indistinguishable from a confirmed name. See adr/0057.
+func TestPlugin_Identify_ProposedVenueRanksButIsNotReturned(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"data":[
+			{"figi":"BBG_SE","name":"OTHER AB","ticker":"X","exchCode":"SS","securityType":"Common Stock","securityType2":"Common Stock","marketSector":"Equity"},
+			{"figi":"BBG_GB","name":"REAL PLC","ticker":"X","exchCode":"LN","securityType":"Common Stock","securityType2":"Common Stock","marketSector":"Equity"}
+		]}]`))
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, srv.Client(), exchangemap.New())
+	cfg := mustJSON(configJSON{OpenFIGIBaseURL: srv.URL})
+	res, err := p.Identify(context.Background(), cfg, "b", "s", "desc", identifier.Identity{
+		// The source named the ticker and no venue.
+		Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
+		// A plugin proposed the venue.
+		Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "X"}},
+		Hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+	})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if res.Instrument == nil {
+		t.Fatal("expected an instrument")
+	}
+	// The proposal did its job: the London listing was chosen over the Stockholm
+	// one, which nothing else in the call could have separated.
+	if res.Instrument.Name != "REAL PLC" {
+		t.Errorf("Name = %q, want the listing on the proposed venue", res.Instrument.Name)
+	}
+	// And it did not come back.
+	for _, id := range res.Identifiers {
+		if id.Type == "MIC_TICKER" && id.Domain == "XLON" {
+			t.Errorf("proposed MIC_TICKER %+v was returned as an identifier", id)
+		}
 	}
 }

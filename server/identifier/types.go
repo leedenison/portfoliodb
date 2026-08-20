@@ -35,6 +35,35 @@ type Instrument struct {
 	ValidBefore *time.Time
 }
 
+// Identity is what is known about an instrument at one point in resolution,
+// split by where it came from.
+//
+// Stated is what a source said: the identifiers a broker file carried, or a
+// converter read out of one. Proposed is what a plugin offered to fill a gap --
+// a ticker for a row that had only a CUSIP, a venue for a bare ticker. The two
+// are held apart because only the first is evidence.
+//
+// A proposal is a thing to be tested by the resolution, never an input the
+// resolution may lean on. So it never satisfies a database lookup, never causes
+// the conflicting-hints error, and is never written back as an identifier. What
+// it may do is break a tie: where two plugins both answered and nothing a source
+// said separates them, agreeing with a proposal is better than precedence alone.
+//
+// The split lives in the shape of the call rather than as a flag on Identifier.
+// Identifier is also what becomes db.IdentifierInput and gets stored, so a flag
+// there fails open -- every producer and every store site would have to remember
+// to clear it, and one missed site persists a guess as canonical identity.
+//
+// Hints holds what a source stated about currency, instrument kind and security
+// type. There is no proposed counterpart: a plugin that wants to offer a
+// currency offers it as a CURRENCY identifier in Proposed, which is what keeps
+// Hints usable as evidence without qualification.
+type Identity struct {
+	Stated   []Identifier
+	Proposed []Identifier
+	Hints    Hints
+}
+
 // Venue is what a provider said about where an instrument trades. It is one
 // answer at one of two precisions, not two independent facts.
 //

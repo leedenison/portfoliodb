@@ -19,7 +19,7 @@ type fakePlugin struct {
 	err  error
 }
 
-func (p *fakePlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (identifier.Result, error) {
+func (p *fakePlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Identity) (identifier.Result, error) {
 	return identifier.Result{Instrument: p.inst, Identifiers: p.ids}, p.err
 }
 func (p *fakePlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
@@ -176,8 +176,7 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 		Return("existing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -218,8 +217,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 		Return("new-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -272,8 +270,7 @@ func TestResolveWithPlugins_DatesNamesOnPluginSuccess(t *testing.T) {
 		}).Times(1)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -322,8 +319,7 @@ func TestResolveWithPlugins_DatesNamesFromTheHintVintage(t *testing.T) {
 		}).Times(1)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption},
-		[]identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}},
 		false, nil, Attempt{}, nil, 0, &validAt); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -353,8 +349,7 @@ func TestResolveWithPlugins_NoDatedNameOnFallback(t *testing.T) {
 
 	fallback := func(_ context.Context, _ db.DB) (string, error) { return "fallback-id", nil }
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "src", "desc", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "src", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		true, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -392,8 +387,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	}
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}}, Hints: identifier.Hints{}},
 		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -439,8 +433,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	}
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "SLOW"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "SLOW"}}, Hints: identifier.Hints{}},
 		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -475,8 +468,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -527,8 +519,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 		})
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
-		"IBKR", source, desc, identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: desc}},
+		"IBKR", source, desc, identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: desc}}, Hints: identifier.Hints{}},
 		true, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -565,8 +556,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	}
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "BAD"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BAD"}}, Hints: identifier.Hints{}},
 		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -624,7 +614,7 @@ func TestCallPluginWithRetry_SuccessNoRetry(t *testing.T) {
 		inst: &identifier.Instrument{Name: "OK"},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
 	}
-	res, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	res, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Identity{Stated: nil, Hints: identifier.Hints{}}, time.Second, time.Millisecond)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -638,7 +628,7 @@ func TestCallPluginWithRetry_SuccessNoRetry(t *testing.T) {
 
 func TestCallPluginWithRetry_ErrNotIdentified_NoRetry(t *testing.T) {
 	p := &fakePlugin{err: identifier.ErrNotIdentified}
-	_, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	_, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Identity{Stated: nil, Hints: identifier.Hints{}}, time.Second, time.Millisecond)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
@@ -651,7 +641,7 @@ type retryPlugin struct {
 	ids       []identifier.Identifier
 }
 
-func (p *retryPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (identifier.Result, error) {
+func (p *retryPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Identity) (identifier.Result, error) {
 	p.callCount++
 	if p.callCount == 1 {
 		return identifier.Result{Telemetry: identifier.Telemetry{Outcome: identifier.OutcomeError}}, errors.New("temporary failure")
@@ -673,7 +663,7 @@ func TestCallPluginWithRetry_RetrySucceeds(t *testing.T) {
 		inst: &identifier.Instrument{Name: "Retried"},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
 	}
-	res, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	res, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Identity{Stated: nil, Hints: identifier.Hints{}}, time.Second, time.Millisecond)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -695,7 +685,7 @@ func TestCallPluginWithRetry_ParentCancelStopsRetry(t *testing.T) {
 	// (i.e. we no longer use context.Background() for retry).
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &cancelOnRetryPlugin{cancel: cancel, inst: &identifier.Instrument{Name: "Never"}}
-	res, _, err := callPluginWithRetry(ctx, p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	res, _, err := callPluginWithRetry(ctx, p, nil, "", "", "X", identifier.Identity{Stated: nil, Hints: identifier.Hints{}}, time.Second, time.Millisecond)
 	if err == nil {
 		t.Fatalf("expected error from cancelled context, got inst=%v", res.Instrument)
 	}
@@ -709,7 +699,7 @@ type cancelOnRetryPlugin struct {
 	inst      *identifier.Instrument
 }
 
-func (p *cancelOnRetryPlugin) Identify(ctx context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (identifier.Result, error) {
+func (p *cancelOnRetryPlugin) Identify(ctx context.Context, _ []byte, _, _, _ string, _ identifier.Identity) (identifier.Result, error) {
 	p.callCount++
 	if p.callCount == 1 {
 		p.cancel()
@@ -857,8 +847,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 		})
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1082,8 +1071,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 		})
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1257,8 +1245,7 @@ func TestResolveWithPlugins_HintMatchPrefersLowerPrecedence(t *testing.T) {
 		Return("id-bae", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{Currency: "GBX"},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1309,8 +1296,7 @@ func TestResolveWithPlugins_NoHintMatch_FallsBackToPrecedence(t *testing.T) {
 		Return("id-apple", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{Currency: "GBX"},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "GBX"}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1357,8 +1343,7 @@ func TestResolveWithPlugins_NoHints_PurePrecedence(t *testing.T) {
 		Return("id-apple", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1402,8 +1387,7 @@ func TestResolveWithPlugins_AllMatch_HighestPrecedenceWins(t *testing.T) {
 		Return("id-bae-a", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{Currency: "GBX"},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1449,8 +1433,7 @@ func TestResolveWithPlugins_SparseResultDoesNotVacuouslyMatch(t *testing.T) {
 		Return("id-apple", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{Currency: "GBX"},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1579,8 +1562,7 @@ func TestResolveWithPlugins_WinnerBlanksFilledFromConsistentLoser(t *testing.T) 
 		Return("new-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1622,8 +1604,7 @@ func TestResolveWithPlugins_WinnerValuesNotOverwrittenByLoser(t *testing.T) {
 		Return("new-id", nil)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1661,8 +1642,7 @@ func TestResolveWithPlugins_InconsistentLoserFillsNothing(t *testing.T) {
 		Return("new-id", nil)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1717,8 +1697,7 @@ func TestResolveWithPlugins_ForeignVenueContradictsTheWinnersMarket(t *testing.T
 		})
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1757,8 +1736,7 @@ func TestResolveWithPlugins_VenueInsideTheMarketIsAdopted(t *testing.T) {
 		Return("new-id", nil)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
-		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}},
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1778,4 +1756,239 @@ func testMICCountry(_ context.Context, mic string) (string, error) {
 		return "AT", nil
 	}
 	return "", nil
+}
+
+// --- a proposed identifier is not evidence (adr/0057) ---
+
+// The database is never asked about a proposal. A hit would resolve the
+// instrument before any plugin ran, so the proposal would have decided the
+// answer by being looked up -- the one thing it must never do. The mock has no
+// expectation for the proposed value, so a lookup of it fails the test rather
+// than quietly succeeding.
+func TestResolveWithPlugins_ProposalNeverSatisfiesTheDBLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	registry.Register("test", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Real Co"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "REAL"}},
+	})
+
+	// Only the stated hint is looked up, and it misses.
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "REAL").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "REAL").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "REAL").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Real Co", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("new-id", nil)
+
+	ident := identifier.Identity{
+		Stated:   []identifier.Identifier{{Type: "MIC_TICKER", Value: "REAL"}},
+		Proposed: []identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}},
+		Hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+	}
+	res, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", ident, false, nil, Attempt{}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if res.InstrumentID != "new-id" {
+		t.Errorf("InstrumentID = %q, want new-id", res.InstrumentID)
+	}
+}
+
+// A proposal is never written. It is not among the identifiers EnsureInstrument
+// is given, so it cannot be stored and cannot draw a second instrument into the
+// eager merge in adr/0004.
+func TestResolveWithPlugins_ProposalIsNeverPersisted(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	registry.Register("test", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Real Co"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "REAL"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "REAL").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "REAL").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "REAL").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Real Co", "", "", gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			for _, id := range ids {
+				if id.Type == "ISIN" {
+					t.Errorf("proposed ISIN %q reached EnsureInstrument", id.Value)
+				}
+			}
+			return "new-id", nil
+		})
+
+	ident := identifier.Identity{
+		Stated:   []identifier.Identifier{{Type: "MIC_TICKER", Value: "REAL"}},
+		Proposed: []identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}},
+		Hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+	}
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", ident, false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+// resolveWinnerTiers registers three plugins in precedence order and returns the
+// name of the instrument the resolver chose. plugA has the highest precedence
+// and agrees with nothing.
+func resolveWinnerTiers(t *testing.T, ident identifier.Identity) string {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	// Each returns a distinct ticker, so a result matches a tier only by the
+	// thing that tier is about -- otherwise every plugin agrees with every
+	// identifier and the tiers stop discriminating.
+	//
+	// Highest precedence, agrees with nothing anyone said.
+	registry.Register("precedence", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Currency: "JPY", Name: "By precedence"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "Y"}},
+	})
+	// Agrees with the proposed venue.
+	registry.Register("proposed", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNYS"}, Name: "By proposal"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
+	})
+	// Agrees with the stated currency.
+	registry.Register("stated", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Currency: "GBP", Name: "By statement"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "Z"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", "", "", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "precedence", Precedence: 30},
+			{PluginID: "proposed", Precedence: 20},
+			{PluginID: "stated", Precedence: 10},
+		}, nil)
+
+	var chosen string
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, name, _, _ string, _ []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			chosen = name
+			return "id", nil
+		})
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", ident, false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	return chosen
+}
+
+// Agreeing with what a source stated outranks agreeing with what a plugin
+// proposed, even though the proposal-matching plugin has higher precedence.
+func TestResolveWithPlugins_StatedMatchBeatsProposedMatch(t *testing.T) {
+	got := resolveWinnerTiers(t, identifier.Identity{
+		Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
+		Hints:    identifier.Hints{Currency: "GBP"},
+	})
+	if got != "By statement" {
+		t.Errorf("winner = %q, want the plugin agreeing with the stated currency", got)
+	}
+}
+
+// With nothing stated to separate them, agreeing with a proposal breaks the tie
+// ahead of precedence alone.
+func TestResolveWithPlugins_ProposedMatchBeatsPrecedence(t *testing.T) {
+	got := resolveWinnerTiers(t, identifier.Identity{
+		Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
+	})
+	if got != "By proposal" {
+		t.Errorf("winner = %q, want the plugin agreeing with the proposed venue", got)
+	}
+}
+
+// A proposal that nothing agrees with costs a result its place in the middle
+// tier and nothing more: precedence still decides, and no result is removed
+// from contention by contradicting a guess.
+func TestResolveWithPlugins_ContradictedProposalFallsBackToPrecedence(t *testing.T) {
+	got := resolveWinnerTiers(t, identifier.Identity{
+		Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XSTO", Value: "X"}},
+	})
+	if got != "By precedence" {
+		t.Errorf("winner = %q, want the highest-precedence plugin", got)
+	}
+}
+
+// A guess must not promote a result that argues with the source. The
+// proposal-matching plugin contradicts the stated currency; the highest-precedence
+// one merely says nothing about it. Without the contradiction test the first
+// would win, which is a proposal outranking a statement by the back door.
+func TestResolveWithPlugins_ProposalDoesNotPromoteAResultContradictingTheSource(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	// Highest precedence. Says nothing about the currency, so it confirms
+	// nothing and contradicts nothing.
+	registry.Register("silent", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Says nothing"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "Q"}},
+	})
+	// Agrees with the proposed venue and disagrees with the stated currency.
+	registry.Register("contradicts", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNYS"}, Currency: "USD", Name: "Argues with the source"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", "", "", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "silent", Precedence: 30}, {PluginID: "contradicts", Precedence: 10}}, nil)
+
+	var chosen string
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, name, _, _ string, _ []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			chosen = name
+			return "id", nil
+		})
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Identity{
+			Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
+			Hints:    identifier.Hints{Currency: "GBP"},
+		},
+		false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if chosen != "Says nothing" {
+		t.Errorf("winner = %q, want the plugin that does not contradict the stated currency", chosen)
+	}
 }

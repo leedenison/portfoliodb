@@ -37,6 +37,26 @@ type ingestDeps struct {
 	// off, and the writer would reject them.
 	Telemetry db.TelemetryDB
 	RunID     string
+	// RunKind is what kind of import this batch belongs to, and it decides more
+	// than how the run is filed: see completesPartialIdentity.
+	RunKind string
+}
+
+// completesPartialIdentity reports whether this batch may pay a candidate plugin
+// to fill a gap in an identity its source only partly stated.
+//
+// Only a broker upload may. An archive names one identifier per posting, chosen
+// out of an identity the exporting instance had already resolved -- a pointer to
+// that instrument rather than everything the source knew about it. Judging that
+// pointer incomplete and paying a plugin to complete it mistakes a reference for
+// a description, and what came back would be tested against a stated identifier
+// that was never partial in the first place.
+//
+// This bounds completion, not the stage: a posting an archive names no
+// identifier for is one the exporting instance never resolved either, and it
+// reaches the candidate plugins on its description exactly as it always has.
+func (d ingestDeps) completesPartialIdentity() bool {
+	return d.RunKind == db.TelemetryRunTxImport
 }
 
 // writeCandidatePluginCall records one ProposeBatch invocation against the run,

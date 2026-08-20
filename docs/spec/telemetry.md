@@ -80,9 +80,12 @@ one affecting 1.
 
 `extraction_outcome`: `hints_found`, `no_hints`, `not_attempted_db_hit`,
 `not_attempted_hints_supplied`, `not_attempted_type_filter`, `not_attempted_no_plugins`.
-The `not_attempted_*` members are where skips live. Extraction is skipped for a
-description already resolved by DB lookup, and for one whose every posting names an
-identifier, because extraction exists to find an identifier and is a paid call.
+The `not_attempted_*` members are where the skips live. The stage is skipped for a key
+the database already answered, and for one whose stated identifiers already pick out a
+listing -- a ticker with its MIC, a contract symbol, a currency -- because it exists to
+complete a partial identity and is a paid call. `not_attempted_hints_supplied` covers
+that second refusal, a key whose identifiers name two instruments, and an archive
+import, which is never offered completion at all.
 
 `outcome`: `db_source_description`, `db_identifier_hints`, `identified`,
 `broker_description_only`, `extraction_failed`, `plugin_timeout`, `plugin_unavailable`,
@@ -101,8 +104,8 @@ because an identification attempt reaches its run through one. The identifier na
 -- `description` is `TYPE:DOMAIN:VALUE` and `source` is empty, an archive being no
 broker's export -- and `tx_count` carries the archive groups sharing it, the fan-out
 this grain records whatever the things sharing it are called. `extraction_outcome` is
-`not_attempted_hints_supplied` for the reason a posting carrying an identifier skips
-extraction, and an instrument ensured from the supplied identifier alone is
+`not_attempted_hints_supplied` for the same reason it is on any key the candidate
+stage was not offered, and an instrument ensured from the supplied identifier alone is
 `broker_description_only`: no plugin resolved it and the row's own contents are what
 the instrument was built from, which is that member's shape.
 

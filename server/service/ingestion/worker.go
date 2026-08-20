@@ -129,7 +129,8 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 		detail = *d
 	}
 	var runID string
-	if kind := telemetryRunKind(j.JobType); kind != "" {
+	kind := telemetryRunKind(j.JobType)
+	if kind != "" {
 		runID = tel.StartRun(ctx, db.TelemetryRun{
 			Kind:   kind,
 			JobID:  j.JobID,
@@ -151,6 +152,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			CandidateRegistry: opts.CandidateRegistry,
 			Telemetry:         tel,
 			RunID:             runID,
+			RunKind:           kind,
 		}, j, detail.UserID); ok {
 			outcome = db.TelemetryOutcomeSuccess
 			if err := recalcAfterIngestion(ctx, opts.DB, detail.UserID); err != nil {
@@ -173,6 +175,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			Registry:  opts.IdentifierRegistry,
 			Telemetry: tel,
 			RunID:     runID,
+			RunKind:   kind,
 		}, j)
 		if !res.failed {
 			outcome = db.TelemetryOutcomeSuccess
@@ -193,6 +196,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			CandidateRegistry: opts.CandidateRegistry,
 			Telemetry:         tel,
 			RunID:             runID,
+			RunKind:           kind,
 		}
 		res := processUserImport(ctx, deps, j)
 		if !res.failed {
@@ -352,14 +356,13 @@ func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentID
 // asks the database nothing further: a single match is in the cache, more than
 // one is in conflicts, and neither is queried twice.
 //
-// A description every one of whose postings names an identifier is not proposed
-// for, and needs no test of its own to arrange it: such a description has no
-// hint-free key, and only a hint-free key reaches the plugins. A candidate
-// exists to fill in what a source left out, so it has nothing to add there, and
-// it is a paid plugin call. It matters most to an archive import, whose every
-// posting carries the identifier the export chose under a source no stored
-// description was resolved against. One posting arriving without a hint is
-// enough to mint the hint-free key, so the description is still proposed for.
+// What reaches the plugins is the key whose identity is incomplete rather than
+// the key that stated nothing. A source that named a venue has said the last
+// thing that changes which listing resolution lands on, and is left alone; a
+// source that stated an ISIN and no venue has left the choice among that
+// security's listings open, and is exactly what the stage exists to close. See
+// identityComplete for where the line falls, and completesPartialIdentity for
+// why only a broker upload is offered it.
 //
 // The returned outcome map is at key grain, and is stage one of each key's
 // resolution record.
@@ -412,26 +415,33 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 				// lookups for the rest, and Resolve raises it at the row that
 				// carries it, where the row index is known.
 				conflicts[key] = true
+				// A key that names two instruments is not a gap to be filled. It
+				// is about to fail at the row that carries it, and a proposal
+				// would be paid for and thrown away.
+				outcome[key] = db.TelemetryExtractionNotAttemptedHintsSupplied
+				continue
 			case len(ids) == 1:
 				cache[key] = resolveResult{InstrumentID: ids[0], DBHitOutcome: db.TelemetryResolutionDBIdentifierHints}
 				outcome[key] = db.TelemetryExtractionNotAttemptedDBHit
 				continue
 			}
-			// The source named the instrument, so nothing is asked of a plugin.
-			if outcome[key] == "" {
+			// The database did not recognise what the source stated, so what the
+			// source stated is all there is -- and a plugin is asked to fill it
+			// out only where it is genuinely partial.
+			if !deps.completesPartialIdentity() || identityComplete(txHints[i]) {
 				outcome[key] = db.TelemetryExtractionNotAttemptedHintsSupplied
+				continue
 			}
-			continue
-		}
-
-		id, err := database.FindInstrumentBySourceDescription(ctx, source, desc)
-		if err != nil {
-			return fail(err)
-		}
-		if id != "" {
-			cache[key] = resolveResult{InstrumentID: id, DBHitOutcome: db.TelemetryResolutionDBSourceDescription}
-			outcome[key] = db.TelemetryExtractionNotAttemptedDBHit
-			continue
+		} else {
+			id, err := database.FindInstrumentBySourceDescription(ctx, source, desc)
+			if err != nil {
+				return fail(err)
+			}
+			if id != "" {
+				cache[key] = resolveResult{InstrumentID: id, DBHitOutcome: db.TelemetryResolutionDBSourceDescription}
+				outcome[key] = db.TelemetryExtractionNotAttemptedDBHit
+				continue
+			}
 		}
 		batchID := shortHashForBatch(key)
 		idByKey[key] = batchID

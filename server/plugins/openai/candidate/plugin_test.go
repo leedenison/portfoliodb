@@ -139,9 +139,9 @@ func TestProposeBatch_TypeHintPassedToClient(t *testing.T) {
 	if res.Telemetry.Tokens.PromptTokens != 1 || res.Telemetry.Tokens.CompletionTokens != 1 || res.Telemetry.Tokens.TotalTokens != 2 {
 		t.Errorf("Telemetry.Tokens = %+v, want {1 1 2}", *res.Telemetry.Tokens)
 	}
-	ids, ok := res.Hints["ab12"]
-	if !ok || len(ids) != 1 {
-		t.Fatalf("Hints[ab12] = %v, want one OCC identifier", res.Hints)
+	ids := proposedIDs(res.Proposed["ab12"])
+	if len(ids) != 1 {
+		t.Fatalf("Proposed[ab12] = %v, want one OCC identifier", res.Proposed)
 	}
 	if ids[0].Type != "OCC" || ids[0].Value != "BRKB241115P00390000" {
 		t.Errorf("out[ab12] = %+v, want Type=OCC Value=BRKB241115P00390000", ids[0])
@@ -161,4 +161,14 @@ func TestPlugin_AcceptableSecurityTypes_IncludesETF(t *testing.T) {
 	if types[identifier.SecurityTypeHintCash] {
 		t.Error("CASH should not be acceptable to the OpenAI plugin")
 	}
+}
+
+// proposedIDs is the identifiers out of a plugin's proposals, for assertions
+// that are about the values rather than the fields they fill.
+func proposedIDs(ps []candpkg.Proposal) []identifier.Identifier {
+	out := make([]identifier.Identifier, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.Identifier)
+	}
+	return out
 }

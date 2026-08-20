@@ -84,17 +84,17 @@ func TestIntegration_OpenAI_ProposeBatch(t *testing.T) {
 			}
 
 			for id, wantType := range tc.wantType {
-				ids, ok := res.Hints[id]
+				ps, ok := res.Proposed[id]
 				if !ok {
 					t.Errorf("missing result for id %q", id)
 					continue
 				}
-				if len(ids) == 0 {
-					t.Errorf("empty identifiers for id %q", id)
+				if len(ps) == 0 {
+					t.Errorf("no proposals for id %q", id)
 					continue
 				}
-				if ids[0].Type != wantType {
-					t.Errorf("id %q: Type = %q, want %q", id, ids[0].Type, wantType)
+				if ps[0].Identifier.Type != wantType {
+					t.Errorf("id %q: Type = %q, want %q", id, ps[0].Identifier.Type, wantType)
 				}
 			}
 		})

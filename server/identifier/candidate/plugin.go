@@ -43,18 +43,55 @@ type Telemetry struct {
 	Tokens  *Usage
 }
 
-// Result is what ProposeBatch returns. Hints is keyed by BatchItem.ID; items
-// with nothing extractable may be absent or carry an empty slice. Telemetry is
-// populated on every path, including the error paths.
+// Field names the part of an instrument's identity a proposal fills in. The
+// identifier alone does not say: proposing the venue and proposing the symbol
+// both arrive as a MIC_TICKER, one carrying a domain and one a value, and
+// telling them apart is what lets accuracy be reported per field rather than
+// per plugin.
+const (
+	FieldTicker   = "ticker"
+	FieldExchange = "exchange"
+	FieldCurrency = "currency"
+	FieldKey      = "key" // an ISIN, CUSIP or other opaque identifier
+)
+
+// Proposal is one thing a plugin offers to fill in, and the reason Result is not
+// simply a list of identifiers: a proposal is a claim with a provenance and a
+// self-reported confidence, and the resolver has to be able to say which field
+// it was about when it records what became of it.
+//
+// Confidence is what the plugin says about its own answer, on [0, 1]. It is
+// recorded and never gated on: a model's self-report is uncalibrated, and
+// turning it into a threshold before anything has measured whether it
+// correlates with correctness would be inventing a number. What decides whether
+// a proposal is used is the resolution, not this.
+type Proposal struct {
+	Field      string
+	Identifier identifier.Identifier
+	Confidence float64
+}
+
+// Result is what ProposeBatch returns. Proposed is keyed by BatchItem.ID; items
+// the plugin had nothing to add for may be absent or carry an empty slice.
+// Telemetry is populated on every path, including the error paths.
 type Result struct {
-	Hints     map[string][]identifier.Identifier
+	Proposed  map[string][]Proposal
 	Telemetry Telemetry
 }
 
-// BatchItem is one item for batch extraction. ID is a short stable key (e.g. hash) used to match responses.
+// BatchItem is one item for a batch. ID is a short stable key (e.g. hash) used
+// to match responses.
+//
+// Stated is what the source already said about this instrument -- the
+// identifiers a broker file carried, or a converter read out of one. A plugin is
+// given it so it can fill in what is missing rather than repeat what is known,
+// and so it can use a known ISIN to work out the ticker the file left out. It is
+// evidence, and a plugin must not contradict it: what comes back is a proposal
+// about the gaps. See adr/0057.
 type BatchItem struct {
 	ID                    string
 	InstrumentDescription string
+	Stated                []identifier.Identifier
 	Hints                 identifier.Hints
 }
 
@@ -74,8 +111,8 @@ type Plugin interface {
 	// Keys must be from the identifier package constants (SecurityTypeHintStock, etc.). Nil or empty map means all types.
 	AcceptableSecurityTypes() map[string]bool
 
-	// ProposeBatch runs extraction on all items. config is the plugin's JSON config (may be nil).
-	// Returns a Result whose Hints are keyed by BatchItem.ID, empty when nothing could be extracted; no DB access.
+	// ProposeBatch runs over all items. config is the plugin's JSON config (may be nil).
+	// Returns a Result whose Proposed are keyed by BatchItem.ID, empty when the plugin had nothing to add; no DB access.
 	// Result.Telemetry is set on every path and is the plugin's contribution to the description_plugin_call row the caller writes.
 	ProposeBatch(ctx context.Context, config []byte, broker, source string, items []BatchItem) (Result, error)
 

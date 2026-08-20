@@ -95,6 +95,45 @@ func cacheKeyWithHints(source, instrumentDescription string, hints []identifier.
 	return k
 }
 
+// identityComplete reports whether what a source stated already picks out one
+// listing, so that a candidate plugin has nothing left to offer.
+//
+// Completeness is about the venue, and about nothing else. A source that named
+// one has said the last thing that changes which instrument resolution lands on:
+// the currency, the ISIN and the rest all follow from the listing, and an
+// identifier plugin fills them in from its own data at no cost. A source that
+// did not has left a choice open that no amount of provider lookup closes --
+// a bare ticker maps to every listing of that symbol in the world, and an ISIN
+// maps to every venue the security trades on -- and choosing among them is what
+// this stage is for.
+//
+// So a MIC_TICKER carrying its MIC is complete and a bare one is not, and an
+// ISIN, CUSIP or SEDOL alone is not. The exceptions name the instrument rather
+// than a listing of it:
+//
+//   - A currency or an FX pair is the cash or FX instrument, entire.
+//   - A contract symbol -- OCC, OPRA, FUT_OPT -- carries its own underlying,
+//     expiry, right and strike, and names its market by construction.
+//   - A FIGI is a provider's key into the provider's own data, which a model
+//     asked to improve on could only invent.
+//
+// A BROKER_DESCRIPTION states no security at all, so it leaves the identity as
+// incomplete as it found it.
+func identityComplete(stated []identifier.Identifier) bool {
+	for _, id := range stated {
+		switch id.Type {
+		case "CURRENCY", "FX_PAIR", "OCC", "OPRA", "FUT_OPT",
+			"OPENFIGI_SHARE_CLASS", "OPENFIGI_COMPOSITE":
+			return true
+		case "MIC_TICKER", "OPENFIGI_TICKER":
+			if strings.TrimSpace(id.Domain) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // shortHashForBatch returns a short stable id (first 8 hex chars of SHA256) for batch description extraction response matching.
 func shortHashForBatch(key string) string {
 	h := sha256.Sum256([]byte(key))
@@ -255,8 +294,11 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 	return nil, outcomes, nil
 }
 
-// Resolve resolves (source, instrumentDescription) to an instrument_id using the batch cache, then (when no client
-// identifier_hints) pre-proposed candidate hints, then identifier plugins.
+// Resolve resolves (source, instrumentDescription) to an instrument_id using the
+// batch cache, then the candidate plugins' proposals for the key, then the
+// identifier plugins. Where the source stated identifiers the proposals rank
+// among the listings those produced; where it stated none they are the only key
+// there is.
 //
 // pre is what proposeCandidates worked out, and arrives whole: the resolutions,
 // the conflicts and the proposals are answers to one question asked once, and a
@@ -298,7 +340,13 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			return resolveResult{}, fmt.Errorf("conflicting identifier hints resolve to different instruments")
 		}
 		// No DB hit: call identifier plugins with hints; do not persist (source, description) as BROKER_DESCRIPTION.
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Hints: hints}, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
+		//
+		// Any proposals are what the candidate plugins offered for the gap this
+		// key's stated identifiers left -- a venue for an ISIN that named none.
+		// They are passed apart from the stated ones and stay that way: they
+		// choose between the listings the stated identifier produced, and
+		// introduce none of their own. See adr/0057.
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Proposed: proposedHintsCache[key], Hints: hints}, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.

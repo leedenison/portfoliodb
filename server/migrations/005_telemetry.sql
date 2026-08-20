@@ -101,10 +101,13 @@ CREATE TABLE telemetry.resolution_key (
   had_identifier_hints BOOLEAN NOT NULL,
   security_type_hint   TEXT,
   instrument_kind      TEXT,
-  -- Stage 1. The not_attempted_* members are where the skips live: extraction is
-  -- skipped for a description already resolved by DB lookup, and for one whose every
-  -- posting names an identifier, because extraction exists to find an identifier and
-  -- is a paid call.
+  -- Stage 1. The not_attempted_* members are where the skips live. The stage is
+  -- skipped for a key the database already answered, and for one whose stated
+  -- identifiers already pick out a listing -- a ticker with its MIC, a contract
+  -- symbol, a currency -- because it exists to complete a partial identity and is
+  -- a paid call. hints_supplied covers both of those refusals and one more: an
+  -- archive import states identifiers chosen out of an identity already resolved
+  -- elsewhere, and none of them is treated as partial.
   extraction_outcome TEXT CHECK (extraction_outcome IN ('hints_found', 'no_hints',
                                                         'not_attempted_db_hit',
                                                         'not_attempted_hints_supplied',

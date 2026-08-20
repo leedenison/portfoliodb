@@ -9,6 +9,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -709,5 +710,207 @@ func TestProposeCandidates_ResolvedDescriptionIsNotProposedFor(t *testing.T) {
 	}
 	if len(pre.proposed) != 0 {
 		t.Errorf("proposed = %v, want nothing: the description is already resolved", pre.proposed)
+	}
+}
+
+// candidateRegistry registers one candidate plugin for securities under the id
+// the tests below expect ListEnabledPluginConfigs to name.
+func candidateRegistry(p *fakeDescPlugin) *candpkg.Registry {
+	r := candpkg.NewRegistry()
+	r.Register("fake", p)
+	return r
+}
+
+// expectCandidateConfig makes the one registered candidate plugin enabled.
+func expectCandidateConfig(database *mock.MockDB) {
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCandidate).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 1}}, nil)
+}
+
+// A source that stated an ISIN and no venue has left the choice among that
+// security's listings open, which is what the candidate stage is for. The stage
+// used to be skipped for any posting that stated anything at all, so the QFX
+// case -- a CUSIP or ISIN, a currency and no exchange -- never reached it.
+func TestProposeCandidates_AStatedIsinWithNoVenueIsCompleted(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().ValidateMIC(gomock.Any(), "XNAS").Return(true, nil)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XNAS").Return("XNAS", nil)
+	expectCandidateConfig(database)
+
+	plugin := &fakeDescPlugin{
+		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
+		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc: map[string][]identifier.Identifier{
+			"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+		},
+	}
+
+	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"})}
+	txHints := [][]identifier.Identifier{{{Type: "ISIN", Value: "US0378331005"}}}
+
+	deps := ingestDeps{DB: database, CandidateRegistry: candidateRegistry(plugin), RunKind: db.TelemetryRunTxImport}
+	pre, err := proposeCandidates(context.Background(), deps, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	key := cacheKeyWithHints("SRC", "APPLE INC", txHints[0])
+	got := pre.proposed[key]
+	if len(got) != 1 || got[0].Domain != "XNAS" || got[0].Value != "AAPL" {
+		t.Fatalf("proposed = %v, want one MIC_TICKER XNAS:AAPL", got)
+	}
+	if pre.outcome[key] != db.TelemetryExtractionHintsFound {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionHintsFound)
+	}
+	// The plugin is asked to complete an identity, so it has to be shown the part
+	// of it the source did state.
+	if len(plugin.seen) != 1 || len(plugin.seen[0].Stated) != 1 || plugin.seen[0].Stated[0].Value != "US0378331005" {
+		t.Errorf("plugin saw Stated = %v, want the stated ISIN", plugin.seen)
+	}
+}
+
+// A source that named a venue has said the last thing that changes which listing
+// resolution lands on, so nothing is asked of a plugin. Reaching one would need
+// the plugin config, which is not expected here.
+func TestProposeCandidates_AStatedVenueIsNotCompleted(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("", nil)
+
+	plugin := &fakeDescPlugin{
+		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
+		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc:   map[string][]identifier.Identifier{"APPLE INC": {{Type: "CURRENCY", Value: "USD"}}},
+	}
+
+	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "AAPL"})}
+	txHints := [][]identifier.Identifier{{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}}
+
+	deps := ingestDeps{DB: database, CandidateRegistry: candidateRegistry(plugin), RunKind: db.TelemetryRunTxImport}
+	pre, err := proposeCandidates(context.Background(), deps, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	key := cacheKeyWithHints("SRC", "APPLE INC", txHints[0])
+	if len(plugin.seen) != 0 {
+		t.Errorf("the plugin was called for a complete identity: %v", plugin.seen)
+	}
+	if len(pre.proposed[key]) != 0 {
+		t.Errorf("proposed = %v, want nothing", pre.proposed[key])
+	}
+	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedHintsSupplied {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedHintsSupplied)
+	}
+}
+
+// An archive states one identifier per posting, chosen out of an identity the
+// exporting instance had already resolved. It is a pointer to that instrument
+// rather than a partial description of it, so it is never completed -- the same
+// ISIN that reaches a plugin on a broker upload does not reach one here.
+func TestProposeCandidates_AnArchiveDoesNotCompleteAPartialIdentity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+
+	plugin := &fakeDescPlugin{
+		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
+		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc:   map[string][]identifier.Identifier{"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
+	}
+
+	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"})}
+	txHints := [][]identifier.Identifier{{{Type: "ISIN", Value: "US0378331005"}}}
+
+	deps := ingestDeps{DB: database, CandidateRegistry: candidateRegistry(plugin), RunKind: db.TelemetryRunUserArchiveImport}
+	pre, err := proposeCandidates(context.Background(), deps, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	if len(plugin.seen) != 0 {
+		t.Errorf("an archive import reached a candidate plugin: %v", plugin.seen)
+	}
+	key := cacheKeyWithHints("SRC", "APPLE INC", txHints[0])
+	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedHintsSupplied {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedHintsSupplied)
+	}
+}
+
+// An archive posting the exporting instance never resolved names no identifier,
+// and it reaches the candidate plugins on its description exactly as it always
+// has. Excluding completion must not exclude the stage.
+func TestProposeCandidates_AnArchiveStillProposesForADescriptionAlone(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
+	database.EXPECT().ValidateMIC(gomock.Any(), "XNAS").Return(true, nil)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XNAS").Return("XNAS", nil)
+	expectCandidateConfig(database)
+
+	plugin := &fakeDescPlugin{
+		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
+		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc:   map[string][]identifier.Identifier{"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
+	}
+
+	txs := []*apiv1.Tx{tx("APPLE INC")}
+	txHints := [][]identifier.Identifier{nil}
+
+	deps := ingestDeps{DB: database, CandidateRegistry: candidateRegistry(plugin), RunKind: db.TelemetryRunUserArchiveImport}
+	pre, err := proposeCandidates(context.Background(), deps, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	key := cacheKeyWithHints("SRC", "APPLE INC", nil)
+	if len(pre.proposed[key]) != 1 {
+		t.Errorf("proposed = %v, want the description to have been proposed for", pre.proposed[key])
+	}
+}
+
+// A key whose stated identifiers name two instruments is about to fail at the
+// row that carries it, so it is not offered completion: the proposal would be
+// paid for and thrown away.
+func TestProposeCandidates_AConflictIsNotCompleted(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0000000001").Return("inst-a", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "CUSIP", "", "000000001").Return("inst-b", nil)
+
+	plugin := &fakeDescPlugin{
+		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
+		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc:   map[string][]identifier.Identifier{"AMBIGUOUS": {{Type: "MIC_TICKER", Value: "AMB"}}},
+	}
+
+	txs := []*apiv1.Tx{hintedTx("AMBIGUOUS",
+		&apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0000000001"},
+		&apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_CUSIP, Value: "000000001"})}
+	txHints := [][]identifier.Identifier{{
+		{Type: "ISIN", Value: "US0000000001"},
+		{Type: "CUSIP", Value: "000000001"},
+	}}
+
+	deps := ingestDeps{DB: database, CandidateRegistry: candidateRegistry(plugin), RunKind: db.TelemetryRunTxImport}
+	pre, err := proposeCandidates(context.Background(), deps, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	key := cacheKeyWithHints("SRC", "AMBIGUOUS", txHints[0])
+	if !pre.conflicts[key] {
+		t.Fatal("expected the ambiguous key to be recorded as conflicting")
+	}
+	if len(plugin.seen) != 0 {
+		t.Errorf("a conflicting key reached a candidate plugin: %v", plugin.seen)
+	}
+	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedHintsSupplied {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedHintsSupplied)
 	}
 }

@@ -590,7 +590,13 @@ type fakeDescPlugin struct {
 	acceptableKinds map[string]bool
 	acceptable      map[string]bool
 	results         map[string][]identifier.Identifier
-	err             error
+	// resultsByDesc answers by instrument description rather than by batch id,
+	// for a caller that reaches the plugin through proposeCandidates and so does
+	// not know the id it hashed the key to.
+	resultsByDesc map[string][]identifier.Identifier
+	// seen is every item the plugin was handed, in the order it got them.
+	seen []candpkg.BatchItem
+	err  error
 	// tokens is what the plugin reports the call cost. Nil is a plugin that costs
 	// nothing to call, which is what keeps the token columns null for it.
 	tokens *candpkg.Usage
@@ -604,9 +610,14 @@ func (p *fakeDescPlugin) ProposeBatch(_ context.Context, _ []byte, _, _ string, 
 	if p.err != nil {
 		return candpkg.Result{Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeError, Tokens: p.tokens}}, p.err
 	}
+	p.seen = append(p.seen, items...)
 	out := make(map[string][]candpkg.Proposal)
 	for _, item := range items {
-		if hints, ok := p.results[item.ID]; ok {
+		hints, ok := p.results[item.ID]
+		if !ok {
+			hints, ok = p.resultsByDesc[item.InstrumentDescription]
+		}
+		if ok {
 			ps := make([]candpkg.Proposal, 0, len(hints))
 			for _, h := range hints {
 				ps = append(ps, candpkg.Proposal{Field: candpkg.FieldTicker, Identifier: h})
@@ -939,5 +950,103 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 	}
 	if r.IdErr != nil {
 		t.Errorf("unexpected IdErr after retry success: %+v", r.IdErr)
+	}
+}
+
+// The line falls at the venue: a source that named one has said the last thing
+// that changes which listing resolution lands on, and everything else has left a
+// choice open no provider lookup closes.
+func TestIdentityComplete(t *testing.T) {
+	cases := []struct {
+		name   string
+		stated []identifier.Identifier
+		want   bool
+	}{
+		{"nothing stated", nil, false},
+		{"a bare ticker", []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, false},
+		{"a ticker with its MIC", []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}, true},
+		{"an ISIN alone", []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}, false},
+		{"a CUSIP alone", []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}}, false},
+		{"a SEDOL alone", []identifier.Identifier{{Type: "SEDOL", Value: "2046251"}}, false},
+		{"a broker description", []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "SRC", Value: "APPLE INC"}}, false},
+		{"a currency", []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}}, true},
+		{"an FX pair", []identifier.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}, true},
+		{"a contract symbol", []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00200000"}}, true},
+		{"a share class FIGI", []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}}, true},
+		{"an ISIN and a venue-qualified ticker", []identifier.Identifier{
+			{Type: "ISIN", Value: "US0378331005"},
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
+		}, true},
+		{"an ISIN and a bare ticker", []identifier.Identifier{
+			{Type: "ISIN", Value: "US0378331005"},
+			{Type: "MIC_TICKER", Value: "AAPL"},
+		}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := identityComplete(c.stated); got != c.want {
+				t.Errorf("identityComplete(%v) = %v, want %v", c.stated, got, c.want)
+			}
+		})
+	}
+}
+
+// capturingPlugin records the identity it was called with, so a test can assert
+// which provenance a value arrived under rather than only that it arrived.
+type capturingPlugin struct {
+	fakePlugin
+	got identifier.Identity
+}
+
+func (p *capturingPlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, ident identifier.Identity) (identifier.Result, error) {
+	p.got = ident
+	return p.fakePlugin.Identify(ctx, config, broker, source, instrumentDescription, ident)
+}
+
+// A proposal made for a key the source stated identifiers for reaches the
+// identifier plugins as a proposal. Path A used to drop it: the stage never ran
+// for a hinted key, so there was nothing to pass, and passing it as a stated
+// identifier would let a guess be queried and stored. See adr/0057.
+func TestResolve_PathAPassesProposalsApartFromWhatTheSourceStated(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "p", Precedence: 1}}, nil)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return("aapl-id", nil)
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	plugin := &capturingPlugin{fakePlugin: fakePlugin{
+		inst: &identifier.Instrument{AssetClass: db.AssetClassStock, Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+	}}
+	registry := identifier.NewRegistry()
+	registry.Register("p", plugin)
+
+	stated := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+	proposed := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
+	key := cacheKeyWithHints("SRC", "APPLE INC", stated)
+	pre := prePass{
+		resolved:  map[string]resolveResult{},
+		conflicts: map[string]bool{},
+		proposed:  map[string][]identifier.Identifier{key: proposed},
+	}
+
+	if _, err := Resolve(context.Background(), database, registry, "IBKR", "SRC", "APPLE INC",
+		identifier.Hints{Currency: "USD", SecurityTypeHint: identifier.SecurityTypeHintStock},
+		stated, pre, 0, nil, nil); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(plugin.got.Stated) != 1 || plugin.got.Stated[0].Type != "ISIN" {
+		t.Errorf("Stated = %v, want the source's ISIN alone", plugin.got.Stated)
+	}
+	if len(plugin.got.Proposed) != 1 || plugin.got.Proposed[0].Domain != "XNAS" {
+		t.Errorf("Proposed = %v, want the proposed venue", plugin.got.Proposed)
 	}
 }

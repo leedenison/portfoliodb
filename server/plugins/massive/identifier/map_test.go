@@ -26,8 +26,8 @@ func TestStockFromTicker(t *testing.T) {
 	if inst.AssetClass != db.AssetClassStock {
 		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
 	}
-	if inst.Exchange != "XNAS" {
-		t.Errorf("Exchange = %q, want XNAS", inst.Exchange)
+	if inst.Venue.MIC != "XNAS" {
+		t.Errorf("Exchange = %q, want XNAS", inst.Venue.MIC)
 	}
 	if inst.Currency != "USD" {
 		t.Errorf("Currency = %q, want USD", inst.Currency)
@@ -96,8 +96,8 @@ func TestOptionFromContract(t *testing.T) {
 	if inst.Name != "AAPL251219C00230000" {
 		t.Errorf("Name = %q, want AAPL251219C00230000", inst.Name)
 	}
-	if inst.Exchange != "BATO" {
-		t.Errorf("Exchange = %q, want BATO", inst.Exchange)
+	if inst.Venue.MIC != "BATO" {
+		t.Errorf("Exchange = %q, want BATO", inst.Venue.MIC)
 	}
 	// The OCC contract says the underlying is US listed, so the hints say so
 	// too, and the venue-constrained one comes first because the plugins take

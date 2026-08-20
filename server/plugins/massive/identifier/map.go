@@ -16,7 +16,7 @@ func stockFromTicker(r *client.TickerOverviewResult) (*identifier.Instrument, []
 	}
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassStock,
-		Exchange:   r.PrimaryExchange,
+		Venue:      identifier.Venue{MIC: r.PrimaryExchange},
 		Currency:   strings.ToUpper(r.CurrencyName),
 		Name:       r.Name,
 		CIK:        r.CIK,
@@ -36,7 +36,7 @@ func stockFromTicker(r *client.TickerOverviewResult) (*identifier.Instrument, []
 func optionFromContract(r *client.OptionsContractResult) (*identifier.Instrument, []identifier.Identifier) {
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassOption,
-		Exchange:   r.PrimaryExchange,
+		Venue:      identifier.Venue{MIC: r.PrimaryExchange},
 		Name:       strings.TrimPrefix(r.Ticker, "O:"),
 	}
 	if r.PrimaryExchange != "" && r.Ticker != "" {

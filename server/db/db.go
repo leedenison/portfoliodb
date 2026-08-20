@@ -1327,6 +1327,9 @@ type InstrumentDB interface {
 	// LookupOperatingMIC returns the operating MIC for the given MIC code.
 	// If mic is already an operating MIC it returns itself. Returns ("", error) if not found.
 	LookupOperatingMIC(ctx context.Context, mic string) (string, error)
+	// LookupMICCountry returns the ISO 3166 country code an exchange is in.
+	// Returns ("", error) if the MIC is not known.
+	LookupMICCountry(ctx context.Context, mic string) (string, error)
 }
 
 // InflationIndex is a single monthly inflation index value.

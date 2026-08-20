@@ -25,8 +25,8 @@ func TestStockFromSearch(t *testing.T) {
 	if inst.AssetClass != "STOCK" {
 		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
 	}
-	if inst.Exchange != "" {
-		t.Errorf("Exchange = %q, want empty (no exchMap)", inst.Exchange)
+	if inst.Venue.MIC != "" {
+		t.Errorf("Exchange = %q, want empty (no exchMap)", inst.Venue.MIC)
 	}
 	if inst.Currency != "USD" {
 		t.Errorf("Currency = %q, want USD", inst.Currency)
@@ -133,15 +133,20 @@ func TestBestMatch_NoResults(t *testing.T) {
 	}
 }
 
-func TestStockFromSearch_WithExchangeMap(t *testing.T) {
+// BRK.B is listed on NYSE and EODHD reports it under "US" like every other
+// American stock, so nothing in the response says which of XNAS, XNYS and OTCM
+// it is. Taking the first left XNAS on an NYSE issue, and stored it as the
+// domain of a canonical MIC_TICKER; asserting the absence is what stops that
+// coming back. The exchange the provider did name survives as EODHD_EXCH_CODE.
+func TestStockFromSearch_CompositeExchangeIsNotResolvedToAVenue(t *testing.T) {
 	exchMap := exchangemap.New()
 	r := &client.SearchResult{
-		Code:     "AAPL",
+		Code:     "BRK-B",
 		Exchange: "US",
-		Name:     "Apple Inc",
+		Name:     "Berkshire Hathaway Inc",
 		Type:     "Common Stock",
 		Currency: "USD",
-		ISIN:     "US0378331005",
+		ISIN:     "US0846707026",
 	}
 
 	inst, ids := stockFromSearch(r, exchMap)
@@ -149,28 +154,63 @@ func TestStockFromSearch_WithExchangeMap(t *testing.T) {
 	if inst == nil {
 		t.Fatal("expected instrument")
 	}
-	if inst.Exchange != "XNAS" {
-		t.Errorf("Exchange = %q, want XNAS (first MIC for US)", inst.Exchange)
+	if inst.Venue.MIC != "" {
+		t.Errorf("Exchange = %q, want empty: US covers XNAS, XNYS and OTCM and the result names none of them", inst.Venue.MIC)
 	}
 	for _, id := range ids {
-		if id.Type == "MIC_TICKER" && id.Domain != "XNAS" {
-			t.Errorf("MIC_TICKER Domain = %q, want XNAS", id.Domain)
+		if id.Type == "MIC_TICKER" && id.Domain != "" {
+			t.Errorf("MIC_TICKER Domain = %q, want empty", id.Domain)
+		}
+	}
+	var code string
+	for _, pi := range inst.ProviderIdentifiers {
+		if pi.Type == "EODHD_EXCH_CODE" {
+			code = pi.Value
+		}
+	}
+	if code != "US" {
+		t.Errorf("EODHD_EXCH_CODE = %q, want US: what the provider said is still recorded", code)
+	}
+}
+
+// A code that names one operating MIC still resolves to it.
+func TestStockFromSearch_SingleMICExchangeResolves(t *testing.T) {
+	exchMap := exchangemap.New()
+	r := &client.SearchResult{
+		Code:     "VOD",
+		Exchange: "LSE",
+		Name:     "Vodafone Group Plc",
+		Type:     "Common Stock",
+		Currency: "GBX",
+	}
+
+	inst, ids := stockFromSearch(r, exchMap)
+
+	if inst == nil {
+		t.Fatal("expected instrument")
+	}
+	if inst.Venue.MIC != "XLON" {
+		t.Errorf("Exchange = %q, want XLON", inst.Venue.MIC)
+	}
+	for _, id := range ids {
+		if id.Type == "MIC_TICKER" && id.Domain != "XLON" {
+			t.Errorf("MIC_TICKER Domain = %q, want XLON", id.Domain)
 		}
 	}
 }
 
 func TestResolveExchange_NilMap(t *testing.T) {
-	got := resolveExchange("US", nil)
+	got := resolveVenue("US", "USA", nil).MIC
 	if got != "" {
-		t.Errorf("resolveExchange with nil map = %q, want empty", got)
+		t.Errorf("resolveVenue with nil map = %q, want empty", got)
 	}
 }
 
 func TestResolveExchange_EmptyCode(t *testing.T) {
 	exchMap := exchangemap.New()
-	got := resolveExchange("", exchMap)
+	got := resolveVenue("", "", exchMap).MIC
 	if got != "" {
-		t.Errorf("resolveExchange with empty code = %q, want empty", got)
+		t.Errorf("resolveVenue with empty code = %q, want empty", got)
 	}
 }
 

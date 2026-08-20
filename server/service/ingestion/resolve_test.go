@@ -197,7 +197,7 @@ func TestResolve_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T) {
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "AAPL"}, {Type: "ISIN", Value: "US0378331005"}},
 		err:  nil,
 	})
@@ -248,7 +248,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 	desc := "APPLE INC COM"
 	// Plugin returns only canonical ids; does not include (source, desc).
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 		err:  nil,
 	})
@@ -304,7 +304,7 @@ func TestResolve_PluginReturnsUnderlying_ResolvesUnderlyingThenDerivative(t *tes
 	registry.Register("local", &fakePlugin{
 		inst: &identifier.Instrument{
 			AssetClass: "OPTION",
-			Exchange:   "SMART",
+			Venue:      identifier.Venue{MIC: "SMART"},
 			Currency:   "USD",
 			Name:       "AAPL Call 20250117 200 C",
 			UnderlyingIdentifiers: []identifier.Identifier{

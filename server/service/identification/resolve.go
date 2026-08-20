@@ -243,9 +243,37 @@ func (a Attempt) underlying() Attempt {
 // if normalization fails (unknown MIC, DB error, etc.).
 type MICNormalizer func(ctx context.Context, mic string) string
 
-// MICLookup is the subset of db.InstrumentDB needed to build a MICNormalizer.
+// MICLookup is the subset of db.InstrumentDB needed to build a MICNormalizer
+// and a country resolver.
 type MICLookup interface {
 	LookupOperatingMIC(ctx context.Context, mic string) (string, error)
+	LookupMICCountry(ctx context.Context, mic string) (string, error)
+}
+
+// MICCountry resolves a MIC to the ISO 3166 country it is in, returning "" when
+// the answer is unknown. It is what lets a provider that named a market be
+// compared with one that named a venue.
+type MICCountry func(mic string) string
+
+// NewDBMICCountry returns a MICCountry backed by a database lookup. Results are
+// memoised for the life of the resolver: one resolution asks about the same
+// handful of MICs repeatedly, and the reference table does not change under it.
+func NewDBMICCountry(ctx context.Context, db MICLookup) MICCountry {
+	seen := make(map[string]string)
+	return func(mic string) string {
+		if mic == "" {
+			return ""
+		}
+		if c, ok := seen[mic]; ok {
+			return c
+		}
+		c, err := db.LookupMICCountry(ctx, mic)
+		if err != nil {
+			c = ""
+		}
+		seen[mic] = c
+		return c
+	}
 }
 
 // NewDBMICNormalizer returns a MICNormalizer backed by a database lookup.
@@ -274,7 +302,7 @@ func normalizeMICValue(ctx context.Context, normalizeMIC MICNormalizer, mic stri
 // winner's. Checks Currency, Exchange, and overlapping identifier values.
 // Logs a warning and returns false on mismatch. Exchange comparison normalizes
 // both sides to operating MICs via normalizeMIC (if non-nil).
-func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer) bool {
+func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer, countryOf MICCountry) bool {
 	l = resolveLogger(l)
 	if winner.inst.Currency != "" && other.inst.Currency != "" &&
 		!strings.EqualFold(winner.inst.Currency, other.inst.Currency) {
@@ -283,13 +311,12 @@ func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlug
 			"field", "Currency", "winner_value", winner.inst.Currency, "other_value", other.inst.Currency)
 		return false
 	}
-	winnerExch := normalizeMICValue(ctx, normalizeMIC, winner.inst.Exchange)
-	otherExch := normalizeMICValue(ctx, normalizeMIC, other.inst.Exchange)
-	if winnerExch != "" && otherExch != "" &&
-		!strings.EqualFold(winnerExch, otherExch) {
+	winnerVenue := normalizeVenue(ctx, normalizeMIC, winner.inst.Venue)
+	otherVenue := normalizeVenue(ctx, normalizeMIC, other.inst.Venue)
+	if !winnerVenue.Agrees(otherVenue, countryOf) {
 		l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
 			"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
-			"field", "Exchange", "winner_value", winner.inst.Exchange, "other_value", other.inst.Exchange)
+			"field", "Venue", "winner_value", venueString(winnerVenue), "other_value", venueString(otherVenue))
 		return false
 	}
 	winnerIDs := make(map[string]string, len(winner.ids))
@@ -305,6 +332,65 @@ func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlug
 		}
 	}
 	return true
+}
+
+// fillBlanks copies fields src knows and dst does not. Only empty fields are
+// written: adr/0004 makes the identifier the source of truth for an instrument,
+// so a value already present is never replaced, and the first result to fill a
+// field wins because they arrive in precedence order.
+//
+// The asset class is deliberately not among them. It decides which invariants
+// the row must satisfy -- an OPTION needs an underlying and strike, expiry and
+// put_call, all derived from the winner -- so adopting one plugin's class over
+// another's structure is how a write comes to violate a constraint. Every
+// plugin sets a class anyway, so there is nothing to fill.
+func fillBlanks(ctx context.Context, normalizeMIC MICNormalizer, countryOf MICCountry, dst *identifier.Instrument, src *identifier.Instrument) {
+	if src == nil {
+		return
+	}
+	// A venue is adopted only where dst named no venue and permits this one. A
+	// market-level answer is not an absence of opinion: taking a venue outside
+	// the country it named would replace a real constraint with a value that
+	// contradicts it. The market itself is kept when nothing better arrives.
+	if dst.Venue.MIC == "" && src.Venue.MIC != "" &&
+		dst.Venue.Permits(normalizeMICValue(ctx, normalizeMIC, src.Venue.MIC), countryOf) {
+		dst.Venue.MIC = src.Venue.MIC
+	}
+	if dst.Venue.Country == "" {
+		dst.Venue.Country = src.Venue.Country
+	}
+	if dst.Currency == "" {
+		dst.Currency = src.Currency
+	}
+	if dst.Name == "" {
+		dst.Name = src.Name
+	}
+	if dst.CIK == "" {
+		dst.CIK = src.CIK
+	}
+	if dst.SICCode == "" {
+		dst.SICCode = src.SICCode
+	}
+}
+
+// normalizeVenue maps a venue's MIC to its operating MIC so that two answers are
+// compared at the same grain, per adr/0003. A market-level answer has no MIC and
+// passes through unchanged.
+func normalizeVenue(ctx context.Context, normalizeMIC MICNormalizer, v identifier.Venue) identifier.Venue {
+	v.MIC = normalizeMICValue(ctx, normalizeMIC, v.MIC)
+	return v
+}
+
+// venueString renders a venue for a log line.
+func venueString(v identifier.Venue) string {
+	switch {
+	case v.MIC != "":
+		return v.MIC
+	case v.Country != "":
+		return v.Country + " (market)"
+	default:
+		return ""
+	}
 }
 
 // CompareHints compares supplied hints and identifier hints against the
@@ -331,15 +417,15 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 		diffs = append(diffs, identifier.HintDiff{Field: "SecurityType", HintValue: hints.SecurityTypeHint, ResolvedValue: inst.AssetClass})
 	}
 
-	// Exchange: compare MIC_TICKER hint domain (the MIC code) against inst.Exchange.
+	// Exchange: compare MIC_TICKER hint domain (the MIC code) against inst.Venue.MIC.
 	// Both sides are normalized to operating MICs before comparison.
-	if inst.Exchange != "" {
-		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Exchange)
+	if inst.Venue.MIC != "" {
+		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Venue.MIC)
 		for _, h := range identifierHints {
 			if h.Type == "MIC_TICKER" && h.Domain != "" {
 				hintExch := normalizeMICValue(ctx, normalizeMIC, h.Domain)
 				if !strings.EqualFold(hintExch, instExch) {
-					diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: h.Domain, ResolvedValue: inst.Exchange})
+					diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: h.Domain, ResolvedValue: inst.Venue.MIC})
 				}
 				break
 			}
@@ -384,7 +470,7 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 		r.inst.AssetClass != "" && r.inst.AssetClass != identifier.SecurityTypeHintUnknown {
 		return true
 	}
-	if r.inst.Exchange != "" {
+	if r.inst.Venue.MIC != "" {
 		for _, h := range identifierHints {
 			if h.Type == "MIC_TICKER" && h.Domain != "" {
 				return true
@@ -427,6 +513,7 @@ func ResolveWithPlugins(
 ) (ResolveResult, error) {
 	l := resolveLogger(logger)
 	normMIC := NewDBMICNormalizer(database)
+	countryOf := NewDBMICCountry(ctx, database)
 	// What the attempt row states about its inputs. Its outcome and the asset
 	// class it landed on are filled in at each of the returns below.
 	row := db.TelemetryIdentificationAttempt{
@@ -443,7 +530,7 @@ func ResolveWithPlugins(
 	if len(resolved) == 1 {
 		inst := &identifier.Instrument{
 			AssetClass: resolved[0].AssetClass,
-			Exchange:   resolved[0].Exchange,
+			Venue:      identifier.Venue{MIC: resolved[0].Exchange},
 			Currency:   resolved[0].Currency,
 		}
 		diffs := CompareHints(ctx, hints, identifierHints, inst, nil, normMIC)
@@ -587,6 +674,11 @@ func ResolveWithPlugins(
 		seenType := make(map[string]bool)
 		var mergedIds []identifier.Identifier
 		var providerIDs []db.ProviderIdentifierInput
+		// Consistent results that did not win, in precedence order. Collected
+		// rather than applied in the loop because consistentWith compares
+		// against the winner, and filling it mid-loop would change what later
+		// results are checked against.
+		var fills []*identifier.Instrument
 		for i := range results {
 			r := &results[i]
 			if r.err != nil || r.inst == nil {
@@ -594,7 +686,7 @@ func ResolveWithPlugins(
 			}
 			// Decided here rather than recomputed later: consistentWith logs a
 			// warning per mismatch, so asking it twice would say it twice.
-			if i != winnerIdx && !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC) {
+			if i != winnerIdx && !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC, countryOf) {
 				callOutcomes[i] = db.TelemetryPluginCallDiscardedInconsistent
 				continue
 			}
@@ -616,6 +708,28 @@ func ResolveWithPlugins(
 					Provider: pi.Provider, Type: pi.Type, Domain: pi.Domain, Value: pi.Value,
 				})
 			}
+			if i != winnerIdx {
+				fills = append(fills, r.inst)
+			}
+		}
+		// The winner supplies the instrument, but a plugin that identified the
+		// same security and merely lost on precedence still knows things the
+		// winner left blank. Its identifiers are already merged in; taking the
+		// fields it filled and the winner did not is the same trust, applied to
+		// the same result.
+		//
+		// It matters most for the exchange. A provider that answers with a
+		// composite names no single venue, so the winner's exchange is empty
+		// while a lower-precedence result names the venue outright -- and
+		// without this the instrument is stored with a null exchange_mic beside
+		// a MIC_TICKER whose domain says exactly which exchange it is. Note
+		// consistentWith skips a comparison where either side is empty, so a
+		// field being filled here was never checked against the winner; it is
+		// adopted because that plugin agreed on everything it could be checked
+		// on, which is the same basis its identifiers are merged on.
+		merged := *winner.inst
+		for _, src := range fills {
+			fillBlanks(ctx, normMIC, countryOf, &merged, src)
 		}
 		// A plugin answers about the instrument it was named, so the names it
 		// gives back are only as current as the hint that named it: the vintage
@@ -647,7 +761,7 @@ func ResolveWithPlugins(
 		if storeSourceDescription && !hasSource {
 			identifiers = append(identifiers, db.IdentifierInput{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false, ValidFrom: nameFrom})
 		}
-		inst := winner.inst
+		inst := &merged
 		var underlyingID string
 		var validFrom, validBefore *time.Time
 		if inst.ValidFrom != nil {
@@ -675,7 +789,7 @@ func ResolveWithPlugins(
 			optFields = optionFieldsFromIdentifiers(mergedIds)
 		}
 		diffs := CompareHints(ctx, hints, identifierHints, inst, mergedIds, normMIC)
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validBefore, optFields)
+		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Venue.MIC, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validBefore, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}
@@ -740,7 +854,7 @@ func instrumentSummary(inst *identifier.Instrument) string {
 	if inst == nil {
 		return ""
 	}
-	return inst.Name + " (" + inst.AssetClass + "/" + inst.Exchange + ")"
+	return inst.Name + " (" + inst.AssetClass + "/" + inst.Venue.MIC + ")"
 }
 
 // pluginConfigJSON is the shape we read from identifier_plugin_config.config (JSONB).

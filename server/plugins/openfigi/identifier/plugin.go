@@ -187,15 +187,51 @@ func (p *Plugin) onExchange(r *OpenFIGIResult, mic string) bool {
 	return false
 }
 
+// spansExchange reports whether a result is a market-level listing whose
+// country contains the given MIC.
+//
+// OpenFIGI answers a mapping call with rows from both of its code namespaces,
+// and the composite row is the one a US listing usually leads with. Read as a
+// venue code it matches nothing, so before this every American result scored
+// zero on exchange and ranking fell back to security type alone -- which for a
+// ticker listed in a dozen countries is no constraint at all.
+//
+// It is a weaker claim than onExchange and scores less: the composite says the
+// listing is somewhere in that country, not that it is on the named venue.
+func (p *Plugin) spansExchange(r *OpenFIGIResult, mic string) bool {
+	if p.exchMap == nil || mic == "" || r.ExchCode == "" {
+		return false
+	}
+	country := p.exchMap.CompositeCountry(r.ExchCode)
+	return country != "" && strings.EqualFold(country, p.exchMap.MICCountry(mic))
+}
+
+// isComposite reports whether a result is the composite listing rather than one
+// of the venues under it. OpenFIGI says so structurally by giving the composite
+// row its own FIGI as compositeFIGI, which needs no exchange map to read.
+func isComposite(r *OpenFIGIResult) bool {
+	return r.CompositeFIGI != nil && *r.CompositeFIGI == r.FIGI && r.FIGI != ""
+}
+
 // assertsExchange reports whether a hint MIC may be stored against the chosen
-// instrument. A hint that names no exchange asserts nothing to check, and an
-// instrument whose own exchange is unknown leaves nothing to check it against;
-// both pass. Only a known exchange that disagrees is refused.
+// instrument. A hint that names no exchange asserts nothing to check, so it
+// passes; otherwise the venue the result named decides.
+//
+// A market-level result is not the free pass it used to be. Before the composite
+// was readable its country came back empty, so every US result reached here with
+// nothing to check against and the hint's venue was asserted whatever it said --
+// which is how a ticker hint for one company came to be stored against a
+// same-ticker listing of another.
 func (p *Plugin) assertsExchange(inst *identifier.Instrument, mic string) bool {
-	if mic == "" || inst == nil || inst.Exchange == "" {
+	if mic == "" || inst == nil {
 		return true
 	}
-	return strings.EqualFold(inst.Exchange, mic)
+	return inst.Venue.Permits(mic, func(m string) string {
+		if p.exchMap == nil {
+			return ""
+		}
+		return p.exchMap.MICCountry(m)
+	})
 }
 
 // resolveResults picks a result from the slice and converts it to an instrument.
@@ -203,13 +239,17 @@ func (p *Plugin) assertsExchange(inst *identifier.Instrument, mic string) bool {
 // resolve the underlying through the full plugin pipeline.
 //
 // When multiple results exist they are ranked by how much of what the caller
-// already said they account for: the exchange a MIC_TICKER hint names, then the
-// SecurityTypeHint, with the exchange worth more because a ticker is unique
-// within a venue and a security type is not. A bare ticker maps to every listing
-// of that symbol worldwide, so without the venue the choice among same-class
-// results is arbitrary -- which is how a query for a UK stock settled on a
-// same-ticker listing in another market. Ties keep the earliest result, so a
-// caller that names no exchange gets the previous type-only behaviour.
+// already said they account for. Naming the venue outright counts for most;
+// being a composite listing whose group covers that venue counts for less,
+// since it narrows the answer to a market rather than to an exchange; and the
+// SecurityTypeHint counts for least, because a ticker is unique within a venue
+// and a security type is not. The tiers are ordered so that no combination of
+// weaker signals outranks a venue match.
+//
+// A bare ticker maps to every listing of that symbol worldwide, so without the
+// venue the choice among same-class results is arbitrary -- which is how a query
+// for a UK stock settled on a same-ticker listing in another market. Ties keep
+// the earliest result; when nothing scores at all, fallbackFirst decides.
 //
 // The stored asset class is always derived from the selected result's OpenFIGI
 // fields via classify, never from the hint.
@@ -226,7 +266,10 @@ func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints
 		best := 0
 		for i := range results {
 			score := 0
-			if p.onExchange(&results[i], mic) {
+			switch {
+			case p.onExchange(&results[i], mic):
+				score += 4
+			case p.spansExchange(&results[i], mic):
 				score += 2
 			}
 			if hints.SecurityTypeHint != "" &&
@@ -238,7 +281,17 @@ func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints
 			}
 		}
 		if idx < 0 && fallbackFirst {
+			// Nothing the caller said discriminates, so take the composite
+			// listing over an arbitrary venue: it is the consolidated line for
+			// the market, and recording it leaves the exchange unset rather than
+			// asserting whichever venue the provider happened to list first.
 			idx = 0
+			for i := range results {
+				if isComposite(&results[i]) {
+					idx = i
+					break
+				}
+			}
 		} else if idx < 0 {
 			return nil, nil, false
 		}

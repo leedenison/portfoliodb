@@ -79,7 +79,7 @@ test.describe("failed instrument identification", () => {
     await firstJobRow.click();
 
     // The expanded detail should show identification errors for XYZFAKE.
-    // The description plugin extracts "XYZFAKE" as a ticker, but all
+    // The candidate plugin extracts "XYZFAKE" as a ticker, but all
     // identifier plugins fail to resolve it → "broker description only".
     const heading = page.getByRole("heading", { name: /identification errors/i });
     await expect(heading).toBeVisible({ timeout: 10_000 });

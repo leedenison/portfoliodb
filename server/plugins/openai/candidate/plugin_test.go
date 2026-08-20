@@ -1,4 +1,4 @@
-package description
+package candidate
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
-	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
+	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
 )
 
 func TestIsOpenAIModelNotFound(t *testing.T) {
@@ -58,13 +58,13 @@ func TestHandleOpenAIError_Classifies(t *testing.T) {
 	tests := []struct {
 		name string
 		err  string
-		want descpkg.Outcome
+		want candpkg.Outcome
 	}{
-		{name: "model not found", err: "openai 404: model not found", want: descpkg.OutcomeModelNotFound},
-		{name: "quota exceeded", err: "openai 429: insufficient_quota", want: descpkg.OutcomeQuotaExceeded},
+		{name: "model not found", err: "openai 404: model not found", want: candpkg.OutcomeModelNotFound},
+		{name: "quota exceeded", err: "openai 429: insufficient_quota", want: candpkg.OutcomeQuotaExceeded},
 		// Both arrive as 429; only the body marker tells them apart.
-		{name: "rate limited", err: "openai 429: rate_limit_exceeded", want: descpkg.OutcomeRateLimited},
-		{name: "other", err: "openai 500: internal server error", want: descpkg.OutcomeError},
+		{name: "rate limited", err: "openai 429: rate_limit_exceeded", want: candpkg.OutcomeRateLimited},
+		{name: "other", err: "openai 500: internal server error", want: candpkg.OutcomeError},
 	}
 
 	for _, tc := range tests {
@@ -79,8 +79,8 @@ func TestHandleOpenAIError_Classifies(t *testing.T) {
 
 func TestHandleOpenAIError_NilLogger(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient)
-	if got := p.handleOpenAIError(context.Background(), "X", &errWithMessage{"openai 404: not found"}); got != descpkg.OutcomeModelNotFound {
-		t.Errorf("outcome = %q, want %q", got, descpkg.OutcomeModelNotFound)
+	if got := p.handleOpenAIError(context.Background(), "X", &errWithMessage{"openai 404: not found"}); got != candpkg.OutcomeModelNotFound {
+		t.Errorf("outcome = %q, want %q", got, candpkg.OutcomeModelNotFound)
 	}
 }
 
@@ -88,7 +88,7 @@ type errWithMessage struct{ msg string }
 
 func (e *errWithMessage) Error() string { return e.msg }
 
-func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
+func TestProposeBatch_TypeHintPassedToClient(t *testing.T) {
 	// BatchItemForClient must include TypeHint from Hints.SecurityTypeHint; when server returns OCC, plugin emits OCC identifier.
 	var receivedContent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,15 +122,15 @@ func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 	config := []byte(`{"openai_api_key":"test","openai_base_url":"` + server.URL + `"}`)
 	ctx := context.Background()
 	p := NewPlugin(nil, http.DefaultClient)
-	items := []descpkg.BatchItem{
+	items := []candpkg.BatchItem{
 		{ID: "ab12", InstrumentDescription: "BRKB 241115P00390000 BRK B 15NOV24 390 P", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}},
 	}
-	res, err := p.ExtractBatch(ctx, config, "IBKR", "IBKR:test:statement", items)
+	res, err := p.ProposeBatch(ctx, config, "IBKR", "IBKR:test:statement", items)
 	if err != nil {
-		t.Fatalf("ExtractBatch: %v", err)
+		t.Fatalf("ProposeBatch: %v", err)
 	}
-	if res.Telemetry.Outcome != descpkg.OutcomeHintsReturned {
-		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, descpkg.OutcomeHintsReturned)
+	if res.Telemetry.Outcome != candpkg.OutcomeHintsReturned {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, candpkg.OutcomeHintsReturned)
 	}
 	// The token cost of the call is what makes the cost of one import answerable.
 	if res.Telemetry.Tokens == nil {
@@ -155,7 +155,7 @@ func TestPlugin_AcceptableSecurityTypes_IncludesETF(t *testing.T) {
 	p := NewPlugin(nil, nil)
 	types := p.AcceptableSecurityTypes()
 	if !types[identifier.SecurityTypeHintETF] {
-		t.Error("ETF is not acceptable; an ETF arriving with no identifiers gets no description plugin at all")
+		t.Error("ETF is not acceptable; an ETF arriving with no identifiers gets no candidate plugin at all")
 	}
 	// The set stays exclusive: CASH belongs to the cash plugin.
 	if types[identifier.SecurityTypeHintCash] {

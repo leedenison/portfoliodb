@@ -97,8 +97,8 @@ export async function seedPluginConfig(suite?: string): Promise<void> {
   await c.query(
     `INSERT INTO plugin_config (plugin_id, category, enabled, precedence, config)
      VALUES
-       ('openai', 'description', true, 1, $1::jsonb),
-       ('cash', 'description', true, 2, '{}'::jsonb)
+       ('openai', 'candidate', true, 1, $1::jsonb),
+       ('cash', 'candidate', true, 2, '{}'::jsonb)
      ON CONFLICT (plugin_id, category) DO UPDATE SET
        enabled = EXCLUDED.enabled,
        precedence = EXCLUDED.precedence,

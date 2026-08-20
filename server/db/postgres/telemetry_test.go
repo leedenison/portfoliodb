@@ -189,7 +189,7 @@ func TestWriteDescriptionPluginCallTokens(t *testing.T) {
 	ctx := context.Background()
 	runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunTxImport})
 
-	tel.WriteDescriptionPluginCall(ctx, db.TelemetryDescriptionPluginCall{
+	tel.WriteCandidatePluginCall(ctx, db.TelemetryCandidatePluginCall{
 		RunID:          runID,
 		PluginID:       "cash",
 		BatchSize:      12,
@@ -197,7 +197,7 @@ func TestWriteDescriptionPluginCallTokens(t *testing.T) {
 		Outcome:        "hints_returned",
 		Duration:       3 * time.Millisecond,
 	})
-	tel.WriteDescriptionPluginCall(ctx, db.TelemetryDescriptionPluginCall{
+	tel.WriteCandidatePluginCall(ctx, db.TelemetryCandidatePluginCall{
 		RunID:          runID,
 		PluginID:       "openai",
 		BatchSize:      8,
@@ -219,7 +219,7 @@ func TestWriteDescriptionPluginCallTokens(t *testing.T) {
 			var prompt, completion, total sql.NullInt64
 			err := tel.db.QueryRow(`
 				SELECT prompt_tokens, completion_tokens, total_tokens
-				FROM telemetry.description_plugin_call WHERE run_id = $1::uuid AND plugin_id = $2
+				FROM telemetry.candidate_plugin_call WHERE run_id = $1::uuid AND plugin_id = $2
 			`, runID, c.plugin).Scan(&prompt, &completion, &total)
 			if err != nil {
 				t.Fatalf("read description_plugin_call: %v", err)
@@ -402,7 +402,7 @@ func TestWriteDescriptionPluginCallPrecedence(t *testing.T) {
 
 	// The narrowing a chain produces: the second plugin sees only what the first
 	// failed on. Both are written with the precedence they ran at.
-	tel.WriteDescriptionPluginCall(ctx, db.TelemetryDescriptionPluginCall{
+	tel.WriteCandidatePluginCall(ctx, db.TelemetryCandidatePluginCall{
 		RunID:          runID,
 		PluginID:       "cash",
 		Precedence:     100,
@@ -411,7 +411,7 @@ func TestWriteDescriptionPluginCallPrecedence(t *testing.T) {
 		Outcome:        "hints_returned",
 		Duration:       time.Millisecond,
 	})
-	tel.WriteDescriptionPluginCall(ctx, db.TelemetryDescriptionPluginCall{
+	tel.WriteCandidatePluginCall(ctx, db.TelemetryCandidatePluginCall{
 		RunID:          runID,
 		PluginID:       "openai",
 		Precedence:     50,
@@ -423,7 +423,7 @@ func TestWriteDescriptionPluginCallPrecedence(t *testing.T) {
 
 	rows, err := tel.db.Query(`
 		SELECT plugin_id, precedence, batch_size
-		FROM telemetry.v_description_plugin_call
+		FROM telemetry.v_candidate_plugin_call
 		WHERE run_id = $1::uuid
 		ORDER BY precedence DESC
 	`, runID)

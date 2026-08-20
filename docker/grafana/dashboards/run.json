@@ -27,7 +27,7 @@
       "datasource": null,
       "options": {
         "mode": "markdown",
-        "content": "Every panel here reads one view, and every judgement it selects on\n(`resolved`, `had_attempt`, `reached_plugins`, `transport_failed`, `call_failed`,\n`settled`, `had_call`, `write_failed`, `is_import`) is a column defined once in `server/migrations/005_telemetry.sql`. Adding a\npanel that spells out a list of outcomes instead means the views are missing a judgement;\nadd it there.\n\nTwo rules the grains impose. **Never join two child grains under one run** -- a run joined\nto both resolution keys and description plugin calls repeats itself once per pair and\nreports both counts as multiples of themselves; `v_run` carries `key_count`,\n`key_tx_count`, `description_call_count` and `gap_count` for that reason. **Counts of one grain are\nnever added to counts of another**: a key is not a transaction, an attempt is not a key,\na price gap is not a plugin call, and `tx_count` is the only fan-out any of them\nrecords. `days_outstanding` is the price side's measure of size and belongs to the\ngap, never summed across the calls beneath it."
+        "content": "Every panel here reads one view, and every judgement it selects on\n(`resolved`, `had_attempt`, `reached_plugins`, `transport_failed`, `call_failed`,\n`settled`, `had_call`, `write_failed`, `is_import`) is a column defined once in `server/migrations/005_telemetry.sql`. Adding a\npanel that spells out a list of outcomes instead means the views are missing a judgement;\nadd it there.\n\nTwo rules the grains impose. **Never join two child grains under one run** -- a run joined\nto both resolution keys and candidate plugin calls repeats itself once per pair and\nreports both counts as multiples of themselves; `v_run` carries `key_count`,\n`key_tx_count`, `candidate_call_count` and `gap_count` for that reason. **Counts of one grain are\nnever added to counts of another**: a key is not a transaction, an attempt is not a key,\na price gap is not a plugin call, and `tx_count` is the only fan-out any of them\nrecords. `days_outstanding` is the price side's measure of size and belongs to the\ngap, never summed across the calls beneath it."
       },
       "gridPos": {
         "h": 6,
@@ -54,7 +54,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  kind,\n  broker,\n  source,\n  started_at,\n  ended_at,\n  outcome,\n  duration_ms,\n  telemetry_incomplete,\n  key_count,\n  key_tx_count,\n  description_call_count,\n  gap_count\nFROM telemetry.v_run\nWHERE id = '${run}'::uuid",
+          "rawSql": "SELECT\n  kind,\n  broker,\n  source,\n  started_at,\n  ended_at,\n  outcome,\n  duration_ms,\n  telemetry_incomplete,\n  key_count,\n  key_tx_count,\n  candidate_call_count,\n  gap_count\nFROM telemetry.v_run\nWHERE id = '${run}'::uuid",
           "refId": "A"
         }
       ],
@@ -888,7 +888,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  precedence,\n  plugin_id,\n  outcome,\n  batch_size,\n  items_with_hints,\n  round(100.0 * items_with_hints / nullif(batch_size, 0), 1) AS hit_pct,\n  duration_ms,\n  prompt_tokens,\n  completion_tokens,\n  total_tokens\nFROM telemetry.v_description_plugin_call\nWHERE run_id = '${run}'::uuid\nORDER BY precedence DESC",
+          "rawSql": "SELECT\n  precedence,\n  plugin_id,\n  outcome,\n  batch_size,\n  items_with_hints,\n  round(100.0 * items_with_hints / nullif(batch_size, 0), 1) AS hit_pct,\n  duration_ms,\n  prompt_tokens,\n  completion_tokens,\n  total_tokens\nFROM telemetry.v_candidate_plugin_call\nWHERE run_id = '${run}'::uuid\nORDER BY precedence DESC",
           "refId": "A"
         }
       ],
@@ -975,7 +975,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  sum(prompt_tokens)     AS prompt,\n  sum(completion_tokens) AS completion,\n  sum(total_tokens)      AS total\nFROM telemetry.v_description_plugin_call\nWHERE run_id = '${run}'::uuid",
+          "rawSql": "SELECT\n  sum(prompt_tokens)     AS prompt,\n  sum(completion_tokens) AS completion,\n  sum(total_tokens)      AS total\nFROM telemetry.v_candidate_plugin_call\nWHERE run_id = '${run}'::uuid",
           "refId": "A"
         }
       ],

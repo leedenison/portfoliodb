@@ -184,7 +184,7 @@ func TestDashboardsSelectOnlyFromViews(t *testing.T) {
 		"telemetry.resolution_key",
 		"telemetry.identification_attempt",
 		"telemetry.identifier_plugin_call",
-		"telemetry.description_plugin_call",
+		"telemetry.candidate_plugin_call",
 	}
 	for _, f := range files {
 		for _, q := range collect(t, f) {

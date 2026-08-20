@@ -26,7 +26,7 @@ var ErrDuplicate = errors.New("duplicate")
 // Plugin category constants.
 const (
 	PluginCategoryIdentifier     = "identifier"
-	PluginCategoryDescription    = "description"
+	PluginCategoryCandidate      = "candidate"
 	PluginCategoryPrice          = "price"
 	PluginCategoryInflation      = "inflation"
 	PluginCategoryCorporateEvent = "corporate_event"
@@ -644,7 +644,7 @@ type OptionFields struct {
 }
 
 // PluginConfigRow is one row from identifier_plugin_config for enabled plugins.
-// MaxHistoryDays is only populated for price plugins; nil for identifier/description plugins.
+// MaxHistoryDays is only populated for price plugins; nil for identifier/candidate plugins.
 type PluginConfigRow struct {
 	PluginID       string
 	Precedence     int
@@ -665,7 +665,7 @@ type PluginConfigWithCategory struct {
 }
 
 // PluginConfigRowFull is a full row from identifier_plugin_config (includes enabled). Used for admin list/update.
-// MaxHistoryDays is only populated for price plugins; nil for identifier/description plugins.
+// MaxHistoryDays is only populated for price plugins; nil for identifier/candidate plugins.
 type PluginConfigRowFull struct {
 	PluginID       string
 	Enabled        bool
@@ -1019,8 +1019,8 @@ func PluginCategoryToStr(c typev1.PluginCategory) string {
 	switch c {
 	case typev1.PluginCategory_IDENTIFIER:
 		return PluginCategoryIdentifier
-	case typev1.PluginCategory_DESCRIPTION:
-		return PluginCategoryDescription
+	case typev1.PluginCategory_CANDIDATE:
+		return PluginCategoryCandidate
 	case typev1.PluginCategory_PRICE:
 		return PluginCategoryPrice
 	case typev1.PluginCategory_INFLATION:
@@ -1038,8 +1038,8 @@ func StrToPluginCategory(s string) typev1.PluginCategory {
 	switch s {
 	case PluginCategoryIdentifier:
 		return typev1.PluginCategory_IDENTIFIER
-	case PluginCategoryDescription:
-		return typev1.PluginCategory_DESCRIPTION
+	case PluginCategoryCandidate:
+		return typev1.PluginCategory_CANDIDATE
 	case PluginCategoryPrice:
 		return typev1.PluginCategory_PRICE
 	case PluginCategoryInflation:
@@ -2162,7 +2162,7 @@ type TelemetryIdentifierPluginCall struct {
 	Duration  time.Duration
 }
 
-// TelemetryTokens is the token cost of one description plugin call. Nil on a call
+// TelemetryTokens is the token cost of one candidate plugin call. Nil on a call
 // to a plugin that costs no tokens, which is what keeps the columns null rather
 // than zero for it.
 type TelemetryTokens struct {
@@ -2171,15 +2171,15 @@ type TelemetryTokens struct {
 	Total      int64
 }
 
-// TelemetryDescriptionPluginCall is one plugin invocation over a batch. It hangs
-// off the run rather than off a resolution key: one ExtractBatch call covers many
+// TelemetryCandidatePluginCall is one plugin invocation over a batch. It hangs
+// off the run rather than off a resolution key: one ProposeBatch call covers many
 // descriptions at once, so it has no single parent key.
 //
-// BatchSize is a different population per plugin -- description plugins run in
+// BatchSize is a different population per plugin -- candidate plugins run in
 // precedence order and each sees only the items its predecessors failed on -- so
 // rates are not comparable between them. Precedence is what makes that order
 // readable afterwards, higher first.
-type TelemetryDescriptionPluginCall struct {
+type TelemetryCandidatePluginCall struct {
 	RunID          string
 	PluginID       string
 	Precedence     int
@@ -2264,7 +2264,7 @@ type TelemetryDB interface {
 	// for the plugin calls written under it.
 	WriteIdentificationAttempt(ctx context.Context, a TelemetryIdentificationAttempt) string
 	WriteIdentifierPluginCall(ctx context.Context, c TelemetryIdentifierPluginCall)
-	WriteDescriptionPluginCall(ctx context.Context, c TelemetryDescriptionPluginCall)
+	WriteCandidatePluginCall(ctx context.Context, c TelemetryCandidatePluginCall)
 
 	// StartPriceGap creates a price gap and returns its id, for the reason
 	// StartResolutionKey does: its plugin calls reference it, so it must exist
@@ -2314,7 +2314,7 @@ func (NopTelemetry) WriteIdentificationAttempt(context.Context, TelemetryIdentif
 
 func (NopTelemetry) WriteIdentifierPluginCall(context.Context, TelemetryIdentifierPluginCall) {}
 
-func (NopTelemetry) WriteDescriptionPluginCall(context.Context, TelemetryDescriptionPluginCall) {}
+func (NopTelemetry) WriteCandidatePluginCall(context.Context, TelemetryCandidatePluginCall) {}
 
 func (NopTelemetry) StartPriceGap(context.Context, TelemetryPriceGap) string { return "" }
 

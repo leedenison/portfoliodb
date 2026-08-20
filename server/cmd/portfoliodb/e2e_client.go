@@ -18,7 +18,7 @@ func newPluginHTTPClient() *http.Client {
 	}
 }
 
-func newDescriptionHTTPClient() *http.Client {
+func newCandidateHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: e2eTransport,
 		Timeout:   20 * time.Second,

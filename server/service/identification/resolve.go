@@ -51,7 +51,7 @@ type FallbackFunc func(ctx context.Context, database db.DB) (string, error)
 // we perform a second lookup by (type, value) only, ignoring domain. That allows e.g. (TICKER, "", "AAPL") to match
 // a stored row (TICKER, "US", "AAPL"). We do this because:
 //   - Empty domain means the user supplied only a ticker (no exchange), or we only extracted a ticker from the
-//     instrument description (e.g. a description plugin returned "AAPL" with no exchange). In those cases the user
+//     instrument description (e.g. a candidate plugin returned "AAPL" with no exchange). In those cases the user
 //     is effectively saying "resolve this to any valid ticker/exchange combo."
 //   - In storage we persist TICKER with domain set to the exchange code (e.g. "US" for US exchanges). So
 //     FindInstrumentByIdentifier(type, "", value) looks for domain IS NULL and does not match those rows. The

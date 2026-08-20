@@ -1,21 +1,21 @@
-package description
+package candidate
 
 import (
 	"context"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
-	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
+	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
 )
 
-// PluginID is the stable plugin_id for registration and description_plugin_config.
+// PluginID is the stable plugin_id for registration and candidate plugin config.
 const PluginID = "cash"
 
-// Plugin implements description.Plugin for Cash: returns the currency hint as a CURRENCY identifier.
+// Plugin implements candidate.Plugin for Cash: returns the currency hint as a CURRENCY identifier.
 // No external calls; no config required.
 type Plugin struct{}
 
-// NewPlugin returns a new cash description plugin.
+// NewPlugin returns a new cash candidate plugin.
 func NewPlugin() *Plugin {
 	return &Plugin{}
 }
@@ -40,8 +40,8 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{identifier.SecurityTypeHintCash: true}
 }
 
-// ExtractBatch returns one CURRENCY identifier per item when Hints.Currency is set (from tx.trading_currency).
-func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source string, items []descpkg.BatchItem) (descpkg.Result, error) {
+// ProposeBatch returns one CURRENCY identifier per item when Hints.Currency is set (from tx.trading_currency).
+func (p *Plugin) ProposeBatch(ctx context.Context, config []byte, broker, source string, items []candpkg.BatchItem) (candpkg.Result, error) {
 	out := make(map[string][]identifier.Identifier)
 	for _, item := range items {
 		code := strings.ToUpper(strings.TrimSpace(item.Hints.Currency))
@@ -52,7 +52,7 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 	}
 	// Tokens stay nil: the currency comes off the transaction, at no cost.
 	if len(out) == 0 {
-		return descpkg.Result{Telemetry: descpkg.Telemetry{Outcome: descpkg.OutcomeNoHints}}, nil
+		return candpkg.Result{Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeNoHints}}, nil
 	}
-	return descpkg.Result{Hints: out, Telemetry: descpkg.Telemetry{Outcome: descpkg.OutcomeHintsReturned}}, nil
+	return candpkg.Result{Hints: out, Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeHintsReturned}}, nil
 }

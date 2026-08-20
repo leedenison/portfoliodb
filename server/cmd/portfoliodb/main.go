@@ -31,11 +31,11 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/postgres"
 	"github.com/leedenison/portfoliodb/server/grouping"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	"github.com/leedenison/portfoliodb/server/logger"
 	"github.com/leedenison/portfoliodb/server/migrations"
-	cashdesc "github.com/leedenison/portfoliodb/server/plugins/cash/description"
+	cashcand "github.com/leedenison/portfoliodb/server/plugins/cash/candidate"
 	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
 	eodhdce "github.com/leedenison/portfoliodb/server/plugins/eodhd/corporateevents"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
@@ -45,7 +45,7 @@ import (
 	massiveplugin "github.com/leedenison/portfoliodb/server/plugins/massive/identifier"
 	massiveprice "github.com/leedenison/portfoliodb/server/plugins/massive/price"
 	onsinflation "github.com/leedenison/portfoliodb/server/plugins/ons/inflation"
-	openaidesc "github.com/leedenison/portfoliodb/server/plugins/openai/description"
+	openaicand "github.com/leedenison/portfoliodb/server/plugins/openai/candidate"
 	openfigiexchmap "github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
@@ -250,16 +250,16 @@ func main() {
 	}); err != nil {
 		log.Fatalf("ensure identifier plugin configs: %v", err)
 	}
-	descRegistry := description.NewRegistry()
-	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/openai"), newDescriptionHTTPClient()))
-	descRegistry.Register(cashdesc.PluginID, cashdesc.NewPlugin())
-	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryDescription, descRegistry.ListIDs(), func(id string) []byte {
-		if p := descRegistry.Get(id); p != nil {
+	candRegistry := candidate.NewRegistry()
+	candRegistry.Register(openaicand.PluginID, openaicand.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/openai"), newCandidateHTTPClient()))
+	candRegistry.Register(cashcand.PluginID, cashcand.NewPlugin())
+	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryCandidate, candRegistry.ListIDs(), func(id string) []byte {
+		if p := candRegistry.Get(id); p != nil {
 			return p.DefaultConfig()
 		}
 		return nil
 	}); err != nil {
-		log.Fatalf("ensure description plugin configs: %v", err)
+		log.Fatalf("ensure candidate plugin configs: %v", err)
 	}
 	priceRegistry := pricefetcher.NewRegistry()
 	priceRegistry.Register(massiveprice.PluginID, massiveprice.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/massive/price"), pluginHTTPClient))
@@ -307,7 +307,7 @@ func main() {
 		DB:                    database,
 		Queue:                 queue,
 		IdentifierRegistry:    pluginRegistry,
-		DescriptionRegistry:   descRegistry,
+		CandidateRegistry:     candRegistry,
 		TelemetryDB:           telemetryDB,
 		Logger:                ingestionLogger,
 		PriceTrigger:          priceTrigger,
@@ -369,7 +369,7 @@ func main() {
 		DB:                     database,
 		TelemetryDB:            telemetryDB,
 		PluginRegistry:         pluginRegistry,
-		DescRegistry:           descRegistry,
+		CandidateRegistry:      candRegistry,
 		PriceRegistry:          priceRegistry,
 		PriceTrigger:           priceTrigger,
 		InflationRegistry:      inflationRegistry,

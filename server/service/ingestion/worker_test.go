@@ -68,7 +68,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	database.EXPECT().
 		SetJobTotalCount(gomock.Any(), "job-1", int32(1)).
 		Return(nil)
-	// Resolve for "UNKNOWN": DB miss, nil descRegistry -> extraction failed, EnsureInstrument broker-only
+	// Resolve for "UNKNOWN": DB miss, nil candRegistry -> extraction failed, EnsureInstrument broker-only
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "UNKNOWN").
 		Return("", nil)

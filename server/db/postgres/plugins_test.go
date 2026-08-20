@@ -136,7 +136,7 @@ func TestInsertPluginConfig_SamePluginDifferentCategory_Allowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("insert identifier: %v", err)
 	}
-	_, err = p.InsertPluginConfig(ctx, db.PluginCategoryDescription, pluginID, true, 10, []byte("{}"), nil)
+	_, err = p.InsertPluginConfig(ctx, db.PluginCategoryCandidate, pluginID, true, 10, []byte("{}"), nil)
 	if err != nil {
 		t.Fatalf("insert description (same plugin_id, different category): %v", err)
 	}

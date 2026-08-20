@@ -75,11 +75,11 @@ Extraction failure is treated as an identity lookup failure.  **A (source, NULL,
 
 ### Resolve Identifiers
 
-When a client supplies external identifier hints for a transaction, or when a description plugin has successfully extracted one or more identifier hints from a transaction description, the identifier plugins will attempt to look up canonical instrument metadata and canonical identifiers for the instrument.
+When a client supplies external identifier hints for a transaction, or when a candidate plugin has successfully extracted one or more identifier hints from a transaction description, the identifier plugins will attempt to look up canonical instrument metadata and canonical identifiers for the instrument.
  
 Resolution order: (1) DB lookup by (source, NULL (domain), instrument_description) or by existing identifiers; (2) within the current batch, use a cache so the same (source, description) is resolved once; (3) only if still unresolved, call enabled plugins (passing broker, source, instrument_description, currency hint, and identifier hints). See adr/0004-instrument-resolution-and-merge.md.
 
-If no plugin resolves a given (source, instrument_description), the system ensures an instrument exists with at least that source identifier and attaches it to the transaction. Plugin failures (e.g. timeout, unavailable) are handled the same way: persist the transaction with the broker-description-only instrument and record an identification error; do not fail the whole job. Identification reporting (e.g. GetJob, UI) must distinguish between description extraction failure (no description plugin returned identifiers), identifier resolution failure (extraction succeeded or client supplied identifiers but no identifier plugin resolved), and plugin failure (e.g. timeout, unavailable).
+If no plugin resolves a given (source, instrument_description), the system ensures an instrument exists with at least that source identifier and attaches it to the transaction. Plugin failures (e.g. timeout, unavailable) are handled the same way: persist the transaction with the broker-description-only instrument and record an identification error; do not fail the whole job. Identification reporting (e.g. GetJob, UI) must distinguish between description extraction failure (no candidate plugin returned identifiers), identifier resolution failure (extraction succeeded or client supplied identifiers but no identifier plugin resolved), and plugin failure (e.g. timeout, unavailable).
 
 **Instrument merge**: When a new identifier would link two previously distinct instruments (e.g. same ISIN), the system must merge them: choose a survivor, update all transaction references, move identifiers to the survivor, delete the merged-away instrument. When **multiple** identifiers returned for the same logical security resolve to **more than one** existing instrument (e.g. instrument A has ISIN 1, instrument B has CUSIP 1, and a plugin returns both identifiers for one security), the system **detects** this and **merges** those instruments eagerly during resolution. After merge, a single canonical instrument remains; the survivor is chosen as follows: the instrument with more identifiers wins; if tied, the one with older `created_at` (further tie-breaker may be non-deterministic). All updates (transaction references, identifier moves, deletion of the merged-away instrument) happen in one database transaction; implementations may batch the updates within that transaction for scale.
 
@@ -122,11 +122,11 @@ so an unidentifiable security cannot silently resolve to its trading currency.
 - **Asset class** (canonical): STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION,
   FUTURE, CASH, UNKNOWN. Set by identifier plugins and stored on instruments.
 
-### Description Plugins
+### Candidate Plugins
 
-When the client supplies only broker, source and instrument description (no external identifier hints), the system uses **description plugins** to **extract** candidate identifiers from the raw broker description. Description plugins live at `server/plugins/<datasource>/description` (e.g. `server/plugins/ibkr/description`). They parse the free-text instrument description (e.g. from a broker statement or confirmation) and return zero or more identifier hints (type, domain, value) that are then passed to the identifier resolution step. If a description plugin successfully extracts one or more identifiers, resolution continues using those extracted identifiers and a (source, NULL, description) identifier is stored as the authoritative mapping from the broker description. If extraction fails (no plugin returns identifiers, or the description is unparseable), the system treats it as an identity lookup failure: a (source, NULL, description) identifier is still stored and the instrument is created or found as broker-description-only.
+When the client supplies only broker, source and instrument description (no external identifier hints), the system uses **candidate plugins** to **extract** candidate identifiers from the raw broker description. Candidate plugins live at `server/plugins/<datasource>/description` (e.g. `server/plugins/ibkr/description`). They parse the free-text instrument description (e.g. from a broker statement or confirmation) and return zero or more identifier hints (type, domain, value) that are then passed to the identifier resolution step. If a candidate plugin successfully extracts one or more identifiers, resolution continues using those extracted identifiers and a (source, NULL, description) identifier is stored as the authoritative mapping from the broker description. If extraction fails (no plugin returns identifiers, or the description is unparseable), the system treats it as an identity lookup failure: a (source, NULL, description) identifier is still stored and the instrument is created or found as broker-description-only.
 
-Description plugins have **precedence** (integer, required, unique across description plugins; stored in the database with plugin config). They are executed **in series** by precedence order. The **first** plugin that returns one or more identifier hints is used; no later plugin is called for that transaction. If no plugin returns identifiers, extraction has failed. Description plugins receive the broker, source, instrument description, and optional client hints (e.g. currency) so they can narrow or disambiguate extraction. Like identifier plugins, they are compiled in and enabled at runtime; configuration (e.g. API keys, options) is stored in the database and only admins can view or edit it. The shared interface and types for extracted identifiers live with the identifier resolution code (e.g. under `server/identifier`). Only after description plugins run (and only when they return identifiers) does the resolver call identifier plugins to look up canonical instrument metadata and canonical identifiers.
+Candidate plugins have **precedence** (integer, required, unique across candidate plugins; stored in the database with plugin config). They are executed **in series** by precedence order. The **first** plugin that returns one or more identifier hints is used; no later plugin is called for that transaction. If no plugin returns identifiers, extraction has failed. Candidate plugins receive the broker, source, instrument description, and optional client hints (e.g. currency) so they can narrow or disambiguate extraction. Like identifier plugins, they are compiled in and enabled at runtime; configuration (e.g. API keys, options) is stored in the database and only admins can view or edit it. The shared interface and types for extracted identifiers live with the identifier resolution code (e.g. under `server/identifier`). Only after candidate plugins run (and only when they return identifiers) does the resolver call identifier plugins to look up canonical instrument metadata and canonical identifiers.
 
 ### Identifier Plugins
 
@@ -144,9 +144,9 @@ Plugins can own database migrations (e.g. reference tables). Plugin migrations l
 
 ## Troubleshooting: identification not running
 
-**Identification runs only during ingestion.** Instrument resolution (description plugins → identifier plugins) is performed by the ingestion worker when transactions are submitted via the **Ingestion gRPC API** (UpsertTxs or CreateTx). If transactions were loaded by another route (e.g. direct SQL into `txs`, or a script that does not use the ingestion API), no jobs are created and the worker never runs, so no identification and no telemetry run to read it in.
+**Identification runs only during ingestion.** Instrument resolution (candidate plugins → identifier plugins) is performed by the ingestion worker when transactions are submitted via the **Ingestion gRPC API** (UpsertTxs or CreateTx). If transactions were loaded by another route (e.g. direct SQL into `txs`, or a script that does not use the ingestion API), no jobs are created and the worker never runs, so no identification and no telemetry run to read it in.
 
-**Identifier plugins run only when there are hints.** The flow is: DB lookup by (source, description) → if miss, run **description plugins** to get identifier hints → then run **identifier plugins** with those hints. If the description plugin returns **no hints** (e.g. OpenAI API error or invalid model), the server creates a broker-description-only instrument, records the identification error as "description extraction failed", and **never** calls identifier plugins. So no identification attempt is opened, no `identifier_plugin_call` rows are written, and no OpenFIGI calls are made.
+**Identifier plugins run only when there are hints.** The flow is: DB lookup by (source, description) → if miss, run **candidate plugins** to get identifier hints → then run **identifier plugins** with those hints. If the candidate plugin returns **no hints** (e.g. OpenAI API error or invalid model), the server creates a broker-description-only instrument, records the identification error as "description extraction failed", and **never** calls identifier plugins. So no identification attempt is opened, no `identifier_plugin_call` rows are written, and no OpenFIGI calls are made.
 
 **Diagnosis steps:**
 
@@ -157,7 +157,7 @@ Plugins can own database migrations (e.g. reference tables). Plugin migrations l
    ```
 
 2. **Check identification errors**  
-   If jobs exist and completed, look at stored identification errors. Message `description extraction failed` means no description plugin returned hints (e.g. OpenAI failing); other messages indicate identifier plugin timeouts or "broker description only":
+   If jobs exist and completed, look at stored identification errors. Message `description extraction failed` means no candidate plugin returned hints (e.g. OpenAI failing); other messages indicate identifier plugin timeouts or "broker description only":
    ```sql
    SELECT j.id, j.status, e.row_index, e.instrument_description, e.message
    FROM ingestion_jobs j
@@ -168,9 +168,9 @@ Plugins can own database migrations (e.g. reference tables). Plugin migrations l
 
 3. **Server logs**  
    With `LOG_LEVEL=debug`, the server logs:
-   - `description plugin returned error` — a description plugin (e.g. OpenAI) failed; the `err` field shows the cause.
-   - `description extraction: no plugin returned hints` — no description plugin returned any hints.
+   - `candidate plugin returned error` — a candidate plugin (e.g. OpenAI) failed; the `err` field shows the cause.
+   - `description extraction: no plugin returned hints` — no candidate plugin returned any hints.
    - `instrument resolution: description extraction failed, using broker description only` — we are creating broker-description-only instruments and not calling identifier plugins.
 
-4. **OpenAI description plugin**  
-   Ensure `description_plugin_config.config` uses a **valid model** (e.g. `gpt-4o-mini`, `gpt-4o`). An invalid model (e.g. `gpt-5.2`) causes the API to return an error; the plugin then returns no hints and identifier plugins are never called.
+4. **OpenAI candidate plugin**  
+   Ensure `candidate plugin config` uses a **valid model** (e.g. `gpt-4o-mini`, `gpt-4o`). An invalid model (e.g. `gpt-5.2`) causes the API to return an error; the plugin then returns no hints and identifier plugins are never called.

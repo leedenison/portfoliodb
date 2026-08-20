@@ -1,4 +1,4 @@
--- Seed CASH instruments and CURRENCY identifiers for resolution (description plugin returns currency hint; identifier plugin looks up by CURRENCY).
+-- Seed CASH instruments and CURRENCY identifiers for resolution (candidate plugin returns currency hint; identifier plugin looks up by CURRENCY).
 -- One row per currency in instruments and instrument_identifiers.
 
 WITH ins AS (

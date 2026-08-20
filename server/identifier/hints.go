@@ -74,7 +74,7 @@ type HintDiff struct {
 }
 
 // AllowedIdentifierTypes is the controlled vocabulary for identifier hint types (proto IdentifierType names).
-// Description plugins must return hints whose Type is in this set; invalid types are discarded at debug log.
+// Candidate plugins must return hints whose Type is in this set; invalid types are discarded at debug log.
 var AllowedIdentifierTypes = map[string]bool{
 	"ISIN": true, "CUSIP": true, "SEDOL": true, "CINS": true, "WERTPAPIER": true,
 	"OCC": true, "OPRA": true, "FUT_OPT": true,

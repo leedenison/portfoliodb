@@ -882,7 +882,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id AS metric,\n  sum(items_with_hints)::numeric / nullif(sum(batch_size), 0) AS value\nFROM telemetry.v_description_plugin_call\nWHERE $__timeFilter(run_started_at)\n  AND is_import\n  AND run_broker IN (${broker:sqlstring})\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id AS metric,\n  sum(items_with_hints)::numeric / nullif(sum(batch_size), 0) AS value\nFROM telemetry.v_candidate_plugin_call\nWHERE $__timeFilter(run_started_at)\n  AND is_import\n  AND run_broker IN (${broker:sqlstring})\nGROUP BY 1, 2\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -974,7 +974,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id || ' / ' || outcome AS metric,\n  count(*) AS value\nFROM telemetry.v_description_plugin_call\nWHERE $__timeFilter(run_started_at)\n  AND call_failed\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id || ' / ' || outcome AS metric,\n  count(*) AS value\nFROM telemetry.v_candidate_plugin_call\nWHERE $__timeFilter(run_started_at)\n  AND call_failed\nGROUP BY 1, 2\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -1063,7 +1063,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id AS metric,\n  sum(total_tokens) AS value\nFROM telemetry.v_description_plugin_call\nWHERE $__timeFilter(run_started_at)\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id AS metric,\n  sum(total_tokens) AS value\nFROM telemetry.v_candidate_plugin_call\nWHERE $__timeFilter(run_started_at)\nGROUP BY 1, 2\nORDER BY 1",
           "refId": "A"
         }
       ],

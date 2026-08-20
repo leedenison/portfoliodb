@@ -16,7 +16,7 @@ func newPluginHTTPClient() *http.Client {
 	return &http.Client{Timeout: 5 * time.Minute}
 }
 
-func newDescriptionHTTPClient() *http.Client {
+func newCandidateHTTPClient() *http.Client {
 	return &http.Client{Timeout: 20 * time.Second}
 }
 

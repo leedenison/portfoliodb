@@ -23,13 +23,13 @@ run
 ├── resolution_key                     one distinct (source, description, hints)
 │     └── identification_attempt       one ResolveWithPlugins call
 │           └── identifier_plugin_call one plugin invocation
-├── description_plugin_call            one plugin invocation over a batch
+├── candidate_plugin_call              one plugin invocation over a batch
 └── price_gap                          one instrument a cycle set out to fill
       └── price_plugin_call            one outstanding range put to one plugin
 ```
 
-`description_plugin_call` hangs off the run rather than off a resolution key: one
-`ExtractBatch` call covers many descriptions at once, so it has no single parent key.
+`candidate_plugin_call` hangs off the run rather than off a resolution key: one
+`ProposeBatch` call covers many descriptions at once, so it has no single parent key.
 Identifier plugins are called once per plugin per attempt and do nest. This asymmetry
 is forced by the code and must not be flattened away -- it is what made the counters
 it replaces impossible to add up.
@@ -147,7 +147,7 @@ has returned: `superseded` lost to a better hint match despite higher precedence
 either, which is why the plugin returns its transport outcome and the orchestrator
 composes the row.
 
-### description_plugin_call
+### candidate_plugin_call
 
 One plugin invocation over a batch.
 
@@ -161,7 +161,7 @@ One plugin invocation over a batch.
 | `prompt_tokens`, `completion_tokens`, `total_tokens` | null for plugins with no token cost |
 | `duration_ms` | |
 
-Description plugins run in precedence order and each sees only the items its
+Candidate plugins run in precedence order and each sees only the items its
 predecessors failed on, so `batch_size` is a different population per plugin and rates
 are not comparable between them. Identifier plugins run in parallel and every eligible
 plugin is called, so those rates are comparable. Tokens are columns rather than running
@@ -233,7 +233,7 @@ would force one outcome onto three answers.
 
 Plugins are tried in order until one covers the gap, so a gap normally has rows from fewer
 plugins than are configured. `precedence` makes that readable for the reason it does on
-`description_plugin_call`: a plugin filtered out by asset class, exchange or currency,
+`candidate_plugin_call`: a plugin filtered out by asset class, exchange or currency,
 blocked for this instrument, or holding no identifier it supports writes no row at all, so
 a gap in the sequence means skipped.
 
@@ -376,7 +376,7 @@ known. The other three grains are written once, when their unit of work complete
 for an identifier plugin call is the moment the orchestrator decides `won` against
 `superseded` against `discarded_inconsistent`.
 
-Plugins do not write. `Identify` and `ExtractBatch` return a telemetry value alongside
+Plugins do not write. `Identify` and `ProposeBatch` return a telemetry value alongside
 their result and the orchestrator composes the row, so no plugin depends on the
 telemetry backend or needs a database to unit test.
 

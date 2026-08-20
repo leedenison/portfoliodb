@@ -6,11 +6,11 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { DateSchema } from "@/gen/google/type/date_pb";
 import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
-import { GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ExportSystemArchiveRequestSchema, ExportSystemArchiveResponseSchema, ImportSystemArchiveRequestSchema, ImportSystemArchiveResponseSchema, ExportUserArchiveRequestSchema, ExportUserArchiveResponseSchema, ImportUserArchiveRequestSchema, ImportUserArchiveResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
+import { GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListCandidatePluginsRequestSchema, ListCandidatePluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ExportSystemArchiveRequestSchema, ExportSystemArchiveResponseSchema, ImportSystemArchiveRequestSchema, ImportSystemArchiveResponseSchema, ExportUserArchiveRequestSchema, ExportUserArchiveResponseSchema, ImportUserArchiveRequestSchema, ImportUserArchiveResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateCandidatePluginRequestSchema, UpdateCandidatePluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
 import { AccountType, AssetClass } from "@/gen/type/v1/type_pb";
 import { ArchivePart } from "@/gen/archive/v1/common_pb";
 import type { SystemArchive, UserArchive } from "@/gen/archive/v1/archive_pb";
-import type { DescriptionPluginConfig, EODPriceProto, ExportSystemArchiveResponse, ExportUserArchiveResponse, InflationIndexProto, InflationPluginConfig, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
+import type { CandidatePluginConfig, EODPriceProto, ExportSystemArchiveResponse, ExportUserArchiveResponse, InflationIndexProto, InflationPluginConfig, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
 import type { Broker } from "@/gen/type/v1/type_pb";
 import { streamingFetch, unaryFetch } from "./grpc-web";
 
@@ -294,33 +294,33 @@ export async function updateIdentifierPlugin(
   return res.plugin!;
 }
 
-/** List description plugin configs (admin only). */
-export async function listDescriptionPlugins(): Promise<DescriptionPluginConfig[]> {
+/** List candidate plugin configs (admin only). */
+export async function listCandidatePlugins(): Promise<CandidatePluginConfig[]> {
   const base = getBaseUrl();
-  const req = create(ListDescriptionPluginsRequestSchema, {});
-  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListDescriptionPlugins", toBinary(ListDescriptionPluginsRequestSchema, req), {
+  const req = create(ListCandidatePluginsRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListCandidatePlugins", toBinary(ListCandidatePluginsRequestSchema, req), {
     credentials: "include",
   });
-  const res = fromBinary(ListDescriptionPluginsResponseSchema, resBytes);
+  const res = fromBinary(ListCandidatePluginsResponseSchema, resBytes);
   return res.plugins;
 }
 
-/** Update description plugin (admin only). Pass only fields to update. */
-export async function updateDescriptionPlugin(
+/** Update candidate plugin (admin only). Pass only fields to update. */
+export async function updateCandidatePlugin(
   pluginId: string,
   opts: { enabled?: boolean; precedence?: number; configJson?: string }
-): Promise<DescriptionPluginConfig> {
+): Promise<CandidatePluginConfig> {
   const base = getBaseUrl();
-  const reqMsg = create(UpdateDescriptionPluginRequestSchema, {
+  const reqMsg = create(UpdateCandidatePluginRequestSchema, {
     pluginId,
     ...(opts.enabled !== undefined && { enabled: opts.enabled }),
     ...(opts.precedence !== undefined && { precedence: opts.precedence }),
     ...(opts.configJson !== undefined && { configJson: opts.configJson }),
   });
-  const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdateDescriptionPlugin", toBinary(UpdateDescriptionPluginRequestSchema, reqMsg), {
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdateCandidatePlugin", toBinary(UpdateCandidatePluginRequestSchema, reqMsg), {
     credentials: "include",
   });
-  const res = fromBinary(UpdateDescriptionPluginResponseSchema, resBytes);
+  const res = fromBinary(UpdateCandidatePluginResponseSchema, resBytes);
   return res.plugin!;
 }
 

@@ -1,4 +1,4 @@
-package description
+package candidate
 
 import (
 	"context"
@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
-	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
+	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
 )
 
-// PluginID is the stable plugin_id for registration and description_plugin_config.
+// PluginID is the stable plugin_id for registration and candidate plugin config.
 const PluginID = "openai"
 
-// configJSON is the shape of the plugin's config from description_plugin_config.config.
+// configJSON is the shape of the plugin's config from candidate plugin config.
 type configJSON struct {
 	OpenAIAPIKey        string `json:"openai_api_key"`
 	OpenAIModel         string `json:"openai_model"`
@@ -23,7 +23,7 @@ type configJSON struct {
 	MaxCompletionTokens int    `json:"max_completion_tokens"`
 }
 
-// Plugin implements description.Plugin using OpenAI to normalize broker descriptions to a specific identifier (ticker, ISIN, or CUSIP).
+// Plugin implements candidate.Plugin using OpenAI to normalize broker descriptions to a specific identifier (ticker, ISIN, or CUSIP).
 type Plugin struct {
 	client     *Client
 	config     configJSON
@@ -31,7 +31,7 @@ type Plugin struct {
 	httpClient *http.Client
 }
 
-// NewPlugin returns a new description plugin. log is optional (nil for tests); when set, model-not-found and quota-exceeded errors are logged.
+// NewPlugin returns a new candidate plugin. log is optional (nil for tests); when set, model-not-found and quota-exceeded errors are logged.
 func NewPlugin(log *slog.Logger, httpClient *http.Client) *Plugin {
 	return &Plugin{log: log, httpClient: httpClient}
 }
@@ -74,13 +74,13 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	}
 }
 
-// ExtractBatch implements descpkg.Plugin. Chunks items into groups of 50 and calls the API per chunk; merges results keyed by ID.
+// ProposeBatch implements candpkg.Plugin. Chunks items into groups of 50 and calls the API per chunk; merges results keyed by ID.
 // An API failure is absorbed -- no hints and no error, so the caller moves on to the next plugin -- and reported as the outcome it was.
-func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source string, items []descpkg.BatchItem) (descpkg.Result, error) {
+func (p *Plugin) ProposeBatch(ctx context.Context, config []byte, broker, source string, items []candpkg.BatchItem) (candpkg.Result, error) {
 	var cfg configJSON
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
-			return result(nil, descpkg.OutcomeError, nil), err
+			return result(nil, candpkg.OutcomeError, nil), err
 		}
 	}
 	p.config = cfg
@@ -88,7 +88,7 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 		// Enabled but unconfigured: no call was made and none could be. It is
 		// an error rather than an empty answer, or a plugin nobody finished
 		// setting up reads as one that never finds anything.
-		return result(nil, descpkg.OutcomeError, nil), nil
+		return result(nil, candpkg.OutcomeError, nil), nil
 	}
 	p.client = NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL, cfg.BatchChunkSize, cfg.MaxCompletionTokens, p.httpClient)
 	clientItems := make([]BatchItemForClient, len(items))
@@ -101,9 +101,9 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 	}
 	byID, usage, err := p.client.NormalizeDescriptionsBatch(ctx, clientItems)
 	if err != nil {
-		outcome := descpkg.OutcomeError
+		outcome := candpkg.OutcomeError
 		for _, item := range items {
-			if o := p.handleOpenAIError(ctx, item.InstrumentDescription, err); o != descpkg.OutcomeError {
+			if o := p.handleOpenAIError(ctx, item.InstrumentDescription, err); o != candpkg.OutcomeError {
 				outcome = o
 			}
 		}
@@ -120,19 +120,19 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 			out[id] = []identifier.Identifier{{Type: "MIC_TICKER", Domain: "", Value: norm.Ticker}}
 		}
 	}
-	outcome := descpkg.OutcomeNoHints
+	outcome := candpkg.OutcomeNoHints
 	if len(out) > 0 {
-		outcome = descpkg.OutcomeHintsReturned
+		outcome = candpkg.OutcomeHintsReturned
 	}
 	return result(out, outcome, usage), nil
 }
 
 // result assembles the extraction and the telemetry for the call. usage may be
 // nil, in which case the call cost no tokens the plugin could observe.
-func result(hints map[string][]identifier.Identifier, outcome descpkg.Outcome, usage *Usage) descpkg.Result {
-	res := descpkg.Result{Hints: hints, Telemetry: descpkg.Telemetry{Outcome: outcome}}
+func result(hints map[string][]identifier.Identifier, outcome candpkg.Outcome, usage *Usage) candpkg.Result {
+	res := candpkg.Result{Hints: hints, Telemetry: candpkg.Telemetry{Outcome: outcome}}
 	if usage != nil {
-		res.Telemetry.Tokens = &descpkg.Usage{
+		res.Telemetry.Tokens = &candpkg.Usage{
 			PromptTokens:     usage.PromptTokens,
 			CompletionTokens: usage.CompletionTokens,
 			TotalTokens:      usage.TotalTokens,
@@ -143,27 +143,27 @@ func result(hints map[string][]identifier.Identifier, outcome descpkg.Outcome, u
 
 // handleOpenAIError logs the errors worth naming and classifies one into the
 // outcome vocabulary. Returns OutcomeError for anything it does not recognise.
-func (p *Plugin) handleOpenAIError(ctx context.Context, instrumentDescription string, err error) descpkg.Outcome {
+func (p *Plugin) handleOpenAIError(ctx context.Context, instrumentDescription string, err error) candpkg.Outcome {
 	errStr := err.Error()
 	if isOpenAIModelNotFound(errStr) {
 		if p.log != nil {
-			p.log.ErrorContext(ctx, "OpenAI description plugin: model not found", "instrument_description", instrumentDescription, "err", err)
+			p.log.ErrorContext(ctx, "OpenAI candidate plugin: model not found", "instrument_description", instrumentDescription, "err", err)
 		}
-		return descpkg.OutcomeModelNotFound
+		return candpkg.OutcomeModelNotFound
 	}
 	if isOpenAIRateLimited(errStr) {
 		if p.log != nil {
-			p.log.ErrorContext(ctx, "OpenAI description plugin: rate limited", "instrument_description", instrumentDescription, "err", err)
+			p.log.ErrorContext(ctx, "OpenAI candidate plugin: rate limited", "instrument_description", instrumentDescription, "err", err)
 		}
-		return descpkg.OutcomeRateLimited
+		return candpkg.OutcomeRateLimited
 	}
 	if isOpenAIQuotaExceeded(errStr) {
 		if p.log != nil {
-			p.log.ErrorContext(ctx, "OpenAI description plugin: quota exceeded", "instrument_description", instrumentDescription, "err", err)
+			p.log.ErrorContext(ctx, "OpenAI candidate plugin: quota exceeded", "instrument_description", instrumentDescription, "err", err)
 		}
-		return descpkg.OutcomeQuotaExceeded
+		return candpkg.OutcomeQuotaExceeded
 	}
-	return descpkg.OutcomeError
+	return candpkg.OutcomeError
 }
 
 // isOpenAIRateLimited matches the rate limit OpenAI reports with the same 429

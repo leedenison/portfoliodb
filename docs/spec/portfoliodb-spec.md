@@ -86,8 +86,8 @@ flowchart TD
     LookupByDesc --> DescHit{Cache hit?}
     DescHit -->|Yes| DoneCached[Use existing instrument]
 
-    DescHit -->|No| RunDescPlugins[Run description plugins in series by precedence]
-    RunDescPlugins --> DescReturned{Description plugin(s) return identifiers?}
+    DescHit -->|No| RunDescPlugins[Run candidate plugins in series by precedence]
+    RunDescPlugins --> DescReturned{Candidate plugin(s) return identifiers?}
     DescReturned -->|No| NoExtraction[Broker-description-only instrument + description extraction failed (identifier plugins not called)]
     DescReturned -->|Yes| MaybeDbByHints[DB lookup by extracted hints]
     MaybeDbByHints --> ExtHintsOne{Exactly one instrument?}
@@ -110,7 +110,7 @@ flowchart TD
 
 **Cases summarised:**
 
-| Upload shape | Description plugins | Identifier plugins | Outcome |
+| Upload shape | Candidate plugins | Identifier plugins | Outcome |
 |--------------|--------------------|--------------------|---------|
 | Txs with **identifiers** (no description-only path) | Not used | Resolve by hints (DB or plugins) | Canonical instrument or broker-description-only; source/description not stored when resolved by client hints. |
 | Txs with **description + hints only** | Not run if DB hit by (source, description) | Not run if no extracted hints | Re-upload: use cached instrument. |

@@ -6,7 +6,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/worker"
@@ -23,7 +23,7 @@ type Server struct {
 	db                     db.DB
 	telemetryDB            db.TelemetryDB
 	pluginRegistry         *identifier.Registry
-	descRegistry           *description.Registry
+	candRegistry           *candidate.Registry
 	priceRegistry          *pricefetcher.Registry
 	priceTrigger           chan<- struct{}
 	inflationRegistry      *inflationfetcher.Registry
@@ -41,7 +41,7 @@ type ServerConfig struct {
 	DB                     db.DB
 	TelemetryDB            db.TelemetryDB             // optional; when set, PurgeTelemetry deletes past the retention window
 	PluginRegistry         *identifier.Registry       // optional; enables display_name in identifier plugin list
-	DescRegistry           *description.Registry      // optional; enables display_name in description plugin list
+	CandidateRegistry      *candidate.Registry        // optional; enables display_name in candidate plugin list
 	PriceRegistry          *pricefetcher.Registry     // optional; enables display_name in price plugin list
 	PriceTrigger           chan<- struct{}            // optional; when set, TriggerPriceFetch sends on it
 	InflationRegistry      *inflationfetcher.Registry // optional; enables display_name in inflation plugin list
@@ -60,7 +60,7 @@ func NewServer(cfg ServerConfig) *Server {
 		db:                     cfg.DB,
 		telemetryDB:            cfg.TelemetryDB,
 		pluginRegistry:         cfg.PluginRegistry,
-		descRegistry:           cfg.DescRegistry,
+		candRegistry:           cfg.CandidateRegistry,
 		priceRegistry:          cfg.PriceRegistry,
 		priceTrigger:           cfg.PriceTrigger,
 		inflationRegistry:      cfg.InflationRegistry,

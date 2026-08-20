@@ -1,4 +1,4 @@
-package description
+package candidate
 
 import (
 	"bytes"

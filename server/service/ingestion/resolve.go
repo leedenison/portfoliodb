@@ -10,7 +10,7 @@ import (
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 	"log/slog"
 	"slices"
@@ -97,7 +97,7 @@ func shortHashForBatch(key string) string {
 }
 
 // batchItemIDs returns the IDs of batch items for debug logging.
-func batchItemIDs(items []description.BatchItem) []string {
+func batchItemIDs(items []candidate.BatchItem) []string {
 	ids := make([]string, len(items))
 	for i := range items {
 		ids[i] = items[i].ID
@@ -106,7 +106,7 @@ func batchItemIDs(items []description.BatchItem) []string {
 }
 
 // batchItemDescByID returns the instrument description for the batch item with the given ID, or "" if not found.
-func batchItemDescByID(items []description.BatchItem, id string) string {
+func batchItemDescByID(items []candidate.BatchItem, id string) string {
 	for i := range items {
 		if items[i].ID == id {
 			return items[i].InstrumentDescription
@@ -115,10 +115,10 @@ func batchItemDescByID(items []description.BatchItem, id string) string {
 	return ""
 }
 
-// descriptionTokens renders a plugin's token usage for storage. Nil stays nil,
+// candidateTokens renders a plugin's token usage for storage. Nil stays nil,
 // which is what keeps the token columns null rather than zero for a plugin that
 // costs nothing to call.
-func descriptionTokens(u *description.Usage) *db.TelemetryTokens {
+func candidateTokens(u *candidate.Usage) *db.TelemetryTokens {
 	if u == nil {
 		return nil
 	}
@@ -129,18 +129,18 @@ func descriptionTokens(u *description.Usage) *db.TelemetryTokens {
 	}
 }
 
-// runDescriptionPluginsBatch runs description plugins on all items via ExtractBatch. Only items whose security type is acceptable to a plugin are passed to that plugin. First plugin that returns a non-empty map wins. Result is keyed by BatchItem.ID.
+// runCandidatePluginsBatch runs candidate plugins on all items via ProposeBatch. Only items whose security type is acceptable to a plugin are passed to that plugin. First plugin that returns a non-empty map wins. Result is keyed by BatchItem.ID.
 //
 // It also returns what became of each item, keyed by BatchItem.ID, which is stage
 // one of the item's resolution key. The not-attempted members are the skips: an
 // item no enabled plugin accepted was never put to one, and an installation with
-// no description plugins at all attempts nothing.
+// no candidate plugins at all attempts nothing.
 //
-// One description_plugin_call row is written per ExtractBatch call, including the
+// One candidate_plugin_call row is written per ProposeBatch call, including the
 // calls that fail: a plugin populates its telemetry on every path, and a call that
 // errored is the one most worth having a row for. The row hangs off the run rather
 // than off a key because one call covers many descriptions at once.
-func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, source string, items []description.BatchItem) (map[string][]identifier.Identifier, map[string]string, error) {
+func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, source string, items []candidate.BatchItem) (map[string][]identifier.Identifier, map[string]string, error) {
 	outcomes := make(map[string]string, len(items))
 	noPlugins := func() map[string]string {
 		for _, item := range items {
@@ -148,10 +148,10 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 		}
 		return outcomes
 	}
-	if deps.DescRegistry == nil || len(items) == 0 {
+	if deps.CandidateRegistry == nil || len(items) == 0 {
 		return nil, noPlugins(), nil
 	}
-	configs, err := deps.DB.ListEnabledPluginConfigs(ctx, db.PluginCategoryDescription)
+	configs, err := deps.DB.ListEnabledPluginConfigs(ctx, db.PluginCategoryCandidate)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -163,14 +163,14 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 	anyPlugin := false
 	merged := make(map[string][]identifier.Identifier)
 	for _, c := range configs {
-		p := deps.DescRegistry.Get(c.PluginID)
+		p := deps.CandidateRegistry.Get(c.PluginID)
 		if p == nil {
 			continue
 		}
 		anyPlugin = true
 		acceptableKinds := p.AcceptableInstrumentKinds()
 		acceptableTypes := p.AcceptableSecurityTypes()
-		var filtered []description.BatchItem
+		var filtered []candidate.BatchItem
 		for _, item := range items {
 			if resolved[item.ID] {
 				continue
@@ -181,28 +181,28 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 			}
 		}
 		if len(filtered) == 0 {
-			ingestionLogger().DebugContext(ctx, "description plugin batch skipped (no items with acceptable security type)", "plugin_id", c.PluginID)
+			ingestionLogger().DebugContext(ctx, "candidate plugin batch skipped (no items with acceptable security type)", "plugin_id", c.PluginID)
 			continue
 		}
 		started := time.Now()
-		res, err := p.ExtractBatch(ctx, c.Config, broker, source, filtered)
-		call := db.TelemetryDescriptionPluginCall{
+		res, err := p.ProposeBatch(ctx, c.Config, broker, source, filtered)
+		call := db.TelemetryCandidatePluginCall{
 			RunID:      deps.RunID,
 			PluginID:   c.PluginID,
 			Precedence: c.Precedence,
 			BatchSize:  len(filtered),
 			Outcome:    string(res.Telemetry.Outcome),
-			Tokens:     descriptionTokens(res.Telemetry.Tokens),
+			Tokens:     candidateTokens(res.Telemetry.Tokens),
 			Duration:   time.Since(started),
 		}
 		if err != nil {
 			// A plugin that returned an error without saying how it went is not
 			// meant to happen, but the row is worth more than the exactness here.
 			if call.Outcome == "" {
-				call.Outcome = string(description.OutcomeError)
+				call.Outcome = string(candidate.OutcomeError)
 			}
-			deps.writeDescriptionPluginCall(ctx, call)
-			ingestionLogger().DebugContext(ctx, "description plugin batch result: error", "plugin_id", c.PluginID, "err", err)
+			deps.writeCandidatePluginCall(ctx, call)
+			ingestionLogger().DebugContext(ctx, "candidate plugin batch result: error", "plugin_id", c.PluginID, "err", err)
 			continue
 		}
 		out := res.Hints
@@ -216,15 +216,15 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 				call.ItemsWithHints++
 			}
 		}
-		deps.writeDescriptionPluginCall(ctx, call)
+		deps.writeCandidatePluginCall(ctx, call)
 		if hasAny {
 			for id, hints := range out {
 				if len(hints) > 0 {
-					ingestionLogger().DebugContext(ctx, "description plugin batch result: hints", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "hints", identification.HintsSummary(hints))
+					ingestionLogger().DebugContext(ctx, "candidate plugin batch result: hints", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "hints", identification.HintsSummary(hints))
 				}
 			}
 		} else {
-			ingestionLogger().DebugContext(ctx, "description plugin batch result: no hints", "plugin_id", c.PluginID, "batch_ids", batchItemIDs(filtered))
+			ingestionLogger().DebugContext(ctx, "candidate plugin batch result: no hints", "plugin_id", c.PluginID, "batch_ids", batchItemIDs(filtered))
 		}
 	}
 	if !anyPlugin {
@@ -249,7 +249,7 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 // Resolve resolves (source, instrumentDescription) to an instrument_id using the batch cache, then (when no client
 // identifier_hints) pre-extracted description hints, then identifier plugins.
 // The caller is responsible for populating cache (DB hits by source+description) and extractedHintsCache
-// (hints from description plugins) before calling Resolve; see the pre-pass in process().
+// (hints from candidate plugins) before calling Resolve; see the pre-pass in process().
 // When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not persisted
 // to the DB as a BROKER_DESCRIPTION identifier (though results are still cached in the in-memory batch cache).
 // hints are optional (exchange, currency, MIC, security type).

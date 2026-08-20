@@ -35,6 +35,12 @@ func (p *fakePlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
 func (p *fakePlugin) DefaultConfig() []byte                      { return nil }
 func (p *fakePlugin) DisplayName() string                        { return "Fake" }
 
+// stockHints is what a real posting carries alongside its description: the asset
+// class its source stated. A Path B resolution needs it, because the ticker it
+// resolves by was proposed rather than stated, and something nobody guessed has
+// to corroborate the result before it is kept. See adr/0059.
+var stockHints = identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
+
 // tickerHintsCache builds an extractedHintsCache for tests where description
 // extraction would have returned a TICKER hint with value equal to the
 // instrument description.
@@ -91,7 +97,7 @@ func TestResolve_TickerOnlyFallback_ResolvesByTypeAndValue(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("fallback-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "AAPL")}, 0, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", stockHints, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "AAPL")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -224,7 +230,7 @@ func TestResolve_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T) {
 			return "resolved-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "AAPL")}, 0, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", stockHints, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "AAPL")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -285,7 +291,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 			return "resolved-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, desc)}, 0, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, stockHints, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, desc)}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -340,7 +346,7 @@ func TestResolve_PluginReturnsUnderlying_ResolvesUnderlyingThenDerivative(t *tes
 		EnsureInstrument(gomock.Any(), "OPTION", "SMART", "USD", "AAPL Call 20250117 200 C", gomock.Any(), gomock.Any(), gomock.Any(), "underlying-uuid", nil, nil, nil).
 		Return("option-uuid", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, desc)}, 0, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, desc)}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -361,12 +367,12 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	registry.Register("low", &fakePlugin{
-		inst: &identifier.Instrument{Name: "Low"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Low"},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "X"}},
 		err:  nil,
 	})
 	registry.Register("high", &fakePlugin{
-		inst: &identifier.Instrument{Name: "High"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "High"},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "X"}},
 		err:  nil,
 	})
@@ -387,10 +393,10 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 			{PluginID: "low", Precedence: 10, Config: nil},
 		}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "High", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "", "", "High", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("high-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "X", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "X")}, 0, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "X", stockHints, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "X")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -410,12 +416,12 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	registry.Register("low", &fakePlugin{
-		inst: &identifier.Instrument{Name: "Low"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Low"},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "Y"}, {Type: "CUSIP", Value: "12345"}},
 		err:  nil,
 	})
 	registry.Register("high", &fakePlugin{
-		inst: &identifier.Instrument{Name: "High"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "High"},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "Y"}, {Type: "ISIN", Value: "US0000000000"}},
 		err:  nil,
 	})
@@ -435,7 +441,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 			{PluginID: "low", Precedence: 10, Config: nil},
 		}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "High", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "", "", "High", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			// Merged: source from high first, ISIN from high, CUSIP from low (different types).
 			types := make(map[string]string)
@@ -448,7 +454,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 			return "merged-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "Y", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "Y")}, 0, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "Y", stockHints, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "Y")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -467,12 +473,12 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	registry.Register("low", &fakePlugin{
-		inst: &identifier.Instrument{Name: "Low"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Low"},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "Z"}, {Type: "ISIN", Value: "LOW-ISIN"}},
 		err:  nil,
 	})
 	registry.Register("high", &fakePlugin{
-		inst: &identifier.Instrument{Name: "High"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "High"},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "Z"}, {Type: "ISIN", Value: "HIGH-ISIN"}},
 		err:  nil,
 	})
@@ -492,7 +498,7 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 			{PluginID: "low", Precedence: 10, Config: nil},
 		}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "High", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "", "", "High", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			for _, idn := range idns {
 				if idn.Type == "ISIN" && idn.Value != "HIGH-ISIN" {
@@ -502,7 +508,7 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 			return "id", nil
 		})
 
-	_, err := Resolve(ctx, database, registry, "IBKR", source, "Z", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "Z")}, 0, nil, nil)
+	_, err := Resolve(ctx, database, registry, "IBKR", source, "Z", stockHints, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "Z")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -922,7 +928,7 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	registry.Register("retry", &retryPlugin{
-		inst: &identifier.Instrument{Name: "Retried"},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Retried"},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "RETRY"}},
 	})
 
@@ -938,10 +944,10 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "retry", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "Retried", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Retried", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("retried-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "RETRY", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "RETRY")}, 0, nil, nil)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "RETRY", stockHints, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "RETRY")}, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -1048,5 +1054,98 @@ func TestResolve_PathAPassesProposalsApartFromWhatTheSourceStated(t *testing.T) 
 	}
 	if len(plugin.got.Proposed) != 1 || plugin.got.Proposed[0].Domain != "XNAS" {
 		t.Errorf("Proposed = %v, want the proposed venue", plugin.got.Proposed)
+	}
+}
+
+// --- an invented identifier round-trips before it is trusted (0132) ---
+
+// roundTripResolve resolves a description-only posting whose ticker the
+// candidate stage proposed, against one plugin returning inst.
+func roundTripResolve(t *testing.T, hints identifier.Hints, inst *identifier.Instrument, ensureName string) (resolveResult, error) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", "", "", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+
+	source := "IBKR:test:statement"
+	registry := identifier.NewRegistry()
+	registry.Register("p", &fakePlugin{
+		inst: inst,
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "GUESS"}},
+	})
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "p", Precedence: 10}}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), ensureName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return("out-id", nil)
+
+	return Resolve(context.Background(), database, registry, "IBKR", source, "GUESS",
+		hints, nil, prePass{proposed: tickerHintsCache(source, "GUESS")}, 0, nil, nil)
+}
+
+// A guessed key that resolves to something agreeing with what the source stated
+// is kept. The source said STOCK and the provider said STOCK, so the ticker the
+// candidate stage invented has round-tripped through something nobody guessed.
+func TestResolve_ProposedKeyConfirmedBySecurityTypeIsKept(t *testing.T) {
+	r, err := roundTripResolve(t,
+		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+		&identifier.Instrument{AssetClass: "STOCK", Name: "Real Co"},
+		"Real Co")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if r.InstrumentID != "out-id" {
+		t.Errorf("InstrumentID = %q, want out-id", r.InstrumentID)
+	}
+	if r.IdErr != nil {
+		t.Errorf("IdErr = %+v, want none", r.IdErr)
+	}
+}
+
+// A guessed key that resolves to something nothing independent agrees with is
+// dropped, and the description is bound to a broker-description-only instrument
+// instead. The provider answering proves the ticker names some security, not
+// that it names this one.
+func TestResolve_ProposedKeyConfirmingNothingIsDropped(t *testing.T) {
+	r, err := roundTripResolve(t,
+		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+		// Says nothing the source can be checked against.
+		&identifier.Instrument{Name: "Says nothing"},
+		// The fallback ensures the description itself, not the plugin's name.
+		"GUESS")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if r.InstrumentID != "out-id" {
+		t.Errorf("InstrumentID = %q, want the broker-description-only instrument", r.InstrumentID)
+	}
+	if r.IdErr == nil || r.IdErr.Message != MsgProposalUnconfirmed {
+		t.Fatalf("IdErr = %+v, want %q", r.IdErr, MsgProposalUnconfirmed)
+	}
+}
+
+// The source stating nothing to check against is not a pass. There is then no
+// way to tell an invented ticker from a real one, and the guess is dropped for
+// the same reason.
+func TestResolve_ProposedKeyWithNothingToCheckAgainstIsDropped(t *testing.T) {
+	r, err := roundTripResolve(t,
+		identifier.Hints{},
+		&identifier.Instrument{AssetClass: "STOCK", Name: "Real Co"},
+		"GUESS")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if r.IdErr == nil || r.IdErr.Message != MsgProposalUnconfirmed {
+		t.Fatalf("IdErr = %+v, want %q", r.IdErr, MsgProposalUnconfirmed)
+	}
+	if r.InstrumentID != "out-id" {
+		t.Errorf("InstrumentID = %q, want the broker-description-only instrument", r.InstrumentID)
 	}
 }

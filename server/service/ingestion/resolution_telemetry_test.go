@@ -202,7 +202,7 @@ func TestResolutionKeyStampsOnce(t *testing.T) {
 // keeps a build with no telemetry writer free of checks at every call site.
 func TestNilLedgerRecordsNothing(t *testing.T) {
 	var keys *resolutionKeys
-	keys.mismatch("k")
+	keys.mismatch("k", db.TelemetryMismatchFIGIvsTicker)
 	keys.end(context.Background(), "k", db.TelemetryResolutionIdentified, "inst-1")
 
 	if got := newResolutionKeys(context.Background(), nil, "run-1", "SRC", nil, nil, nil); got != nil {
@@ -455,7 +455,7 @@ func TestMismatchCheckProbesAreTheirOwnAttempts(t *testing.T) {
 	if got := spy.ended[desc]; got.Outcome != db.TelemetryResolutionIdentified {
 		t.Errorf("key outcome = %q, want %q from the primary resolution", got.Outcome, db.TelemetryResolutionIdentified)
 	}
-	if spy.ended[desc].MismatchDetected {
-		t.Error("mismatch_detected set for two hints that agreed")
+	if got := spy.ended[desc].MismatchDetected; got != "" {
+		t.Errorf("mismatch_detected = %q, want empty for two hints that agreed", got)
 	}
 }

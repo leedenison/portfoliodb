@@ -21,7 +21,9 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 		hints     identifier.Hints
 		idHints   []identifier.Identifier
 		wantClass string // expected AssetClass, empty means ErrNotIdentified
-		wantErr   error
+		// wantCurrency is what the plugin must have recorded on the instrument.
+		wantCurrency string
+		wantErr      error
 	}{
 		{
 			name:     "stock_ibm_ticker",
@@ -49,6 +51,38 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 				{Type: "OCC", Value: "AAPL251219C00200000"},
 			},
 			wantClass: "OPTION",
+		},
+		// The two cases below pin a provider behaviour the resolver depends on:
+		// Mapping filters on the currency it is given rather than ignoring it.
+		//
+		// That is what lets the plugin record the currency on the instrument
+		// without echoing an unverified hint, and what lets the resolver count a
+		// matching currency as evidence that a guessed identifier found the right
+		// security (adr/0059). If OpenFIGI ever became permissive here, the
+		// excluded case below would start returning results, and the check two
+		// layers up would go quietly vacuous rather than failing. This is the test
+		// that would notice.
+		{
+			name:     "currency_filter_confirms",
+			cassette: "testdata/cassettes/currency_filter_confirms",
+			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock, Currency: "USD"},
+			idHints: []identifier.Identifier{
+				{Type: "ISIN", Value: "US0378331005"},
+			},
+			wantClass:    "STOCK",
+			wantCurrency: "USD",
+		},
+		{
+			name:     "currency_filter_excludes",
+			cassette: "testdata/cassettes/currency_filter_excludes",
+			// Apple has no JPY listing. JPY is a currency OpenFIGI filters by
+			// perfectly well -- a Japanese security matches it -- so an empty
+			// answer here is the filter working, not the code being rejected.
+			hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock, Currency: "JPY"},
+			idHints: []identifier.Identifier{
+				{Type: "ISIN", Value: "US0378331005"},
+			},
+			wantErr: identifier.ErrNotIdentified,
 		},
 		{
 			name:     "not_found",
@@ -89,6 +123,9 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 			}
 			if res.Instrument.AssetClass != tc.wantClass {
 				t.Errorf("AssetClass = %q, want %q", res.Instrument.AssetClass, tc.wantClass)
+			}
+			if res.Instrument.Currency != tc.wantCurrency {
+				t.Errorf("Currency = %q, want %q", res.Instrument.Currency, tc.wantCurrency)
 			}
 			if len(res.Identifiers) == 0 {
 				t.Error("expected at least one identifier")

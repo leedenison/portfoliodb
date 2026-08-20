@@ -9,9 +9,27 @@
 // Type = "BROKER_DESCRIPTION", Domain = source, Value = full instrument_description.
 //
 // [Hints] carries optional resolution context (currency, security type hint).
-// Plugins may use hints to narrow API queries but must not write hint values
-// to the returned Instrument; only data confirmed by the upstream service is
-// canonical.
+// Plugins may use hints to narrow API queries. Only what the upstream service
+// confirmed is canonical, so a plugin must not return a hint value the service
+// said nothing about.
+//
+// Confirming is not the same as returning. A provider that filters on a value
+// and answers at all has confirmed it, whether or not the value appears in the
+// response body -- OpenFIGI Mapping answers "No identifier found" for a currency
+// the security has no listing in, and returns zero results for an identifier
+// that did not match. A plugin may put such a value on the Instrument it
+// returns, and must say at the site which request made it a confirmation, so
+// that removing the filter cannot quietly turn a fact back into a guess.
+//
+// Where a provider returns the field, use what it returned and do not lean on
+// the filter -- EODHD and Massive both return currency and exchange, and the
+// EODHD plugin re-checks them against the response rather than trusting the
+// query. OpenFIGI is the exception the rule is written for: it filters on the
+// currency but does not return one.
+//
+// The resolver relies on this: it counts what a result confirmed when deciding
+// whether to trust an identifier nobody stated. See adr/0059, which records what
+// each provider was measured doing.
 //
 // # Plugin interface
 //

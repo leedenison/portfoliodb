@@ -2033,6 +2033,7 @@ const (
 	TelemetryResolutionPluginTimeout         = "plugin_timeout"
 	TelemetryResolutionPluginUnavailable     = "plugin_unavailable"
 	TelemetryResolutionConflictingHints      = "conflicting_hints"
+	TelemetryResolutionProposalUnconfirmed   = "proposal_unconfirmed"
 )
 
 // Identification attempt purposes. A single resolution key produces several
@@ -2048,12 +2049,21 @@ const (
 // security type produces no plugin-call row, because no call was made; when that
 // filter removes every plugin the attempt records no_eligible_plugins.
 const (
-	TelemetryAttemptDBShortCircuit    = "db_short_circuit"
-	TelemetryAttemptNoEligiblePlugins = "no_eligible_plugins"
-	TelemetryAttemptIdentified        = "identified"
-	TelemetryAttemptNotIdentified     = "not_identified"
-	TelemetryAttemptPluginTimeout     = "plugin_timeout"
-	TelemetryAttemptPluginError       = "plugin_error"
+	TelemetryAttemptDBShortCircuit      = "db_short_circuit"
+	TelemetryAttemptNoEligiblePlugins   = "no_eligible_plugins"
+	TelemetryAttemptIdentified          = "identified"
+	TelemetryAttemptNotIdentified       = "not_identified"
+	TelemetryAttemptPluginTimeout       = "plugin_timeout"
+	TelemetryAttemptPluginError         = "plugin_error"
+	TelemetryAttemptProposalUnconfirmed = "proposal_unconfirmed"
+)
+
+// Probes that can find two ways of naming one key's instrument disagreeing,
+// recorded in resolution_key.mismatch_detected.
+const (
+	// The proposed MIC_TICKER and OPENFIGI_SHARE_CLASS resolved to different
+	// instruments. Resolution continues using MIC_TICKER.
+	TelemetryMismatchFIGIvsTicker = "figi_vs_ticker"
 )
 
 // Identifier plugin call outcomes the orchestrator composes. The rest of the
@@ -2127,7 +2137,11 @@ type TelemetryResolutionKeyOutcome struct {
 	RunID             string
 	ExtractionOutcome string
 	Outcome           string
-	MismatchDetected  bool
+	// MismatchDetected names the probe that found two ways of naming this key's
+	// instrument disagreeing, empty when none did. A name rather than a flag:
+	// two different findings must not share one boolean, or neither can be
+	// counted afterwards.
+	MismatchDetected string
 	// HintDiffs summarises what the resolved instrument contradicted about its
 	// hints, empty when it contradicted nothing.
 	HintDiffs    string

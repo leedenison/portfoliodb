@@ -75,7 +75,7 @@ one affecting 1.
 | `had_identifier_hints`, `security_type_hint`, `instrument_kind` | lets a spike be attributed rather than merely noticed |
 | `extraction_outcome` | stage 1, below |
 | `outcome` | stage 2, below |
-| `mismatch_detected` | MIC_TICKER and OPENFIGI_SHARE_CLASS resolved differently |
+| `mismatch_detected` | which probe found two namings disagreeing, below |
 | `instrument_id` | null when unresolved |
 
 `extraction_outcome`: `hints_found`, `no_hints`, `not_attempted_db_hit`,
@@ -89,14 +89,23 @@ import, which is never offered completion at all.
 
 `outcome`: `db_source_description`, `db_identifier_hints`, `identified`,
 `broker_description_only`, `extraction_failed`, `plugin_timeout`, `plugin_unavailable`,
-`conflicting_hints`. The two `db_*` members are distinct lookups -- by stored
+`conflicting_hints`, `proposal_unconfirmed`. `proposal_unconfirmed` is a result found
+and not trusted: no source stated an identifier, so a proposal was queried as the only
+key there was, and nothing the source did state agreed with what it resolved to. It
+ends at the same kind of instrument as `broker_description_only` and is not the same
+finding -- "an answer was found and not trusted" is not "nobody answered". The two `db_*` members are distinct lookups -- by stored
 `(source, description)` and by supplied identifier hints -- and conflating them hides
 which path is carrying an import. The three fallback members mirror the messages the
 resolver already records against a row.
 
-`mismatch_detected` is a flag rather than an outcome. Resolution continues and succeeds
-using MIC_TICKER, so a mismatch is not a terminal state, and modelling it as one would
-make the outcome column non-exhaustive.
+`mismatch_detected` names the probe that found two ways of naming this key's instrument
+disagreeing, and is null when none did. Its one member is `figi_vs_ticker`, the proposed
+MIC_TICKER and OPENFIGI_SHARE_CLASS resolving to different instruments. It is not an
+outcome, because resolution continues and succeeds -- for `figi_vs_ticker`, using
+MIC_TICKER -- so a mismatch is not a terminal state and modelling it as one would make
+the outcome column non-exhaustive. It is a name rather than the boolean it was, because
+two different findings sharing one flag cannot be told apart afterwards, so neither can
+be counted.
 
 The price and corporate event parts of an archive resolve instruments through the same
 resolver, but from an identifier and no broker description. They still write a key,

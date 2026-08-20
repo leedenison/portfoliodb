@@ -312,7 +312,7 @@
     {
       "type": "stat",
       "title": "Keys with a hint mismatch",
-      "description": "MIC_TICKER and OPENFIGI_SHARE_CLASS resolved differently. These keys resolve successfully via MIC_TICKER, so they never appear in the two tables below and need a tile of their own.",
+      "description": "Keys where a probe found two ways of naming the instrument disagreeing. Today the only probe is figi_vs_ticker, MIC_TICKER against OPENFIGI_SHARE_CLASS; the column names which one, so this becomes a breakdown when a second lands. These keys resolve successfully, so they never appear in the two tables below and need a tile of their own.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "portfoliodb-telemetry"
@@ -326,7 +326,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT count(*) AS \"hint mismatches\"\nFROM telemetry.v_resolution_key\nWHERE run_id = '${run}'::uuid\n  AND mismatch_detected",
+          "rawSql": "SELECT count(*) AS \"hint mismatches\"\nFROM telemetry.v_resolution_key\nWHERE run_id = '${run}'::uuid\n  AND mismatch_detected IS NOT NULL",
           "refId": "A"
         }
       ],

@@ -556,7 +556,11 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			database.EXPECT().SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_RUNNING).Return(nil)
 			expectLoadPayload(database, "job-1", "user-1", payload)
 			database.EXPECT().SetJobTotalCount(gomock.Any(), "job-1", int32(1)).Return(nil)
-			database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "AAPL 250117C00760000").Return("", nil)
+			// No lookup by description: the posting states an OCC, so the
+			// pre-pass asks the identifier question instead. The description
+			// lookup it used to do was cached under a hint-free key that a hinted
+			// posting never consults, so its answer was thrown away.
+			//
 			// The hint reaches every lookup as the file spelled it: nothing
 			// rewrites an OCC on its way to a provider or to the instrument table.
 			database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "OCC", "", occ).Return("", nil)
@@ -594,5 +598,116 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 				}
 			}
 		})
+	}
+}
+
+// --- proposeCandidates ---
+
+// hintedTx is a posting that states an identifier.
+func hintedTx(desc string, hints ...*apiv1.InstrumentIdentifier) *apiv1.Tx {
+	return &apiv1.Tx{
+		InstrumentDescription: desc,
+		AssetClassHint:        typev1.AssetClass_STOCK,
+		IdentifierHints:       hints,
+	}
+}
+
+// A posting that states an identifier is looked up by it, not by its
+// description. The description lookup used to run for these too and its answer
+// was cached under a hint-free key a hinted posting never consults, so it was
+// paid for and thrown away.
+func TestProposeCandidates_HintedKeyIsLookedUpByItsIdentifiers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	// No FindInstrumentBySourceDescription expectation: calling it fails the test.
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("aapl-id", nil)
+
+	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"})}
+	txHints := [][]identifier.Identifier{{{Type: "ISIN", Value: "US0378331005"}}}
+
+	pre, err := proposeCandidates(context.Background(), ingestDeps{DB: database}, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	key := cacheKeyWithHints("SRC", "APPLE INC", txHints[0])
+	if pre.resolved[key].InstrumentID != "aapl-id" {
+		t.Errorf("pre.resolved[key].InstrumentID = %q, want aapl-id", pre.resolved[key].InstrumentID)
+	}
+	// Which lookup answered has to travel with the answer: a description and a
+	// set of identifiers are different questions and must not be recorded alike.
+	if pre.resolved[key].DBHitOutcome != db.TelemetryResolutionDBIdentifierHints {
+		t.Errorf("DBHitOutcome = %q, want %q", pre.resolved[key].DBHitOutcome, db.TelemetryResolutionDBIdentifierHints)
+	}
+	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedDBHit {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedDBHit)
+	}
+	if len(pre.conflicts) != 0 {
+		t.Errorf("conflicts = %v, want none", pre.conflicts)
+	}
+}
+
+// A key whose identifiers resolve to more than one instrument is recorded rather
+// than raised: one bad key must not stop the lookups for the rest of the batch,
+// and Resolve raises it at the row that carries it.
+func TestProposeCandidates_ConflictIsRecordedNotRaised(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0000000001").Return("inst-a", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "CUSIP", "", "000000001").Return("inst-b", nil)
+	// The second key is still looked up, which is the point.
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), "SRC", "OTHER CO").Return("other-id", nil)
+
+	txs := []*apiv1.Tx{
+		hintedTx("AMBIGUOUS",
+			&apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0000000001"},
+			&apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_CUSIP, Value: "000000001"}),
+		tx("OTHER CO"),
+	}
+	txHints := [][]identifier.Identifier{
+		{{Type: "ISIN", Value: "US0000000001"}, {Type: "CUSIP", Value: "000000001"}},
+		nil,
+	}
+
+	pre, err := proposeCandidates(context.Background(), ingestDeps{DB: database}, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	if !pre.conflicts[cacheKeyWithHints("SRC", "AMBIGUOUS", txHints[0])] {
+		t.Error("expected the ambiguous key to be recorded as conflicting")
+	}
+	if pre.resolved[cacheKeyWithHints("SRC", "OTHER CO", nil)].InstrumentID != "other-id" {
+		t.Error("the key after the conflict was not looked up")
+	}
+}
+
+// A description already bound to an instrument is not paid for. The plugin
+// registry is nil, so reaching a plugin would panic rather than pass quietly.
+func TestProposeCandidates_ResolvedDescriptionIsNotProposedFor(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), "SRC", "APPLE INC").Return("aapl-id", nil)
+
+	txs := []*apiv1.Tx{tx("APPLE INC")}
+	txHints := [][]identifier.Identifier{nil}
+
+	pre, err := proposeCandidates(context.Background(), ingestDeps{DB: database}, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	key := cacheKeyWithHints("SRC", "APPLE INC", nil)
+	if pre.resolved[key].InstrumentID != "aapl-id" {
+		t.Errorf("InstrumentID = %q, want aapl-id", pre.resolved[key].InstrumentID)
+	}
+	if pre.resolved[key].DBHitOutcome != db.TelemetryResolutionDBSourceDescription {
+		t.Errorf("DBHitOutcome = %q, want %q", pre.resolved[key].DBHitOutcome, db.TelemetryResolutionDBSourceDescription)
+	}
+	if pre.outcome[key] != db.TelemetryExtractionNotAttemptedDBHit {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryExtractionNotAttemptedDBHit)
+	}
+	if len(pre.proposed) != 0 {
+		t.Errorf("proposed = %v, want nothing: the description is already resolved", pre.proposed)
 	}
 }

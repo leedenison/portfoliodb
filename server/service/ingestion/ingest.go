@@ -159,12 +159,18 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		return out, nil
 	}
 
-	cache, extractedHints, extraction, err := extractDescHints(ctx, deps, p.Source, p.Broker, txs)
+	// Filtered once and shared by both passes, because filtering logs what it
+	// discards and deriving the same list twice would say it twice.
+	txHints := make([][]identifier.Identifier, len(txs))
+	for i, tx := range txs {
+		txHints[i] = identifierHintsFromTx(ctx, tx)
+	}
+	pre, err := proposeCandidates(ctx, deps, p.Source, p.Broker, txs, txHints)
 	if err != nil {
 		rep.Errf(-1, "txs", err.Error())
-		return out, fmt.Errorf("extract description hints: %w", err)
+		return out, fmt.Errorf("propose candidates: %w", err)
 	}
-	instrumentIDs, idErrs, err := resolveInstruments(ctx, deps, p.Broker, p.Source, txs, rowIdx, cache, extractedHints, extraction, p.ExportedAt, rep)
+	instrumentIDs, idErrs, err := resolveInstruments(ctx, deps, p.Broker, p.Source, txs, rowIdx, txHints, pre, p.ExportedAt, rep)
 	if err != nil {
 		rep.Errf(-1, "instrument_description", err.Error())
 		return out, fmt.Errorf("resolve instruments: %w", err)

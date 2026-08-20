@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
+	"github.com/leedenison/portfoliodb/server/service/identification"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"google.golang.org/protobuf/proto"
 	"log"
@@ -336,73 +337,125 @@ func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentID
 	}
 }
 
-// extractDescHints looks up each distinct (source, description) in DB and runs
-// batch description extraction for misses. Returns a resolve cache pre-populated
-// with DB hits and an extracted hints cache keyed by cacheKey(source, desc).
+// proposeCandidates answers, for every distinct key in the batch, what the
+// database already knows -- and asks the candidate plugins only about the rest.
 //
-// A description every one of whose postings already names an identifier is not
-// extracted. Extraction exists to find an identifier in a description, so it has
-// nothing to add there, and it is a paid plugin call. It matters most to an
-// archive import, whose every posting carries the identifier the export chose
-// under a source no stored description was resolved against: without this the
-// lookup would miss for the whole document and pay for extracting it. The test
-// is over every posting sharing the description, so one posting arriving without
-// a hint still gets the description extracted.
-// It also returns what became of extraction for each distinct (source,
-// description), which is stage one of that description's resolution key.
-func extractDescHints(ctx context.Context, deps ingestDeps, source, broker string, txs []*apiv1.Tx) (map[string]resolveResult, map[string][]identifier.Identifier, map[string]string, error) {
+// The grain is the resolution key: (source, description, stated identifiers).
+// The pre-pass used to dedupe on (source, description) alone while the key
+// ledger deduped with the hints, so the two agreed only when no posting carried
+// a hint. Working at one grain is what lets a hinted key be answered here at
+// all, and it is what the gate change needs: whether to pay a plugin for a key
+// cannot be decided without knowing whether that key is already resolved.
+//
+// Both lookups happen here and nowhere else. A key with no stated identifiers
+// is looked up by its description; a key with them is looked up by them. Resolve
+// asks the database nothing further: a single match is in the cache, more than
+// one is in conflicts, and neither is queried twice.
+//
+// A description every one of whose postings names an identifier is not proposed
+// for, and needs no test of its own to arrange it: such a description has no
+// hint-free key, and only a hint-free key reaches the plugins. A candidate
+// exists to fill in what a source left out, so it has nothing to add there, and
+// it is a paid plugin call. It matters most to an archive import, whose every
+// posting carries the identifier the export chose under a source no stored
+// description was resolved against. One posting arriving without a hint is
+// enough to mint the hint-free key, so the description is still proposed for.
+//
+// The returned outcome map is at key grain, and is stage one of each key's
+// resolution record.
+// prePass is what the pre-pass worked out about a batch, keyed throughout by
+// cacheKeyWithHints. The four maps travel together because they are answers to
+// one question asked once, and because separating them is how a caller comes to
+// hold the resolutions without the conflicts -- reading a nil map yields false,
+// so a conflicting key would resolve through the plugins instead of raising, and
+// nothing would say so.
+type prePass struct {
+	// resolved is the keys the database already answered.
+	resolved map[string]resolveResult
+	// conflicts is the keys whose stated identifiers name more than one
+	// instrument. Recorded rather than raised so one bad key does not stop the
+	// lookups for the rest; Resolve raises it at the row that carries it.
+	conflicts map[string]bool
+	// proposed is what the candidate plugins offered, already filtered.
+	proposed map[string][]identifier.Identifier
+	// outcome is what became of each key here, stage one of its resolution record.
+	outcome map[string]string
+}
+
+func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker string, txs []*apiv1.Tx, txHints [][]identifier.Identifier) (prePass, error) {
 	database := deps.DB
 	cache := make(map[string]resolveResult)
-	var extractedHintsCache map[string][]identifier.Identifier
-	extraction := make(map[string]string)
-	needsExtraction := make(map[string]bool)
-	for _, tx := range txs {
-		if len(tx.GetIdentifierHints()) == 0 {
-			needsExtraction[cacheKey(source, tx.GetInstrumentDescription())] = true
-		}
-	}
+	conflicts := make(map[string]bool)
+	var proposedHintsCache map[string][]identifier.Identifier
+	outcome := make(map[string]string)
+	fail := func(err error) (prePass, error) { return prePass{}, err }
+
 	seen := make(map[string]bool)
 	var batchItems []candidate.BatchItem
 	idByKey := make(map[string]string)
-	for _, tx := range txs {
+	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
-		key := cacheKey(source, desc)
+		key := cacheKeyWithHints(source, desc, txHints[i])
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
+
+		if len(txHints[i]) > 0 {
+			ids, err := identification.ResolveIDsByHintsDBOnly(ctx, database, txHints[i])
+			if err != nil {
+				return fail(err)
+			}
+			switch {
+			case len(ids) > 1:
+				// Recorded rather than raised: one bad key must not stop the
+				// lookups for the rest, and Resolve raises it at the row that
+				// carries it, where the row index is known.
+				conflicts[key] = true
+			case len(ids) == 1:
+				cache[key] = resolveResult{InstrumentID: ids[0], DBHitOutcome: db.TelemetryResolutionDBIdentifierHints}
+				outcome[key] = db.TelemetryExtractionNotAttemptedDBHit
+				continue
+			}
+			// The source named the instrument, so nothing is asked of a plugin.
+			if outcome[key] == "" {
+				outcome[key] = db.TelemetryExtractionNotAttemptedHintsSupplied
+			}
+			continue
+		}
+
 		id, err := database.FindInstrumentBySourceDescription(ctx, source, desc)
 		if err != nil {
-			return nil, nil, nil, err
+			return fail(err)
 		}
 		if id != "" {
-			cache[key] = resolveResult{InstrumentID: id}
-			// Extraction exists to find an identifier in a description, and this
-			// one is already resolved, so it is skipped rather than paid for.
-			extraction[key] = db.TelemetryExtractionNotAttemptedDBHit
-		} else if needsExtraction[key] {
-			batchID := shortHashForBatch(key)
-			idByKey[key] = batchID
-			batchItems = append(batchItems, candidate.BatchItem{
-				ID:                    batchID,
-				InstrumentDescription: desc,
-				Hints:                 HintsFromTx(tx),
-			})
+			cache[key] = resolveResult{InstrumentID: id, DBHitOutcome: db.TelemetryResolutionDBSourceDescription}
+			outcome[key] = db.TelemetryExtractionNotAttemptedDBHit
+			continue
 		}
+		batchID := shortHashForBatch(key)
+		idByKey[key] = batchID
+		batchItems = append(batchItems, candidate.BatchItem{
+			ID:                    batchID,
+			InstrumentDescription: desc,
+			Stated:                txHints[i],
+			Hints:                 HintsFromTx(tx),
+		})
 	}
+
 	if len(batchItems) > 0 {
-		hintsByID, itemOutcomes, err := runCandidatePluginsBatch(ctx, deps, broker, source, batchItems)
-		if err == nil && hintsByID != nil {
-			extractedHintsCache = make(map[string][]identifier.Identifier)
+		proposedByID, itemOutcomes, err := runCandidatePluginsBatch(ctx, deps, broker, source, batchItems)
+		if err == nil && proposedByID != nil {
+			proposedHintsCache = make(map[string][]identifier.Identifier)
 			for key, id := range idByKey {
-				extractedHintsCache[key] = hintsByID[id]
+				proposedHintsCache[key] = proposedByID[id]
 			}
 		}
 		for key, id := range idByKey {
-			extraction[key] = itemOutcomes[id]
+			outcome[key] = itemOutcomes[id]
 		}
 	}
-	return cache, extractedHintsCache, extraction, nil
+	return prePass{resolved: cache, conflicts: conflicts, proposed: proposedHintsCache, outcome: outcome}, nil
 }
 
 // resolveInstruments resolves each tx to an instrument ID using the pre-populated
@@ -414,20 +467,14 @@ func extractDescHints(ctx context.Context, deps ingestDeps, source, broker strin
 // option under the symbol current when the file was written, not under the one
 // the contract wore on each trade date. See docs/adr/0055-identifier-validity-is-an-interval.md
 // for the convention and docs/spec/bitemporality.md for where it is recorded.
-func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier, extraction map[string]string, exportedAt *time.Time, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
-	// Filtered once and reused below, because filtering logs what it discards and
-	// deriving the same list twice would say it twice.
-	txHints := make([][]identifier.Identifier, len(txs))
-	for i, tx := range txs {
-		txHints[i] = identifierHintsFromTx(ctx, tx)
-	}
-	keys := newResolutionKeys(ctx, deps.Telemetry, deps.RunID, source, txs, txHints, extraction)
+func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, txHints [][]identifier.Identifier, pre prePass, exportedAt *time.Time, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
+	keys := newResolutionKeys(ctx, deps.Telemetry, deps.RunID, source, txs, txHints, pre.outcome)
 
 	instrumentIDs := make([]string, len(txs))
 	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
 		rowIndex := int32(originalIndices[i])
-		r, err := Resolve(ctx, deps.DB, deps.Registry, broker, source, desc, HintsFromTx(tx), txHints[i], cache, rowIndex, extractedHintsCache, exportedAt, keys)
+		r, err := Resolve(ctx, deps.DB, deps.Registry, broker, source, desc, HintsFromTx(tx), txHints[i], pre, rowIndex, exportedAt, keys)
 		if err != nil {
 			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}
@@ -435,7 +482,7 @@ func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source str
 		rep.Advance(ctx, 1)
 	}
 	var idErrs []db.IdentificationError
-	for _, r := range cache {
+	for _, r := range pre.resolved {
 		if r.IdErr != nil {
 			idErrs = append(idErrs, *r.IdErr)
 		}

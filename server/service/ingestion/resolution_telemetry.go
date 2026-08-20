@@ -31,9 +31,11 @@ type resolutionKeys struct {
 	// extraction is stage 1, decided in the pre-pass before any key resolves and
 	// held until the key is stamped, because one row carries both stages.
 	extraction map[string]string
-	// mismatched is the MIC_TICKER against OPENFIGI_SHARE_CLASS disagreement,
-	// detected between the two stages and likewise held.
-	mismatched map[string]bool
+	// mismatched names the probe that disagreed, detected between the two stages
+	// and likewise held. A name rather than a flag: more than one probe can
+	// disagree about a key, and two findings sharing one boolean cannot be told
+	// apart afterwards.
+	mismatched map[string]string
 	// hintDiffs is what the resolved instrument contradicted about its hints.
 	// Recorded by the primary resolution and held until the key is stamped, the
 	// same way, because the resolution that decides the key is the one whose
@@ -64,7 +66,7 @@ func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source st
 		runID:      runID,
 		ids:        make(map[string]string),
 		extraction: make(map[string]string),
-		mismatched: make(map[string]bool),
+		mismatched: make(map[string]string),
 		hintDiffs:  make(map[string]string),
 		stamped:    make(map[string]bool),
 	}
@@ -103,14 +105,18 @@ func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source st
 	return k
 }
 
-// mismatch records that MIC_TICKER and OPENFIGI_SHARE_CLASS resolved differently
-// for this key. It is a flag rather than an outcome because resolution continues
-// and succeeds using MIC_TICKER.
-func (k *resolutionKeys) mismatch(key string) {
-	if k == nil {
+// mismatch records that a probe found two ways of naming this key's instrument
+// disagreeing, and which probe it was. It is not an outcome because resolution
+// continues and succeeds -- for figi_vs_ticker, using MIC_TICKER.
+//
+// The first finding stands. A second would be a different probe disagreeing
+// about the same key, and overwriting would report whichever ran last rather
+// than the one that changed what resolution did.
+func (k *resolutionKeys) mismatch(key, which string) {
+	if k == nil || which == "" || k.mismatched[key] != "" {
 		return
 	}
-	k.mismatched[key] = true
+	k.mismatched[key] = which
 }
 
 // hintDiff records what the instrument this key resolved to contradicted about
@@ -166,6 +172,8 @@ func resolutionOutcome(r identification.ResolveResult) string {
 	switch {
 	case r.Identified:
 		return db.TelemetryResolutionIdentified
+	case r.Unconfirmed:
+		return db.TelemetryResolutionProposalUnconfirmed
 	case r.HadTimeout:
 		return db.TelemetryResolutionPluginTimeout
 	case r.HadError:
@@ -217,7 +225,7 @@ func newIdentifierResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID 
 		runID:      runID,
 		ids:        make(map[string]string),
 		extraction: make(map[string]string),
-		mismatched: make(map[string]bool),
+		mismatched: make(map[string]string),
 		hintDiffs:  make(map[string]string),
 		stamped:    make(map[string]bool),
 	}

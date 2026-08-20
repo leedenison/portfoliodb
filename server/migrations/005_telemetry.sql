@@ -117,14 +117,24 @@ CREATE TABLE telemetry.resolution_key (
   -- description) and by supplied identifier hints -- and conflating them hides which
   -- path is carrying an import. The three fallback members mirror the messages the
   -- resolver already records against a row.
+  -- proposal_unconfirmed is a result found and not trusted: no source stated an
+  -- identifier, so a proposal was queried as the only key there was, and nothing
+  -- the source did state agreed with what it resolved to. Distinct from
+  -- broker_description_only, which is nobody answering at all -- both end at the
+  -- same kind of instrument and they are not the same finding.
   outcome     TEXT CHECK (outcome IN ('db_source_description', 'db_identifier_hints',
                                       'identified', 'broker_description_only',
                                       'extraction_failed', 'plugin_timeout',
-                                      'plugin_unavailable', 'conflicting_hints')),
-  -- MIC_TICKER and OPENFIGI_SHARE_CLASS resolved differently. A flag rather than an
-  -- outcome: resolution continues and succeeds using MIC_TICKER, so a mismatch is not
-  -- a terminal state, and modelling it as one would make outcome non-exhaustive.
-  mismatch_detected BOOLEAN NOT NULL DEFAULT FALSE,
+                                      'plugin_unavailable', 'conflicting_hints',
+                                      'proposal_unconfirmed')),
+  -- Which probe found two ways of naming this key's instrument disagreeing, null
+  -- when none did. Not an outcome: resolution continues and succeeds -- for
+  -- figi_vs_ticker, using MIC_TICKER -- so a mismatch is not a terminal state,
+  -- and modelling it as one would make outcome non-exhaustive.
+  --
+  -- A name rather than the boolean this was. Two different findings sharing one
+  -- flag cannot be told apart afterwards, so neither can be counted.
+  mismatch_detected TEXT CHECK (mismatch_detected IN ('figi_vs_ticker')),
   -- What the resolved instrument contradicted about the hints it was given,
   -- as the same summary the resolver logs ("Currency: USD->THB, Exchange:
   -- XNAS->XBKK"), or NULL when it contradicted nothing. Free text rather than a
@@ -154,9 +164,14 @@ CREATE TABLE telemetry.identification_attempt (
   purpose           TEXT NOT NULL CHECK (purpose IN ('primary', 'mismatch_check', 'underlying')),
   -- Recursion depth; 0 for the first call.
   depth             INT NOT NULL,
+  -- proposal_unconfirmed is a plugin having identified something the resolver
+  -- declined to keep: the whole identity was a proposal and nothing the source
+  -- stated agreed with it. The call rows beneath the attempt still say the
+  -- plugins answered, which is why this is not not_identified.
   outcome           TEXT NOT NULL CHECK (outcome IN ('db_short_circuit', 'no_eligible_plugins',
                                                      'identified', 'not_identified',
-                                                     'plugin_timeout', 'plugin_error')),
+                                                     'plugin_timeout', 'plugin_error',
+                                                     'proposal_unconfirmed')),
   security_type_hint   TEXT,
   asset_class          TEXT,
   had_identifier_hints BOOLEAN NOT NULL

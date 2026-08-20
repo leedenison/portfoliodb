@@ -53,6 +53,10 @@ const (
 	MsgBrokerDescriptionOnly = "broker description only"
 	MsgPluginTimeout         = "plugin timeout"
 	MsgPluginUnavailable     = "plugin unavailable"
+	// A result was found and not trusted: the whole identity was proposed and
+	// nothing the source stated agreed with what it resolved to. Distinct from
+	// MsgBrokerDescriptionOnly, which is nobody answering at all.
+	MsgProposalUnconfirmed = "proposed identifier unconfirmed"
 )
 
 // resolveResult holds the outcome of resolving one (source, instrument_description).
@@ -389,13 +393,13 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// is real work against real plugins, and calling them mismatch_check is
 		// what stops them inflating the denominator of a failure rate over primary
 		// attempts.
-		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: tickerHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
-		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: figiHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Proposed: tickerHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Proposed: figiHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
 		idByTicker := resultByTicker.InstrumentID
 		idByFigi := resultByFigi.InstrumentID
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
 		if idByTicker != "" && idByFigi != "" && idByTicker != idByFigi {
-			keys.mismatch(key)
+			keys.mismatch(key, db.TelemetryMismatchFIGIvsTicker)
 			ingestionLogger().ErrorContext(ctx, "MIC_TICKER and OPENFIGI_SHARE_CLASS resolved to different instruments; using MIC_TICKER",
 				"source", source, "instrument_description", instrumentDescription,
 				"instrument_id_by_ticker", idByTicker, "instrument_id_by_figi", idByFigi)
@@ -403,8 +407,15 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		}
 	}
 
-	// Resolve by (validated) hints; always store (source, description) when ensuring.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: hintsToUse, Hints: hints}, cache, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
+	// Resolve by the proposals, which the source did not state and which stay
+	// marked as such: they are the only key here, so ResolveWithPlugins queries
+	// them, and it is that same provenance that makes it refuse a result nothing
+	// independent agrees with. See adr/0057 and adr/0059.
+	//
+	// The (source, description) binding is always stored when one is ensured,
+	// which is exactly why the refusal matters: the binding is canonical and no
+	// later upload re-examines it.
+	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Proposed: hintsToUse, Hints: hints}, cache, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
 }
 
 // hintDiffsSummary formats hint diffs as a readable string (e.g. "Currency: USD->EUR, ISIN: US037->US038").
@@ -467,9 +478,12 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	r := resolveResult{InstrumentID: result.InstrumentID, FirstRowIndex: rowIndex}
 	if !result.Identified {
 		msg := MsgBrokerDescriptionOnly
-		if result.HadTimeout {
+		switch {
+		case result.Unconfirmed:
+			msg = MsgProposalUnconfirmed
+		case result.HadTimeout:
 			msg = MsgPluginTimeout
-		} else if result.HadError {
+		case result.HadError:
 			msg = MsgPluginUnavailable
 		}
 		r.IdErr = &db.IdentificationError{RowIndex: rowIndex, InstrumentDescription: instrumentDescription, Message: msg}

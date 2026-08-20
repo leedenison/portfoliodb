@@ -101,6 +101,20 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	// Proposals rank but do not resolve: a proposed venue picks between listings
 	// the stated identifier already produced, and picks nothing on its own.
 	if inst, ids, ok := p.resolveResults(results, hints, identifierHints, ident.Proposed, true); ok {
+		// Recording the currency here is not echoing the hint back, though it
+		// reads like it. Mapping filters on the currency it was given -- see
+		// tryOpenFIGIFromHints, which puts it on every job -- and answers "No
+		// identifier found" when the security has no listing in it. So results
+		// arriving at all is OpenFIGI asserting that this security trades in this
+		// currency, and every row in the response matched the filter, so whichever
+		// one was chosen above is a listing in it.
+		//
+		// This is the same shape as the matched-hint rule below: the confirmation
+		// is the response, not the value. It is load-bearing rather than cosmetic,
+		// because the resolver counts a matching currency as evidence that a
+		// guessed identifier resolved to the right security (adr/0059). Removing
+		// the filter from the job would turn this line into the echo it merely
+		// resembles, and the guess would start confirming itself.
 		if hints.Currency != "" {
 			inst.Currency = hints.Currency
 		}
@@ -388,6 +402,11 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 		if ourType == "OPENFIGI_TICKER" && h.Domain != "" {
 			job.ExchCode = h.Domain
 		}
+		// Sent on every job, and not only to narrow the answer: Identify records
+		// the currency on the instrument because this filter is what confirms it,
+		// and the resolver in turn treats that as evidence a guessed identifier
+		// found the right security. Dropping it here silently removes a check two
+		// layers up. See adr/0059.
 		if hints.Currency != "" {
 			job.Currency = toOpenFIGICurrency(hints.Currency)
 		}

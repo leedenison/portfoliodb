@@ -1851,7 +1851,14 @@ func TestResolveWithPlugins_ProposalIsNeverPersisted(t *testing.T) {
 // resolveWinnerTiers registers three plugins in precedence order and returns the
 // name of the instrument the resolver chose. plugA has the highest precedence
 // and agrees with nothing.
+//
+// Every caller states an identifier, because the tiers only exist where one was
+// stated. Where a source states nothing the proposal becomes the key that gets
+// queried, and agreeing with it is agreeing with what was asked -- there is no
+// second provenance left to rank by. See adr/0057.
 func resolveWinnerTiers(t *testing.T, ident identifier.Identity) string {
+	t.Helper()
+	ident.Stated = append([]identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}}, ident.Stated...)
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -2069,5 +2076,69 @@ func TestFilterProposals_DropsTypesOutsideTheVocabulary(t *testing.T) {
 
 	if len(got) != 0 {
 		t.Errorf("got %+v, want nothing", got)
+	}
+}
+
+// A source that stated an identifier is not subject to the round-trip gate. The
+// proposal there was never queried -- it only ranked among listings the stated
+// key produced -- so there is no invention to round-trip, and a sparse result is
+// kept exactly as it was before 0132.
+func TestResolveWithPlugins_AStatedKeyIsNotSubjectToTheRoundTrip(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", "", "", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "p", Precedence: 10}}, nil)
+	// Confirms nothing: no asset class, no currency, no venue.
+	registry := identifier.NewRegistry()
+	registry.Register("p", &fakePlugin{
+		inst: &identifier.Instrument{Name: "Says nothing"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
+	})
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "Says nothing",
+		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return("kept-id", nil)
+
+	fallback := func(context.Context, db.DB) (string, error) {
+		t.Fatal("the fallback ran: a stated key was subjected to the round-trip gate")
+		return "", nil
+	}
+	got, err := ResolveWithPlugins(context.Background(), database, registry, "", "", "",
+		identifier.Identity{
+			Stated:   []identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}},
+			Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
+		}, false, fallback, Attempt{}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if !got.Identified || got.InstrumentID != "kept-id" {
+		t.Errorf("result = %+v, want the sparse result kept", got)
+	}
+	if got.Unconfirmed {
+		t.Error("Unconfirmed set for an identity the source stated")
+	}
+}
+
+// A proposal is never counted as its own confirmation. Where a source stated
+// nothing the proposal is the key the plugins were queried with, so a provider
+// returning it back is the answer agreeing with the question.
+func TestConfirmedFields_AProposalDoesNotConfirmItself(t *testing.T) {
+	inst := &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
+	// Passed as stated, the ticker and its venue both count.
+	stated := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
+	if got := confirmedFields(context.Background(), identifier.Hints{}, stated, inst, ids, nil); len(got) != 2 {
+		t.Errorf("confirmed = %v, want the venue and the ticker", got)
+	}
+	// The same values as a proposal are not passed here at all, which is the
+	// point: confirmedFields is only ever given what a source stated.
+	if got := confirmedFields(context.Background(), identifier.Hints{}, nil, inst, ids, nil); len(got) != 0 {
+		t.Errorf("confirmed = %v, want nothing", got)
 	}
 }

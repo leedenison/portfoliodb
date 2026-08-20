@@ -30,6 +30,24 @@ type ResolveResult struct {
 	HadError     bool                  // at least one plugin returned a non-ErrNotIdentified error
 	Identified   bool                  // a plugin successfully identified the instrument
 	HintDiffs    []identifier.HintDiff // differences between supplied hints and resolved instrument
+	// Unconfirmed reports that a result was found and then dropped: the whole
+	// identity was a proposal and nothing independent agreed with what it
+	// resolved to. The instrument is the broker-description-only fallback, so it
+	// is not Identified either -- the two say different things, and a caller
+	// reporting why a row has no ticker needs to tell "nobody answered" from "an
+	// answer was found and not trusted".
+	Unconfirmed bool
+	// Confirmed names the fields the chosen result agreed with, among the things
+	// the caller knew independently of any proposal: the currency and security
+	// type the source stated, and the identifiers it stated.
+	//
+	// A proposal is deliberately not counted. Where a source stated nothing, the
+	// proposal is the only key the plugins were given, so a provider echoing it
+	// back confirms that the value names some security and not that it names
+	// this one -- counting it would make every guess self-confirming. Empty
+	// therefore means "nothing independent agreed", which is what
+	// 0132 acts on. See adr/0057.
+	Confirmed []string
 }
 
 // ResolvedInstrument holds an instrument ID plus the metadata needed for
@@ -555,6 +573,73 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 	return false
 }
 
+// confirmedFields names what a result agreed with, among the things the caller
+// knew independently of any proposal.
+//
+// It is CompareHints read the other way round. CompareHints reports what the
+// result contradicted; this reports what it corroborated, and the two are not
+// complements: a field neither side supplied appears in neither list. That gap
+// is the whole point. A result that contradicts nothing because it says almost
+// nothing has confirmed nothing, and 0132 needs to tell that apart from a result
+// that was actually checked and held up.
+//
+// stated must be what a source stated and never what a plugin proposed. Where a
+// source stated nothing, the proposal was the only key the identifier plugins
+// were given, so it coming back is the provider agreeing with itself.
+func confirmedFields(ctx context.Context, hints identifier.Hints, stated []identifier.Identifier, inst *identifier.Instrument, resolvedIDs []identifier.Identifier, normalizeMIC MICNormalizer) []string {
+	if inst == nil {
+		return nil
+	}
+	var out []string
+	// The currency counts, and it is the strongest field here on the path where
+	// the whole key was guessed.
+	//
+	// It counts because a provider that returns a currency has either measured it
+	// or been made to agree with it. OpenFIGI is the second kind: its mapping call
+	// filters on the currency it is given and answers "No identifier found" when
+	// the security has no listing in it, so a non-empty response is the provider
+	// asserting that this security trades in that currency, and the plugin records
+	// the hint on that basis rather than echoing it. See adr/0059.
+	//
+	// That is what makes it a real test of a guessed ticker: the currency comes
+	// off the transaction, not off the guess, so a ticker naming the wrong company
+	// only survives if that company also trades in the currency the source stated.
+	if hints.Currency != "" && inst.Currency != "" && strings.EqualFold(hints.Currency, inst.Currency) {
+		out = append(out, "Currency")
+	}
+	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
+		inst.AssetClass != "" && inst.AssetClass != identifier.SecurityTypeHintUnknown &&
+		strings.EqualFold(hints.SecurityTypeHint, inst.AssetClass) {
+		out = append(out, "SecurityType")
+	}
+	if inst.Venue.MIC != "" {
+		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Venue.MIC)
+		for _, h := range stated {
+			if h.Type == "MIC_TICKER" && h.Domain != "" {
+				if strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, h.Domain), instExch) {
+					out = append(out, "Exchange")
+				}
+				break
+			}
+		}
+	}
+	resolvedByType := make(map[string]string, len(resolvedIDs))
+	for _, id := range resolvedIDs {
+		if id.Value != "" {
+			resolvedByType[id.Type] = id.Value
+		}
+	}
+	for _, h := range stated {
+		if h.Value == "" {
+			continue
+		}
+		if rv, ok := resolvedByType[h.Type]; ok && rv == h.Value {
+			out = append(out, h.Type)
+		}
+	}
+	return out
+}
+
 // ResolveWithPlugins calls enabled identifier plugins with the given hints, merges results, and ensures the instrument.
 // When storeSourceDescription is true and a plugin succeeds, (source, instrumentDescription) is added as a
 // non-canonical BROKER_DESCRIPTION identifier. If no plugin identifies the instrument, fallback is called.
@@ -580,16 +665,28 @@ func ResolveWithPlugins(
 	// thing that may raise conflicting hints. A proposal is tested by the
 	// plugins, never trusted ahead of them. See adr/0057.
 	hints, identifierHints := ident.Hints, ident.Stated
+
+	// Where a source stated nothing, the proposal is the only key resolution has,
+	// so it is what gets queried and looked up -- refusing that would mean
+	// refusing to identify the instrument at all, and refusing to look it up
+	// would mean paying a plugin for a description whose ticker the database
+	// already holds. The substitution happens once, here, and produces a separate
+	// value: ident keeps the true provenance, so the scoring and the confirmation
+	// below still know the key was guessed. See adr/0057.
+	keyed := ident
+	if len(keyed.Stated) == 0 && len(keyed.Proposed) > 0 {
+		keyed.Stated, keyed.Proposed = keyed.Proposed, nil
+	}
 	// What the attempt row states about its inputs. Its outcome and the asset
 	// class it landed on are filled in at each of the returns below.
 	row := db.TelemetryIdentificationAttempt{
 		Depth:              depth,
 		SecurityTypeHint:   hints.SecurityTypeHint,
-		HadIdentifierHints: len(identifierHints) > 0,
+		HadIdentifierHints: len(keyed.Stated) > 0,
 	}
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
-	resolved, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
+	resolved, err := ResolveByHintsDBOnly(ctx, database, keyed.Stated)
 	if err != nil {
 		return ResolveResult{}, err
 	}
@@ -600,13 +697,14 @@ func ResolveWithPlugins(
 			Currency:   resolved[0].Currency,
 		}
 		diffs := CompareHints(ctx, hints, identifierHints, inst, nil, normMIC)
+		confirmed := confirmedFields(ctx, hints, identifierHints, inst, nil, normMIC)
 		// No plugin was called, which is why this is its own outcome rather than
 		// an identification with no plugin-call rows under it. It is also why a
 		// failure rate over all attempts falls as the instrument table fills.
 		row.Outcome = db.TelemetryAttemptDBShortCircuit
 		row.AssetClass = resolved[0].AssetClass
 		tel.write(ctx, row)
-		return ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
+		return ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs, Confirmed: confirmed}, nil
 	}
 
 	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryIdentifier)
@@ -643,7 +741,7 @@ func ResolveWithPlugins(
 			defer wg.Done()
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
-			res, stats, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, ident, timeout, PluginRetryBackoff)
+			res, stats, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, keyed, timeout, PluginRetryBackoff)
 			results[idx] = pluginResult{inst: res.Instrument, ids: res.Identifiers, tel: res.Telemetry, stats: stats, err: err}
 		}(i)
 	}
@@ -676,7 +774,7 @@ func ResolveWithPlugins(
 	hasStated := hints.Currency != "" ||
 		(hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown) ||
 		len(identifierHints) > 0
-	hasProposed := len(ident.Proposed) > 0
+	hasProposed := len(keyed.Proposed) > 0
 
 	var winner *pluginResult
 	var winnerIdx int
@@ -701,7 +799,7 @@ func ResolveWithPlugins(
 			// stated tier's, which also requires something to have been confirmed.
 			if hasProposed && firstProposedIdx < 0 &&
 				len(CompareHints(ctx, hints, identifierHints, r.inst, r.ids, normMIC)) == 0 &&
-				resultMatchesHints(ctx, identifier.Hints{}, ident.Proposed, r, normMIC) {
+				resultMatchesHints(ctx, identifier.Hints{}, keyed.Proposed, r, normMIC) {
 				firstProposedIdx = i
 			}
 			continue
@@ -885,6 +983,40 @@ func ResolveWithPlugins(
 			optFields = optionFieldsFromIdentifiers(mergedIds)
 		}
 		diffs := CompareHints(ctx, hints, identifierHints, inst, mergedIds, normMIC)
+		confirmed := confirmedFields(ctx, hints, identifierHints, inst, mergedIds, normMIC)
+		// A key nobody stated has to earn its place before it decides which
+		// instrument a transaction belongs to.
+		//
+		// This is the case where the whole identity was guessed: no source stated
+		// an identifier, so the proposal was queried as the only key there was. A
+		// provider answering about it proves the value names some security, not
+		// that it names this one -- a plausible invented ISIN is usually a real
+		// ISIN belonging to something else, and a plausible invented ticker is
+		// usually another company's. So the result has to agree with something
+		// nobody guessed: the currency the transaction stated, or the security
+		// type. Agreeing with nothing at all is not a near miss, it is the
+		// absence of a test, and the guess is dropped.
+		//
+		// Dropping it produces a broker-description-only instrument, which is the
+		// better failure: it is visible in the UI, it is repairable, and it does
+		// not propagate. A wrong attachment becomes a canonical, instance-global
+		// (source, description) binding that every later upload hits and no
+		// plugin ever re-examines. See adr/0059 and issues/0132.
+		//
+		// A source that stated an identifier is not subject to this. There the
+		// proposal was never queried -- it only ranked among the listings the
+		// stated key produced -- so there is no invention to round-trip.
+		if len(ident.Stated) == 0 && len(ident.Proposed) > 0 && len(confirmed) == 0 && fallback != nil {
+			l.InfoContext(ctx, "instrument resolution: proposed identifier confirmed nothing the source stated, using broker description only",
+				"source", source, "instrument_description", instrumentDescription,
+				"proposed", HintsSummary(ident.Proposed), "resolved", instrumentSummary(inst))
+			fb, fbErr := fallback(ctx, database)
+			if fbErr != nil {
+				return ResolveResult{}, fbErr
+			}
+			writeAttempt(db.TelemetryAttemptProposalUnconfirmed, "")
+			return ResolveResult{InstrumentID: fb, Unconfirmed: true, HintDiffs: diffs}, nil
+		}
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Venue.MIC, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validBefore, optFields)
 		if err != nil {
 			return ResolveResult{}, err
@@ -895,7 +1027,7 @@ func ResolveWithPlugins(
 			}
 		}
 		writeAttempt(db.TelemetryAttemptIdentified, inst.AssetClass)
-		return ResolveResult{InstrumentID: id, Identified: true, HintDiffs: diffs}, nil
+		return ResolveResult{InstrumentID: id, Identified: true, HintDiffs: diffs, Confirmed: confirmed}, nil
 	}
 
 	// Nothing identified it. A plugin removed by the eligibility filter made no

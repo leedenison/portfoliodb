@@ -2142,3 +2142,57 @@ func TestConfirmedFields_AProposalDoesNotConfirmItself(t *testing.T) {
 		t.Errorf("confirmed = %v, want nothing", got)
 	}
 }
+
+// A guessed venue must not narrow the database lookup. A price import stores a
+// ticker and no venue; a later transaction whose candidate plugin proposes the
+// same ticker with a venue has to find that instrument rather than fork a second
+// one beside it. The plugins still receive the venue -- only the lookup widens.
+func TestResolveWithPlugins_AGuessedVenueDoesNotNarrowTheLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	// The stored instrument carries the ticker with no venue, which is what a
+	// price-first import leaves behind. The lookup must reach it.
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
+		Return("price-first-id", nil)
+
+	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "",
+		identifier.Identity{
+			Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+			Hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+		}, false, nil, Attempt{}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if got.InstrumentID != "price-first-id" {
+		t.Errorf("InstrumentID = %q, want the instrument the ticker already names", got.InstrumentID)
+	}
+}
+
+// A stated venue is evidence and does narrow the lookup: naming XNYS and finding
+// an instrument on XNAS is a real difference, not a guess to be widened away.
+func TestResolveWithPlugins_AStatedVenueDoesNarrowTheLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	// Only the exact lookup is expected: no widening, so no FindInstrumentByTypeAndValue.
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNYS", "AAPL").
+		Return("stated-id", "STOCK", "XNYS", "USD", nil)
+
+	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "",
+		identifier.Identity{
+			Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "AAPL"}},
+		}, false, nil, Attempt{}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if got.InstrumentID != "stated-id" {
+		t.Errorf("InstrumentID = %q, want stated-id", got.InstrumentID)
+	}
+}

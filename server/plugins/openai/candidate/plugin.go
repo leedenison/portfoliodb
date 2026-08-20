@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
 )
@@ -97,9 +98,10 @@ func (p *Plugin) ProposeBatch(ctx context.Context, config []byte, broker, source
 			ID:          items[i].ID,
 			Description: items[i].InstrumentDescription,
 			TypeHint:    items[i].Hints.SecurityTypeHint,
+			Known:       knownFrom(items[i]),
 		}
 	}
-	byID, usage, err := p.client.NormalizeDescriptionsBatch(ctx, clientItems)
+	byID, usage, err := p.client.CompleteBatch(ctx, clientItems)
 	if err != nil {
 		outcome := candpkg.OutcomeError
 		for _, item := range items {
@@ -110,17 +112,13 @@ func (p *Plugin) ProposeBatch(ctx context.Context, config []byte, broker, source
 		return result(nil, outcome, nil), nil
 	}
 	out := make(map[string][]candpkg.Proposal)
-	for id, norm := range byID {
-		if norm == nil {
+	for i := range items {
+		c := byID[items[i].ID]
+		if c == nil {
 			continue
 		}
-		// No confidence yet: the prompt asks for a bare value and the model has
-		// no way to qualify it. Structured outputs give it one (0133), and until
-		// then a zero says "the plugin did not report", not "no confidence".
-		if norm.OCC != "" {
-			out[id] = []candpkg.Proposal{{Field: candpkg.FieldKey, Identifier: identifier.Identifier{Type: "OCC", Domain: "", Value: norm.OCC}}}
-		} else if norm.Ticker != "" {
-			out[id] = []candpkg.Proposal{{Field: candpkg.FieldTicker, Identifier: identifier.Identifier{Type: "MIC_TICKER", Domain: "", Value: norm.Ticker}}}
+		if ps := proposals(c, clientItems[i]); len(ps) > 0 {
+			out[items[i].ID] = ps
 		}
 	}
 	outcome := candpkg.OutcomeNoHints
@@ -128,6 +126,101 @@ func (p *Plugin) ProposeBatch(ctx context.Context, config []byte, broker, source
 		outcome = candpkg.OutcomeHintsReturned
 	}
 	return result(out, outcome, usage), nil
+}
+
+// knownFrom reads what the source already said about an instrument into the form
+// the prompt sends. It is the identifiers the source stated, not anything a
+// plugin proposed: showing the model a guess as though it were given would let
+// the next guess be built on it.
+func knownFrom(item candpkg.BatchItem) Known {
+	k := Known{Currency: item.Hints.Currency}
+	for _, id := range item.Stated {
+		switch id.Type {
+		case "MIC_TICKER", "OPENFIGI_TICKER":
+			if k.Ticker == "" {
+				k.Ticker = id.Value
+			}
+			if k.Exchange == "" {
+				k.Exchange = id.Domain
+			}
+		case "ISIN":
+			k.ISIN = id.Value
+		case "CUSIP":
+			k.CUSIP = id.Value
+		case "SEDOL":
+			k.SEDOL = id.Value
+		case "CURRENCY":
+			if k.Currency == "" {
+				k.Currency = id.Value
+			}
+		}
+	}
+	return k
+}
+
+// proposals turns one completion into the fields the resolver can act on.
+//
+// An OCC symbol is offered alone: it names the contract, its underlying, its
+// expiry and its strike at once, so a ticker or a venue beside it would be
+// describing something else. An option whose OCC symbol will not parse is
+// offered nothing at all, because the ticker the model returns beside it is the
+// underlying -- proposing that would resolve the contract to the share.
+//
+// For everything else the venue travels on the ticker, because a MIC_TICKER is
+// one identifier rather than two: an exchange with no symbol to qualify names
+// nothing the resolver can look up.
+//
+// A field the source already supplied is dropped rather than passed on. The
+// prompt asks for the missing fields and the model returns the known ones
+// anyway -- reliably enough that filtering in prose was never going to work --
+// and a proposal restating what a source said is noise the resolver would
+// ignore and 0134 would have to count.
+func proposals(c *Completion, item BatchItemForClient) []candpkg.Proposal {
+	if item.TypeHint == identifier.SecurityTypeHintOption {
+		// Validated rather than trusted: a malformed symbol is dropped here so
+		// nothing downstream has to decide what to do with one. It also
+		// normalises to the compact form the database stores.
+		compact, ok := derivative.OCCCompact(c.OCC.Value)
+		if !ok {
+			return nil
+		}
+		return []candpkg.Proposal{{
+			Field:      candpkg.FieldKey,
+			Identifier: identifier.Identifier{Type: "OCC", Value: compact},
+			Confidence: c.OCC.Confidence,
+		}}
+	}
+	var out []candpkg.Proposal
+	ticker, exchange := c.Ticker, c.Exchange
+	if item.Known.Ticker != "" {
+		ticker = Field{}
+	}
+	if item.Known.Exchange != "" {
+		exchange = Field{}
+	}
+	if ticker.Value != "" {
+		// The exchange is the domain, and the pair is recorded under whichever
+		// half carried the weaker claim: a ticker that is right on a venue that
+		// is wrong is a different failure from both being wrong, and 0134 counts
+		// them apart.
+		field, conf := candpkg.FieldTicker, ticker.Confidence
+		if exchange.Value != "" && exchange.Confidence < conf {
+			field, conf = candpkg.FieldExchange, exchange.Confidence
+		}
+		out = append(out, candpkg.Proposal{
+			Field:      field,
+			Identifier: identifier.Identifier{Type: "MIC_TICKER", Domain: exchange.Value, Value: ticker.Value},
+			Confidence: conf,
+		})
+	}
+	if c.Currency.Value != "" && item.Known.Currency == "" {
+		out = append(out, candpkg.Proposal{
+			Field:      candpkg.FieldCurrency,
+			Identifier: identifier.Identifier{Type: "CURRENCY", Value: c.Currency.Value},
+			Confidence: c.Currency.Confidence,
+		})
+	}
+	return out
 }
 
 // result assembles the extraction and the telemetry for the call. usage may be

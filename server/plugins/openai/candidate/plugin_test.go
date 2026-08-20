@@ -112,7 +112,7 @@ func TestProposeBatch_TypeHintPassedToClient(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
-				{"message": map[string]string{"content": `{"ab12": {"OCC": "BRKB241115P00390000"}}`}},
+				{"message": map[string]any{"content": `{"items":[{"id":"ab12","ticker":{"value":null,"confidence":0},"exchange":{"value":null,"confidence":0},"currency":{"value":null,"confidence":0},"occ":{"value":"BRKB241115P00390000","confidence":0.9}}]}`}},
 			},
 			"usage": map[string]int64{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
 		})

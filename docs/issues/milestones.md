@@ -31,7 +31,7 @@ Numbers are not reused. A gap is a milestone that was retired.
 - **M14** - Complete the archive: system and user archives carry everything a rebuild needs apart from portfolio definitions, and the transaction CSV is retired.
 - **M15** - The server owns transaction grouping: converters emit evidence and the server derives groups across the whole dataset rather than within one upload.
 - **M16** - Instrument identity is time-varying: an identifier carries a validity interval, so a split mints a name rather than rewriting one, and resolution asks what a name denoted on a date rather than what it denotes now.
-- **M17** - An instrument can be identified from a description alone, for the sources that carry no identifier -- and how well that works is measured rather than assumed.
+- **M17** - An instrument is identified from whatever the source gave: a partial identity is completed before resolution, a guess is tested by the result rather than trusted, and how well that works is measured rather than assumed.
 - **M18** - A complete history reaches the system without hand work: opening balances entered in bulk, a converter for every broker held, and income attributed to the security that paid it.
 - **M19** - Lots, cost basis, realised gains, and what the portfolio costs to run.
 - **M20** - Telemetry is run-scoped event rows in Postgres read by Grafana, replacing the Redis counters.

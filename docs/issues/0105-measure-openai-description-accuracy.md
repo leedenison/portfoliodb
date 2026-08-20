@@ -2,6 +2,7 @@
 status: open
 title: Measure the OpenAI description plugin's accuracy and decide whether to keep it
 milestone: M17
+dependencies: [0134]
 ---
 
 Measure how often the OpenAI description plugin identifies the right instrument,
@@ -27,28 +28,33 @@ interpret, with the answer attached.
 
 ## What is being measured
 
-The plugin does not return an ISIN. server/plugins/openai/description/plugin.go emits
-`OCC` for an option and `MIC_TICKER` for everything else, with an empty `domain` and
-so no exchange -- the prompt in client.go asks for exactly those two. A ground truth
-of ISINs therefore cannot be compared to plugin output directly.
+Two numbers, and they answer different questions.
 
-Measure end to end instead: does description -> extracted ticker -> identifier
-plugins -> instrument land on the same instrument the known ISIN or CUSIP resolves
-to. Comparing the intermediate ticker alone would need the exchange the plugin never
-returns, which is the ambiguity 0106 is about rather than a property of the plugin.
+Per field: 0134 records every field the plugin proposed against the instrument
+that was eventually resolved, so accuracy by field -- ticker, exchange, currency,
+and any key it proposed -- is a query over that table rather than a harness. That
+is the number that says whether to keep the plugin, drop it, or narrow it to the
+fields it wins.
+
+End to end: does description plus whatever the source stated land on the same
+instrument the known ISIN or CUSIP resolves to. This is the number that survives
+the plugin being replaced, and it is what a ground truth of ISINs can be compared
+against directly.
+
+Report both against the deterministic baseline established by 0129, not against
+the state of the tree before it. Three defects there produced blank and wrong
+exchanges with no plugin involved, and a measurement taken across that fix would
+credit the AI with what the fix did.
 
 ## Scope
 
-**Report the reached population, not just the hit rate.** `extractDescHints` in
-server/service/ingestion/worker.go extracts a description only when it misses
-`FindInstrumentBySourceDescription` and at least one posting sharing that description
-arrived with no identifier hints. Path A in server/service/ingestion/resolve.go then
-bypasses description plugins entirely whenever the converter supplied hints. Since
-0107, client/lib/csv/converters/fidelity-csv.ts supplies a `MIC_TICKER` hint for every
-security whose description ends in a ticker, so what reaches the plugin on that path
-is roughly the unlisted funds -- the rows with no ticker to take. A plugin that is
-accurate over a dozen rows is a different proposition from one carrying the whole CSV
-path, and the decision needs both numbers.
+**Report the reached population, not just the hit rate.** The population moves
+with 0131: the stage stops being skipped whenever the converter supplied hints and
+starts running whenever the stated identity is incomplete, which is most of the
+QFX path. So the plugin is being asked a harder and much larger question than it
+was, and a hit rate quoted without the population behind it is not comparable to
+anything. The candidate outcome on each resolution key says which keys reached the
+stage and why the rest did not, so the denominator is recoverable.
 
 **The cheap baseline is already in the tree, and the plugin only sees what it
 missed.** `tickerOf` in the Fidelity converter takes the ticker from the trailing
@@ -80,10 +86,10 @@ ticker path in client/lib/csv/converters/ibkr-ofx.ts.
 
 ## Deliverable
 
-A one-off measurement, not a committed harness. Build the pair set and the comparison
-under `local/`, run it once, and record here the reached-population count, the
-accuracy against the baseline, the cost per resolution and the decision that follows.
-If the plugin is kept, a repeatable harness can be its own issue.
+Record here the reached-population count, the per-field and end-to-end accuracy
+against the 0129 baseline, the cost per resolution, and the decision that follows.
+The per-field half is a query over the view 0134 adds and needs no harness; the
+end-to-end half needs the ground-truth pair set built under `local/` and run once.
 
 The broker exports the pairs come from carry a real account number, in their contents
 and in their filenames, and stay in `local/`. Nothing derived from them is committed

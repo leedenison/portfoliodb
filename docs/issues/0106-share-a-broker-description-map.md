@@ -55,7 +55,11 @@ best placed to build the map are the ones that skip building it. Since 0107 the 
 supplies a ticker hint for every listed security too, so on both sides the only rows
 that leave a stored mapping behind are the ones nothing could hint -- the unlisted
 funds. That is close to the inverse of what a shared map wants to carry, and
-everything below is moot if it holds.
+everything below is moot if it holds. 0135 is the half of this that is a plain
+defect -- the hinted upload does not merely decline to record the mapping, it
+creates a second instrument beside the one already holding the description -- and
+fixing it does not settle whether the mapping should be persisted, which is still
+this issue's question.
 
 **Can an export be scoped to the mappings?** `ExportSystemArchiveRequest` filters on
 `exchange` and `asset_classes` alone, and `ListInstrumentsForExport` has no filter on

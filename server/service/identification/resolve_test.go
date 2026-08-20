@@ -1992,3 +1992,82 @@ func TestResolveWithPlugins_ProposalDoesNotPromoteAResultContradictingTheSource(
 		t.Errorf("winner = %q, want the plugin that does not contradict the stated currency", chosen)
 	}
 }
+
+// --- FilterProposals ---
+
+// A candidate plugin has no database access, so a venue it proposes has been
+// checked against nothing. An unknown MIC costs the domain and keeps the ticker:
+// a good symbol under a venue that does not exist is still worth having, and
+// dropping the pair would throw away the half that was right.
+func TestFilterProposals_UnknownMICLosesTheDomainAndKeepsTheTicker(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().ValidateMIC(gomock.Any(), "XZZZ").Return(false, nil)
+
+	got := FilterProposals(context.Background(), database,
+		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XZZZ", Value: "AAPL"}}, nil)
+
+	if len(got) != 1 {
+		t.Fatalf("got %d identifiers, want the ticker to survive", len(got))
+	}
+	if got[0].Domain != "" {
+		t.Errorf("Domain = %q, want empty: XZZZ is not an exchange", got[0].Domain)
+	}
+	if got[0].Value != "AAPL" {
+		t.Errorf("Value = %q, want AAPL", got[0].Value)
+	}
+}
+
+// A recognised segment MIC is normalised to its operating MIC, so a proposal is
+// compared and stored at the grain everything else uses (adr/0003).
+func TestFilterProposals_KnownMICIsNormalisedToItsOperatingMIC(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().ValidateMIC(gomock.Any(), "XNGS").Return(true, nil)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XNGS").Return("XNAS", nil)
+
+	got := FilterProposals(context.Background(), database,
+		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL"}}, nil)
+
+	if len(got) != 1 || got[0].Domain != "XNAS" {
+		t.Fatalf("got %+v, want the domain normalised to XNAS", got)
+	}
+}
+
+// The same venue proposed across a batch is looked up once: a batch proposes the
+// same handful of exchanges over and over, and the reference table does not
+// change underneath it. gomock enforces the count.
+func TestFilterProposals_LookupsAreMemoised(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().ValidateMIC(gomock.Any(), "XLON").Return(true, nil).Times(1)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XLON").Return("XLON", nil).Times(1)
+
+	got := FilterProposals(context.Background(), database, []identifier.Identifier{
+		{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"},
+		{Type: "MIC_TICKER", Domain: "XLON", Value: "BP"},
+		{Type: "MIC_TICKER", Domain: "XLON", Value: "HSBA"},
+	}, nil)
+
+	if len(got) != 3 {
+		t.Fatalf("got %d identifiers, want 3", len(got))
+	}
+}
+
+// A type outside the controlled vocabulary is dropped, as it is for a stated
+// hint: FilterProposals is that filter plus the checks needing reference data.
+func TestFilterProposals_DropsTypesOutsideTheVocabulary(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+
+	got := FilterProposals(context.Background(), database,
+		[]identifier.Identifier{{Type: "NOT_A_REAL_TYPE", Value: "x"}}, nil)
+
+	if len(got) != 0 {
+		t.Errorf("got %+v, want nothing", got)
+	}
+}

@@ -24,7 +24,7 @@ func TestPlugin_ProposeBatch_ReturnsCurrency(t *testing.T) {
 	if res.Telemetry.Tokens != nil {
 		t.Errorf("Telemetry.Tokens = %+v, want nil for a plugin with no token cost", res.Telemetry.Tokens)
 	}
-	hints := res.Hints["1"]
+	hints := proposedIDs(res.Proposed["1"])
 	if len(hints) != 1 {
 		t.Fatalf("expected 1 hint, got %d", len(hints))
 	}
@@ -43,8 +43,8 @@ func TestPlugin_ProposeBatch_NormalizesCurrencyCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProposeBatch: %v", err)
 	}
-	if res.Hints["1"][0].Value != "USD" {
-		t.Errorf("Value = %q, want USD", res.Hints["1"][0].Value)
+	if proposedIDs(res.Proposed["1"])[0].Value != "USD" {
+		t.Errorf("Value = %q, want USD", proposedIDs(res.Proposed["1"])[0].Value)
 	}
 }
 
@@ -58,8 +58,8 @@ func TestPlugin_ProposeBatch_EmptyCurrency_ReturnsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProposeBatch: %v", err)
 	}
-	if len(res.Hints) > 0 {
-		t.Errorf("expected no hints when Currency empty, got %+v", res.Hints)
+	if len(res.Proposed) > 0 {
+		t.Errorf("expected no hints when Currency empty, got %+v", res.Proposed)
 	}
 	if res.Telemetry.Outcome != candpkg.OutcomeNoHints {
 		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, candpkg.OutcomeNoHints)
@@ -80,4 +80,14 @@ func TestPlugin_AcceptableSecurityTypes_OnlyCash(t *testing.T) {
 	if len(set) != 1 || !set[identifier.SecurityTypeHintCash] {
 		t.Errorf("AcceptableSecurityTypes = %v, want set containing %s", set, identifier.SecurityTypeHintCash)
 	}
+}
+
+// proposedIDs is the identifiers out of a plugin's proposals, for assertions
+// that are about the values rather than the fields they fill.
+func proposedIDs(ps []candpkg.Proposal) []identifier.Identifier {
+	out := make([]identifier.Identifier, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.Identifier)
+	}
+	return out
 }

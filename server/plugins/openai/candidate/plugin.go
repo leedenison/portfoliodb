@@ -109,15 +109,18 @@ func (p *Plugin) ProposeBatch(ctx context.Context, config []byte, broker, source
 		}
 		return result(nil, outcome, nil), nil
 	}
-	out := make(map[string][]identifier.Identifier)
+	out := make(map[string][]candpkg.Proposal)
 	for id, norm := range byID {
 		if norm == nil {
 			continue
 		}
+		// No confidence yet: the prompt asks for a bare value and the model has
+		// no way to qualify it. Structured outputs give it one (0133), and until
+		// then a zero says "the plugin did not report", not "no confidence".
 		if norm.OCC != "" {
-			out[id] = []identifier.Identifier{{Type: "OCC", Domain: "", Value: norm.OCC}}
+			out[id] = []candpkg.Proposal{{Field: candpkg.FieldKey, Identifier: identifier.Identifier{Type: "OCC", Domain: "", Value: norm.OCC}}}
 		} else if norm.Ticker != "" {
-			out[id] = []identifier.Identifier{{Type: "MIC_TICKER", Domain: "", Value: norm.Ticker}}
+			out[id] = []candpkg.Proposal{{Field: candpkg.FieldTicker, Identifier: identifier.Identifier{Type: "MIC_TICKER", Domain: "", Value: norm.Ticker}}}
 		}
 	}
 	outcome := candpkg.OutcomeNoHints
@@ -129,8 +132,8 @@ func (p *Plugin) ProposeBatch(ctx context.Context, config []byte, broker, source
 
 // result assembles the extraction and the telemetry for the call. usage may be
 // nil, in which case the call cost no tokens the plugin could observe.
-func result(hints map[string][]identifier.Identifier, outcome candpkg.Outcome, usage *Usage) candpkg.Result {
-	res := candpkg.Result{Hints: hints, Telemetry: candpkg.Telemetry{Outcome: outcome}}
+func result(proposed map[string][]candpkg.Proposal, outcome candpkg.Outcome, usage *Usage) candpkg.Result {
+	res := candpkg.Result{Proposed: proposed, Telemetry: candpkg.Telemetry{Outcome: outcome}}
 	if usage != nil {
 		res.Telemetry.Tokens = &candpkg.Usage{
 			PromptTokens:     usage.PromptTokens,

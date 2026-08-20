@@ -45,6 +45,59 @@ type ResolvedInstrument struct {
 // It must return an instrument ID, typically by calling EnsureInstrument.
 type FallbackFunc func(ctx context.Context, database db.DB) (string, error)
 
+// FilterProposals narrows a candidate plugin's output to what may be acted on.
+//
+// It is FilterIdentifierHints plus the checks that need reference data, which is
+// why it takes a database and lives beside the resolver rather than in the
+// plugin: a candidate plugin has no database access, deliberately, so nothing it
+// returns has been checked against the exchange table.
+//
+// A MIC nothing recognises loses the domain and keeps the ticker. A good symbol
+// under a venue that does not exist is still worth having, and dropping the pair
+// would throw away the half that was right. A recognised one is normalised to
+// its operating MIC so it is compared and stored at the grain everything else
+// uses (adr/0003).
+//
+// Lookups are memoised for the call: a batch proposes the same handful of venues
+// over and over, and the exchange table does not change underneath it.
+func FilterProposals(ctx context.Context, database db.InstrumentDB, proposals []identifier.Identifier, logger *slog.Logger) []identifier.Identifier {
+	l := resolveLogger(logger)
+	known := make(map[string]string)
+	// operatingMIC returns the operating MIC for a domain, or "" when the MIC is
+	// not one the exchange table carries.
+	operatingMIC := func(mic string) string {
+		if v, ok := known[mic]; ok {
+			return v
+		}
+		v := ""
+		if ok, err := database.ValidateMIC(ctx, mic); err == nil && ok {
+			if op, err := database.LookupOperatingMIC(ctx, mic); err == nil && op != "" {
+				v = op
+			} else {
+				v = mic
+			}
+		}
+		known[mic] = v
+		return v
+	}
+
+	out := FilterIdentifierHints(ctx, proposals, l)
+	for i := range out {
+		if out[i].Type != "MIC_TICKER" || out[i].Domain == "" {
+			continue
+		}
+		op := operatingMIC(out[i].Domain)
+		if op == "" {
+			l.DebugContext(ctx, "candidate proposed an unknown exchange; keeping the ticker without it",
+				"mic", out[i].Domain, "ticker", out[i].Value)
+			out[i].Domain = ""
+			continue
+		}
+		out[i].Domain = op
+	}
+	return out
+}
+
 // ResolveByHintsDBOnly looks up each hint by (type, domain, value) and returns unique instrument IDs (in order of first occurrence).
 //
 // Fallback when domain is empty: If the hint has domain == "" and the exact (type, domain, value) lookup finds nothing,

@@ -42,17 +42,23 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 
 // ProposeBatch returns one CURRENCY identifier per item when Hints.Currency is set (from tx.trading_currency).
 func (p *Plugin) ProposeBatch(ctx context.Context, config []byte, broker, source string, items []candpkg.BatchItem) (candpkg.Result, error) {
-	out := make(map[string][]identifier.Identifier)
+	out := make(map[string][]candpkg.Proposal)
 	for _, item := range items {
 		code := strings.ToUpper(strings.TrimSpace(item.Hints.Currency))
 		if code == "" {
 			continue
 		}
-		out[item.ID] = []identifier.Identifier{{Type: "CURRENCY", Domain: "", Value: code}}
+		// Confidence is 1: the currency is read off the transaction rather than
+		// guessed, so there is nothing here for a confidence to express doubt about.
+		out[item.ID] = []candpkg.Proposal{{
+			Field:      candpkg.FieldCurrency,
+			Identifier: identifier.Identifier{Type: "CURRENCY", Domain: "", Value: code},
+			Confidence: 1,
+		}}
 	}
 	// Tokens stay nil: the currency comes off the transaction, at no cost.
 	if len(out) == 0 {
 		return candpkg.Result{Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeNoHints}}, nil
 	}
-	return candpkg.Result{Hints: out, Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeHintsReturned}}, nil
+	return candpkg.Result{Proposed: out, Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeHintsReturned}}, nil
 }

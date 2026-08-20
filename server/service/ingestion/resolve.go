@@ -205,10 +205,14 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 			ingestionLogger().DebugContext(ctx, "candidate plugin batch result: error", "plugin_id", c.PluginID, "err", err)
 			continue
 		}
-		out := res.Hints
+		out := res.Proposed
 		hasAny := false
-		for id, hints := range out {
-			filteredHints := identification.FilterIdentifierHints(ctx, hints, ingestionLogger())
+		for id, proposals := range out {
+			ids := make([]identifier.Identifier, 0, len(proposals))
+			for _, pr := range proposals {
+				ids = append(ids, pr.Identifier)
+			}
+			filteredHints := identification.FilterProposals(ctx, deps.DB, ids, ingestionLogger())
 			if len(filteredHints) > 0 {
 				merged[id] = filteredHints
 				resolved[id] = true
@@ -218,9 +222,9 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 		}
 		deps.writeCandidatePluginCall(ctx, call)
 		if hasAny {
-			for id, hints := range out {
-				if len(hints) > 0 {
-					ingestionLogger().DebugContext(ctx, "candidate plugin batch result: hints", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "hints", identification.HintsSummary(hints))
+			for id := range out {
+				if len(merged[id]) > 0 {
+					ingestionLogger().DebugContext(ctx, "candidate plugin batch result: proposals", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "proposals", identification.HintsSummary(merged[id]))
 				}
 			}
 		} else {

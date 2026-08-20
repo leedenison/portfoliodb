@@ -5,10 +5,31 @@ for a row that carried only a CUSIP, a venue for a bare ticker. Resolution holds
 what a source stated apart from what a plugin proposed, and lets only the first
 stand in for a confirmation.
 
-A proposal never satisfies a database lookup, never raises the conflicting-hints
-error, and is never written back as an identifier. What it may do is break a tie:
-where several plugins answered and nothing a source said separates them,
-agreeing with a proposal beats precedence alone.
+A proposal never displaces or bypasses something a source stated. It never
+raises the conflicting-hints error, and is never written back as an identifier.
+What it may do is break a tie: where several plugins answered and nothing a
+source said separates them, agreeing with a proposal beats precedence alone.
+
+## The rule is about displacement, not about use
+
+An earlier draft of this said a proposal is never queried and never satisfies a
+database lookup, full stop. That is too strong, and it would have broken the
+case the stage exists for. A broker file carrying nothing but a description
+yields a proposed ticker and nothing else; refusing to query it means refusing to
+identify the instrument at all, and refusing to look it up in the database means
+paying a plugin for a description already resolved.
+
+So the rule is narrower and about precedence between provenances:
+
+- **Where a source stated an identifier, that is what is queried and looked up.**
+  A proposal alongside it may narrow and rank, and nothing more. Asked about a
+  proposed ISIN, a provider answers about whatever security that ISIN names --
+  the very question the resolution is trying to test.
+- **Where a source stated nothing, a proposal is what resolution has to work
+  with**, and is queried as the only key there is. It is still not evidence: what
+  gets stored is what the provider returned about it, never the proposal itself,
+  and [0132](../issues/0132-an-invented-identifier-round-trips.md) is the check
+  that a value invented in this position is not merely valid but right.
 
 ## Why the split is structural
 

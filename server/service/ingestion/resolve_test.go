@@ -604,17 +604,21 @@ func (p *fakeDescPlugin) ProposeBatch(_ context.Context, _ []byte, _, _ string, 
 	if p.err != nil {
 		return candpkg.Result{Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeError, Tokens: p.tokens}}, p.err
 	}
-	out := make(map[string][]identifier.Identifier)
+	out := make(map[string][]candpkg.Proposal)
 	for _, item := range items {
 		if hints, ok := p.results[item.ID]; ok {
-			out[item.ID] = hints
+			ps := make([]candpkg.Proposal, 0, len(hints))
+			for _, h := range hints {
+				ps = append(ps, candpkg.Proposal{Field: candpkg.FieldTicker, Identifier: h})
+			}
+			out[item.ID] = ps
 		}
 	}
 	outcome := candpkg.OutcomeNoHints
 	if len(out) > 0 {
 		outcome = candpkg.OutcomeHintsReturned
 	}
-	return candpkg.Result{Hints: out, Telemetry: candpkg.Telemetry{Outcome: outcome, Tokens: p.tokens}}, nil
+	return candpkg.Result{Proposed: out, Telemetry: candpkg.Telemetry{Outcome: outcome, Tokens: p.tokens}}, nil
 }
 
 // TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes verifies

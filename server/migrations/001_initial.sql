@@ -534,13 +534,13 @@ CREATE UNIQUE INDEX idx_prov_instr_ident_unique_null_domain ON provider_instrume
 CREATE UNIQUE INDEX idx_prov_instr_ident_unique_non_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value) WHERE domain IS NOT NULL;
 
 -- Plugin config: which plugins are enabled, precedence (unique per category), plugin-specific config.
--- category: 'identifier', 'description', 'price'.
+-- category: 'identifier', 'candidate', 'price'.
 -- Precedence constraints are DEFERRABLE so that two plugins' precedences can be swapped
 -- within a single transaction without hitting a uniqueness violation mid-swap.
 -- max_history_days is only used by price plugins; NULL = unlimited lookback.
 CREATE TABLE plugin_config (
   plugin_id        TEXT NOT NULL,
-  category         TEXT NOT NULL CHECK (category IN ('identifier', 'description', 'price', 'inflation', 'corporate_event')),
+  category         TEXT NOT NULL CHECK (category IN ('identifier', 'candidate', 'price', 'inflation', 'corporate_event')),
   enabled          BOOLEAN NOT NULL DEFAULT true,
   precedence       INT NOT NULL,
   config           JSONB,

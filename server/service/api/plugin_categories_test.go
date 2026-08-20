@@ -95,9 +95,9 @@ var pluginCategories = []pluginCategory{
 		},
 	},
 	{
-		name: "description", category: db.PluginCategoryDescription,
+		name: "description", category: db.PluginCategoryCandidate,
 		list: func(s *Server, ctx context.Context) ([]pluginView, error) {
-			r, err := s.ListDescriptionPlugins(ctx, &apiv1.ListDescriptionPluginsRequest{})
+			r, err := s.ListCandidatePlugins(ctx, &apiv1.ListCandidatePluginsRequest{})
 			if err != nil {
 				return nil, err
 			}
@@ -108,7 +108,7 @@ var pluginCategories = []pluginCategory{
 			return out, nil
 		},
 		update: func(s *Server, ctx context.Context, id string, o *pluginOpts) (pluginView, error) {
-			r, err := s.UpdateDescriptionPlugin(ctx, &apiv1.UpdateDescriptionPluginRequest{PluginId: id, Enabled: o.enabled(), Precedence: o.precedence(), ConfigJson: o.configJSON()})
+			r, err := s.UpdateCandidatePlugin(ctx, &apiv1.UpdateCandidatePluginRequest{PluginId: id, Enabled: o.enabled(), Precedence: o.precedence(), ConfigJson: o.configJSON()})
 			if err != nil {
 				return pluginView{}, err
 			}

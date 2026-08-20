@@ -9,7 +9,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"google.golang.org/protobuf/proto"
@@ -37,9 +37,9 @@ type WorkerOptions struct {
 	// IdentifierRegistry is the identifier plugin registry used during
 	// instrument resolution.
 	IdentifierRegistry *identifier.Registry
-	// DescriptionRegistry is the description plugin registry used to
+	// CandidateRegistry is the candidate plugin registry used to
 	// extract identifier hints from broker descriptions.
-	DescriptionRegistry *description.Registry
+	CandidateRegistry *candidate.Registry
 	// TelemetryDB records a run per job and the event rows beneath it; nil
 	// disables recording. It is separate from DB because it holds its own pool
 	// and must never join the work's transaction.
@@ -67,7 +67,7 @@ type WorkerOptions struct {
 
 // RunWorker processes job requests from opts.Queue until the channel is
 // closed or ctx is cancelled. Resolution uses DB, then in-batch cache, then
-// description plugins (extract hints) and identifier plugins (timeout from
+// candidate plugins (extract hints) and identifier plugins (timeout from
 // config, retry once with backoff).
 func RunWorker(ctx context.Context, opts WorkerOptions) {
 	ingestionLog = opts.Logger
@@ -145,11 +145,11 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 	switch j.JobType {
 	case db.JobTypeTx:
 		if ok := processTx(ctx, ingestDeps{
-			DB:           opts.DB,
-			Registry:     opts.IdentifierRegistry,
-			DescRegistry: opts.DescriptionRegistry,
-			Telemetry:    tel,
-			RunID:        runID,
+			DB:                opts.DB,
+			Registry:          opts.IdentifierRegistry,
+			CandidateRegistry: opts.CandidateRegistry,
+			Telemetry:         tel,
+			RunID:             runID,
 		}, j, detail.UserID); ok {
 			outcome = db.TelemetryOutcomeSuccess
 			if err := recalcAfterIngestion(ctx, opts.DB, detail.UserID); err != nil {
@@ -187,11 +187,11 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 		}
 	case db.JobTypeUserArchive:
 		deps := ingestDeps{
-			DB:           opts.DB,
-			Registry:     opts.IdentifierRegistry,
-			DescRegistry: opts.DescriptionRegistry,
-			Telemetry:    tel,
-			RunID:        runID,
+			DB:                opts.DB,
+			Registry:          opts.IdentifierRegistry,
+			CandidateRegistry: opts.CandidateRegistry,
+			Telemetry:         tel,
+			RunID:             runID,
 		}
 		res := processUserImport(ctx, deps, j)
 		if !res.failed {
@@ -362,7 +362,7 @@ func extractDescHints(ctx context.Context, deps ingestDeps, source, broker strin
 		}
 	}
 	seen := make(map[string]bool)
-	var batchItems []description.BatchItem
+	var batchItems []candidate.BatchItem
 	idByKey := make(map[string]string)
 	for _, tx := range txs {
 		desc := tx.GetInstrumentDescription()
@@ -383,7 +383,7 @@ func extractDescHints(ctx context.Context, deps ingestDeps, source, broker strin
 		} else if needsExtraction[key] {
 			batchID := shortHashForBatch(key)
 			idByKey[key] = batchID
-			batchItems = append(batchItems, description.BatchItem{
+			batchItems = append(batchItems, candidate.BatchItem{
 				ID:                    batchID,
 				InstrumentDescription: desc,
 				Hints:                 HintsFromTx(tx),
@@ -391,7 +391,7 @@ func extractDescHints(ctx context.Context, deps ingestDeps, source, broker strin
 		}
 	}
 	if len(batchItems) > 0 {
-		hintsByID, itemOutcomes, err := runDescriptionPluginsBatch(ctx, deps, broker, source, batchItems)
+		hintsByID, itemOutcomes, err := runCandidatePluginsBatch(ctx, deps, broker, source, batchItems)
 		if err == nil && hintsByID != nil {
 			extractedHintsCache = make(map[string][]identifier.Identifier)
 			for key, id := range idByKey {

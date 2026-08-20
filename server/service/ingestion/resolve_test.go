@@ -9,7 +9,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
+	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 	"go.uber.org/mock/gomock"
 )
@@ -585,7 +585,7 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 	}
 }
 
-// fakeDescPlugin is a test double for description.Plugin.
+// fakeDescPlugin is a test double for candidate.Plugin.
 type fakeDescPlugin struct {
 	acceptableKinds map[string]bool
 	acceptable      map[string]bool
@@ -593,16 +593,16 @@ type fakeDescPlugin struct {
 	err             error
 	// tokens is what the plugin reports the call cost. Nil is a plugin that costs
 	// nothing to call, which is what keeps the token columns null for it.
-	tokens *descpkg.Usage
+	tokens *candpkg.Usage
 }
 
 func (p *fakeDescPlugin) DisplayName() string                        { return "FakeDesc" }
 func (p *fakeDescPlugin) DefaultConfig() []byte                      { return nil }
 func (p *fakeDescPlugin) AcceptableInstrumentKinds() map[string]bool { return p.acceptableKinds }
 func (p *fakeDescPlugin) AcceptableSecurityTypes() map[string]bool   { return p.acceptable }
-func (p *fakeDescPlugin) ExtractBatch(_ context.Context, _ []byte, _, _ string, items []descpkg.BatchItem) (descpkg.Result, error) {
+func (p *fakeDescPlugin) ProposeBatch(_ context.Context, _ []byte, _, _ string, items []candpkg.BatchItem) (candpkg.Result, error) {
 	if p.err != nil {
-		return descpkg.Result{Telemetry: descpkg.Telemetry{Outcome: descpkg.OutcomeError, Tokens: p.tokens}}, p.err
+		return candpkg.Result{Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeError, Tokens: p.tokens}}, p.err
 	}
 	out := make(map[string][]identifier.Identifier)
 	for _, item := range items {
@@ -610,15 +610,15 @@ func (p *fakeDescPlugin) ExtractBatch(_ context.Context, _ []byte, _, _ string, 
 			out[item.ID] = hints
 		}
 	}
-	outcome := descpkg.OutcomeNoHints
+	outcome := candpkg.OutcomeNoHints
 	if len(out) > 0 {
-		outcome = descpkg.OutcomeHintsReturned
+		outcome = candpkg.OutcomeHintsReturned
 	}
-	return descpkg.Result{Hints: out, Telemetry: descpkg.Telemetry{Outcome: outcome, Tokens: p.tokens}}, nil
+	return candpkg.Result{Hints: out, Telemetry: candpkg.Telemetry{Outcome: outcome, Tokens: p.tokens}}, nil
 }
 
 // TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes verifies
-// that when two description plugins handle disjoint security types, both get to
+// that when two candidate plugins handle disjoint security types, both get to
 // process their respective items. Regression test for a bug where the first
 // plugin returning any hints caused an early return, starving later plugins.
 func TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes(t *testing.T) {
@@ -641,26 +641,26 @@ func TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes(t *te
 		},
 	}
 
-	descRegistry := descpkg.NewRegistry()
-	descRegistry.Register("cash", cashPlugin)
-	descRegistry.Register("stock", stockPlugin)
+	candRegistry := candpkg.NewRegistry()
+	candRegistry.Register("cash", cashPlugin)
+	candRegistry.Register("stock", stockPlugin)
 
 	// Cash plugin has higher precedence (returned first by DESC ordering).
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCandidate).
 		Return([]db.PluginConfigRow{
 			{PluginID: "cash", Precedence: 2, Config: nil},
 			{PluginID: "stock", Precedence: 1, Config: nil},
 		}, nil)
 
-	items := []descpkg.BatchItem{
+	items := []candpkg.BatchItem{
 		{ID: "cash-1", InstrumentDescription: "USD", Hints: identifier.Hints{InstrumentKind: identifier.InstrumentKindCash, SecurityTypeHint: identifier.SecurityTypeHintCash}},
 		{ID: "stock-1", InstrumentDescription: "AAPL APPLE INC", Hints: identifier.Hints{InstrumentKind: identifier.InstrumentKindSecurity, SecurityTypeHint: identifier.SecurityTypeHintStock}},
 	}
 
-	got, _, err := runDescriptionPluginsBatch(context.Background(), ingestDeps{DB: database, DescRegistry: descRegistry}, "broker", "source", items)
+	got, _, err := runCandidatePluginsBatch(context.Background(), ingestDeps{DB: database, CandidateRegistry: candRegistry}, "broker", "source", items)
 	if err != nil {
-		t.Fatalf("runDescriptionPluginsBatch: %v", err)
+		t.Fatalf("runCandidatePluginsBatch: %v", err)
 	}
 
 	if got == nil {
@@ -697,19 +697,19 @@ func TestRunDescriptionPluginsBatch_TransferSkipsCash(t *testing.T) {
 		},
 	}
 
-	descRegistry := descpkg.NewRegistry()
-	descRegistry.Register("cash", cashPlugin)
-	descRegistry.Register("stock", stockPlugin)
+	candRegistry := candpkg.NewRegistry()
+	candRegistry.Register("cash", cashPlugin)
+	candRegistry.Register("stock", stockPlugin)
 
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCandidate).
 		Return([]db.PluginConfigRow{
 			{PluginID: "cash", Precedence: 2, Config: nil},
 			{PluginID: "stock", Precedence: 1, Config: nil},
 		}, nil)
 
 	// TRANSFER: kind=SECURITY, type=UNKNOWN
-	items := []descpkg.BatchItem{
+	items := []candpkg.BatchItem{
 		{ID: "t-1", InstrumentDescription: "ABNB", Hints: identifier.Hints{
 			InstrumentKind:   identifier.InstrumentKindSecurity,
 			SecurityTypeHint: identifier.SecurityTypeHintUnknown,
@@ -717,9 +717,9 @@ func TestRunDescriptionPluginsBatch_TransferSkipsCash(t *testing.T) {
 		}},
 	}
 
-	got, _, err := runDescriptionPluginsBatch(context.Background(), ingestDeps{DB: database, DescRegistry: descRegistry}, "broker", "source", items)
+	got, _, err := runCandidatePluginsBatch(context.Background(), ingestDeps{DB: database, CandidateRegistry: candRegistry}, "broker", "source", items)
 	if err != nil {
-		t.Fatalf("runDescriptionPluginsBatch: %v", err)
+		t.Fatalf("runCandidatePluginsBatch: %v", err)
 	}
 
 	if got == nil {

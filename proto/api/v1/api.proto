@@ -237,9 +237,9 @@ service ApiService {
   rpc ListIdentifierPlugins(ListIdentifierPluginsRequest) returns (ListIdentifierPluginsResponse);
   rpc UpdateIdentifierPlugin(UpdateIdentifierPluginRequest) returns (UpdateIdentifierPluginResponse);
 
-  // Description plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON.
-  rpc ListDescriptionPlugins(ListDescriptionPluginsRequest) returns (ListDescriptionPluginsResponse);
-  rpc UpdateDescriptionPlugin(UpdateDescriptionPluginRequest) returns (UpdateDescriptionPluginResponse);
+  // Candidate plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON.
+  rpc ListCandidatePlugins(ListCandidatePluginsRequest) returns (ListCandidatePluginsResponse);
+  rpc UpdateCandidatePlugin(UpdateCandidatePluginRequest) returns (UpdateCandidatePluginResponse);
 
   // Price plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON.
   rpc ListPricePlugins(ListPricePluginsRequest) returns (ListPricePluginsResponse);
@@ -756,8 +756,8 @@ message UpdateIdentifierPluginResponse {
   IdentifierPluginConfig plugin = 1;
 }
 
-// DescriptionPluginConfig is one row from description_plugin_config (admin-only).
-message DescriptionPluginConfig {
+// CandidatePluginConfig is one row of candidate plugin config (admin-only).
+message CandidatePluginConfig {
   string plugin_id = 1;
   bool enabled = 2;
   int32 precedence = 3;
@@ -765,23 +765,23 @@ message DescriptionPluginConfig {
   string display_name = 5; // human-readable name from the plugin (e.g. "OpenAI")
 }
 
-message ListDescriptionPluginsRequest {}
+message ListCandidatePluginsRequest {}
 
-message ListDescriptionPluginsResponse {
-  repeated DescriptionPluginConfig plugins = 1;
+message ListCandidatePluginsResponse {
+  repeated CandidatePluginConfig plugins = 1;
 }
 
-message UpdateDescriptionPluginRequest {
+message UpdateCandidatePluginRequest {
   string plugin_id = 1;
   optional bool enabled = 2;
-  // Precedence must be unique across all description plugins. The constraint is
+  // Precedence must be unique across all candidate plugins. The constraint is
   // deferrable, so swaps can be performed within a transaction.
   optional int32 precedence = 3;
   optional string config_json = 4;
 }
 
-message UpdateDescriptionPluginResponse {
-  DescriptionPluginConfig plugin = 1;
+message UpdateCandidatePluginResponse {
+  CandidatePluginConfig plugin = 1;
 }
 
 // PricePluginConfig is one row from price_plugin_config (admin-only).
@@ -817,7 +817,7 @@ message UpdatePricePluginResponse {
 // ReorderPluginsRequest sets precedence for all plugins in a category.
 // plugin_ids is ordered from highest precedence (index 0) to lowest.
 message ReorderPluginsRequest {
-  string category = 1;            // "identifier", "description", "price", or "inflation"
+  string category = 1;            // "identifier", "candidate", "price", or "inflation"
   repeated string plugin_ids = 2; // all plugin IDs in the category, highest precedence first
 }
 

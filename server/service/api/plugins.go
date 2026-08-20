@@ -19,7 +19,7 @@ func (s *Server) ReorderPlugins(ctx context.Context, req *apiv1.ReorderPluginsRe
 		return nil, authErr
 	}
 	cat := req.GetCategory()
-	if cat != db.PluginCategoryIdentifier && cat != db.PluginCategoryDescription && cat != db.PluginCategoryPrice && cat != db.PluginCategoryInflation && cat != db.PluginCategoryCorporateEvent {
+	if cat != db.PluginCategoryIdentifier && cat != db.PluginCategoryCandidate && cat != db.PluginCategoryPrice && cat != db.PluginCategoryInflation && cat != db.PluginCategoryCorporateEvent {
 		return nil, status.Error(codes.InvalidArgument, "category must be identifier, description, price, inflation, or corporate_event")
 	}
 	if len(req.GetPluginIds()) == 0 {
@@ -296,26 +296,26 @@ func (s *Server) UpdateIdentifierPlugin(ctx context.Context, req *apiv1.UpdateId
 	}, nil
 }
 
-// ListDescriptionPlugins returns all description plugin configs. Admin only.
-func (s *Server) ListDescriptionPlugins(ctx context.Context, req *apiv1.ListDescriptionPluginsRequest) (*apiv1.ListDescriptionPluginsResponse, error) {
+// ListCandidatePlugins returns all candidate plugin configs. Admin only.
+func (s *Server) ListCandidatePlugins(ctx context.Context, req *apiv1.ListCandidatePluginsRequest) (*apiv1.ListCandidatePluginsResponse, error) {
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
 	}
-	rows, err := s.db.ListPluginConfigs(ctx, db.PluginCategoryDescription)
+	rows, err := s.db.ListPluginConfigs(ctx, db.PluginCategoryCandidate)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	plugins := make([]*apiv1.DescriptionPluginConfig, 0, len(rows))
+	plugins := make([]*apiv1.CandidatePluginConfig, 0, len(rows))
 	for _, r := range rows {
 		configJSON := ""
 		if len(r.Config) > 0 {
 			configJSON = string(r.Config)
 		}
 		displayName := r.PluginID
-		if s.descRegistry != nil {
-			displayName = s.descRegistry.GetDisplayName(r.PluginID)
+		if s.candRegistry != nil {
+			displayName = s.candRegistry.GetDisplayName(r.PluginID)
 		}
-		plugins = append(plugins, &apiv1.DescriptionPluginConfig{
+		plugins = append(plugins, &apiv1.CandidatePluginConfig{
 			PluginId:    r.PluginID,
 			Enabled:     r.Enabled,
 			Precedence:  int32(r.Precedence),
@@ -323,7 +323,7 @@ func (s *Server) ListDescriptionPlugins(ctx context.Context, req *apiv1.ListDesc
 			DisplayName: displayName,
 		})
 	}
-	return &apiv1.ListDescriptionPluginsResponse{Plugins: plugins}, nil
+	return &apiv1.ListCandidatePluginsResponse{Plugins: plugins}, nil
 }
 
 // ListInflationPlugins returns all inflation plugin configs. Admin only.
@@ -508,8 +508,8 @@ func (s *Server) TriggerCorporateEventFetch(ctx context.Context, req *apiv1.Trig
 	return &apiv1.TriggerCorporateEventFetchResponse{}, nil
 }
 
-// UpdateDescriptionPlugin updates enabled, precedence, and/or config for a description plugin. Admin only.
-func (s *Server) UpdateDescriptionPlugin(ctx context.Context, req *apiv1.UpdateDescriptionPluginRequest) (*apiv1.UpdateDescriptionPluginResponse, error) {
+// UpdateCandidatePlugin updates enabled, precedence, and/or config for a candidate plugin. Admin only.
+func (s *Server) UpdateCandidatePlugin(ctx context.Context, req *apiv1.UpdateCandidatePluginRequest) (*apiv1.UpdateCandidatePluginResponse, error) {
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
 	}
@@ -529,7 +529,7 @@ func (s *Server) UpdateDescriptionPlugin(ctx context.Context, req *apiv1.UpdateD
 	if req.ConfigJson != nil {
 		config = []byte(*req.ConfigJson)
 	}
-	row, err := s.db.UpdatePluginConfig(ctx, db.PluginCategoryDescription, req.GetPluginId(), enabled, precedence, config, nil)
+	row, err := s.db.UpdatePluginConfig(ctx, db.PluginCategoryCandidate, req.GetPluginId(), enabled, precedence, config, nil)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "plugin not found")
@@ -541,11 +541,11 @@ func (s *Server) UpdateDescriptionPlugin(ctx context.Context, req *apiv1.UpdateD
 		configJSON = string(row.Config)
 	}
 	displayName := row.PluginID
-	if s.descRegistry != nil {
-		displayName = s.descRegistry.GetDisplayName(row.PluginID)
+	if s.candRegistry != nil {
+		displayName = s.candRegistry.GetDisplayName(row.PluginID)
 	}
-	return &apiv1.UpdateDescriptionPluginResponse{
-		Plugin: &apiv1.DescriptionPluginConfig{
+	return &apiv1.UpdateCandidatePluginResponse{
+		Plugin: &apiv1.CandidatePluginConfig{
 			PluginId:    row.PluginID,
 			Enabled:     row.Enabled,
 			Precedence:  int32(row.Precedence),

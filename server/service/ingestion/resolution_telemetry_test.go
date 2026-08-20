@@ -10,7 +10,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
+	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"go.uber.org/mock/gomock"
 )
 
@@ -241,7 +241,7 @@ func TestIdentifierResolutionKeys(t *testing.T) {
 	}
 }
 
-// TestDescriptionPluginCallRows pins one row per ExtractBatch invocation, tokens
+// TestDescriptionPluginCallRows pins one row per ProposeBatch invocation, tokens
 // included. Tokens are columns rather than running totals, which is what makes
 // the cost of one import answerable, and they stay null for a plugin that costs
 // nothing to call.
@@ -257,22 +257,22 @@ func TestDescriptionPluginCallRows(t *testing.T) {
 			name: "hints and tokens",
 			plugin: &fakeDescPlugin{
 				results: map[string][]identifier.Identifier{"item-1": {{Type: "MIC_TICKER", Value: "AAPL"}}},
-				tokens:  &descpkg.Usage{PromptTokens: 11, CompletionTokens: 3, TotalTokens: 14},
+				tokens:  &candpkg.Usage{PromptTokens: 11, CompletionTokens: 3, TotalTokens: 14},
 			},
-			wantOut:    string(descpkg.OutcomeHintsReturned),
+			wantOut:    string(candpkg.OutcomeHintsReturned),
 			wantHints:  1,
 			wantTokens: &db.TelemetryTokens{Prompt: 11, Completion: 3, Total: 14},
 		},
 		{
 			name:      "no hints and no token cost",
 			plugin:    &fakeDescPlugin{results: map[string][]identifier.Identifier{}},
-			wantOut:   string(descpkg.OutcomeNoHints),
+			wantOut:   string(candpkg.OutcomeNoHints),
 			wantHints: 0,
 		},
 		{
 			name:      "the call failed",
 			plugin:    &fakeDescPlugin{err: errors.New("upstream down")},
-			wantOut:   string(descpkg.OutcomeError),
+			wantOut:   string(candpkg.OutcomeError),
 			wantHints: 0,
 		},
 	}
@@ -283,20 +283,20 @@ func TestDescriptionPluginCallRows(t *testing.T) {
 			t.Cleanup(ctrl.Finish)
 			database := mock.NewMockDB(ctrl)
 			tel := mock.NewMockTelemetryDB(ctrl)
-			descRegistry := descpkg.NewRegistry()
-			descRegistry.Register("fake", tc.plugin)
+			candRegistry := candpkg.NewRegistry()
+			candRegistry.Register("fake", tc.plugin)
 			database.EXPECT().
-				ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
+				ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCandidate).
 				Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 70}}, nil)
 
-			var got db.TelemetryDescriptionPluginCall
-			tel.EXPECT().WriteDescriptionPluginCall(gomock.Any(), gomock.Any()).
-				Do(func(_ context.Context, c db.TelemetryDescriptionPluginCall) { got = c }).Times(1)
+			var got db.TelemetryCandidatePluginCall
+			tel.EXPECT().WriteCandidatePluginCall(gomock.Any(), gomock.Any()).
+				Do(func(_ context.Context, c db.TelemetryCandidatePluginCall) { got = c }).Times(1)
 
-			items := []descpkg.BatchItem{{ID: "item-1", InstrumentDescription: "APPLE INC"}}
-			deps := ingestDeps{DB: database, DescRegistry: descRegistry, Telemetry: tel, RunID: "run-1"}
-			if _, _, err := runDescriptionPluginsBatch(context.Background(), deps, "FIDELITY", "SRC", items); err != nil {
-				t.Fatalf("runDescriptionPluginsBatch: %v", err)
+			items := []candpkg.BatchItem{{ID: "item-1", InstrumentDescription: "APPLE INC"}}
+			deps := ingestDeps{DB: database, CandidateRegistry: candRegistry, Telemetry: tel, RunID: "run-1"}
+			if _, _, err := runCandidatePluginsBatch(context.Background(), deps, "FIDELITY", "SRC", items); err != nil {
+				t.Fatalf("runCandidatePluginsBatch: %v", err)
 			}
 
 			if got.RunID != "run-1" || got.PluginID != "fake" {
@@ -334,25 +334,25 @@ func TestExtractionOutcomesPerItem(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	database := mock.NewMockDB(ctrl)
-	descRegistry := descpkg.NewRegistry()
-	descRegistry.Register("stock", &fakeDescPlugin{
+	candRegistry := candpkg.NewRegistry()
+	candRegistry.Register("stock", &fakeDescPlugin{
 		acceptable: map[string]bool{identifier.SecurityTypeHintStock: true},
 		results:    map[string][]identifier.Identifier{"found": {{Type: "MIC_TICKER", Value: "AAPL"}}},
 	})
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCandidate).
 		Return([]db.PluginConfigRow{{PluginID: "stock", Precedence: 1}}, nil)
 
 	stock := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-	items := []descpkg.BatchItem{
+	items := []candpkg.BatchItem{
 		{ID: "found", InstrumentDescription: "APPLE INC", Hints: stock},
 		{ID: "missed", InstrumentDescription: "SOMETHING", Hints: stock},
 		{ID: "filtered", InstrumentDescription: "USD", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintCash}},
 	}
-	_, outcomes, err := runDescriptionPluginsBatch(context.Background(),
-		ingestDeps{DB: database, DescRegistry: descRegistry}, "FIDELITY", "SRC", items)
+	_, outcomes, err := runCandidatePluginsBatch(context.Background(),
+		ingestDeps{DB: database, CandidateRegistry: candRegistry}, "FIDELITY", "SRC", items)
 	if err != nil {
-		t.Fatalf("runDescriptionPluginsBatch: %v", err)
+		t.Fatalf("runCandidatePluginsBatch: %v", err)
 	}
 
 	want := map[string]string{
@@ -368,21 +368,21 @@ func TestExtractionOutcomesPerItem(t *testing.T) {
 }
 
 // TestExtractionNotAttemptedWithoutPlugins pins the installation with no
-// description plugins. Nothing was asked, so nothing found nothing.
+// candidate plugins. Nothing was asked, so nothing found nothing.
 func TestExtractionNotAttemptedWithoutPlugins(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	database := mock.NewMockDB(ctrl)
-	descRegistry := descpkg.NewRegistry()
+	candRegistry := candpkg.NewRegistry()
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCandidate).
 		Return(nil, nil)
 
-	items := []descpkg.BatchItem{{ID: "item-1", InstrumentDescription: "APPLE INC"}}
-	_, outcomes, err := runDescriptionPluginsBatch(context.Background(),
-		ingestDeps{DB: database, DescRegistry: descRegistry}, "FIDELITY", "SRC", items)
+	items := []candpkg.BatchItem{{ID: "item-1", InstrumentDescription: "APPLE INC"}}
+	_, outcomes, err := runCandidatePluginsBatch(context.Background(),
+		ingestDeps{DB: database, CandidateRegistry: candRegistry}, "FIDELITY", "SRC", items)
 	if err != nil {
-		t.Fatalf("runDescriptionPluginsBatch: %v", err)
+		t.Fatalf("runCandidatePluginsBatch: %v", err)
 	}
 	if outcomes["item-1"] != db.TelemetryExtractionNotAttemptedNoPlugins {
 		t.Errorf("outcome = %q, want %q", outcomes["item-1"], db.TelemetryExtractionNotAttemptedNoPlugins)

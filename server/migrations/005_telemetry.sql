@@ -188,19 +188,19 @@ CREATE INDEX idx_telemetry_identifier_plugin_call_attempt
   ON telemetry.identifier_plugin_call (identification_attempt_id);
 
 -- One plugin invocation over a batch. This hangs off the run rather than off a
--- resolution key: one ExtractBatch call covers many descriptions at once, so it has no
+-- resolution key: one ProposeBatch call covers many descriptions at once, so it has no
 -- single parent key. Identifier plugins are called once per plugin per attempt and do
 -- nest. The asymmetry is forced by the code and must not be flattened away -- it is
 -- what made the counters this replaces impossible to add up.
 --
--- Description plugins run in precedence order and each sees only the items its
+-- Candidate plugins run in precedence order and each sees only the items its
 -- predecessors failed on, so batch_size is a different population per plugin and rates
 -- are not comparable between them. Identifier plugins run in parallel and every
 -- eligible plugin is called, so those rates are comparable.
 --
 -- Tokens are columns rather than running totals, which is what makes the cost of one
 -- import answerable. They are null, not zero, for a plugin that costs no tokens.
-CREATE TABLE telemetry.description_plugin_call (
+CREATE TABLE telemetry.candidate_plugin_call (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   run_id    UUID NOT NULL REFERENCES telemetry.run (id) ON DELETE CASCADE,
   plugin_id TEXT NOT NULL,
@@ -227,8 +227,8 @@ CREATE TABLE telemetry.description_plugin_call (
   duration_ms       INT NOT NULL
 );
 
-CREATE INDEX idx_telemetry_description_plugin_call_run
-  ON telemetry.description_plugin_call (run_id);
+CREATE INDEX idx_telemetry_candidate_plugin_call_run
+  ON telemetry.candidate_plugin_call (run_id);
 
 -- One instrument a price fetch cycle set out to fill, which is one entry in the gap
 -- list PriceGaps and FXGaps produce between them.
@@ -297,7 +297,7 @@ CREATE INDEX idx_telemetry_price_gap_instrument ON telemetry.price_gap (instrume
 --
 -- Plugins are tried in precedence order until one covers the gap, so a gap normally has
 -- rows from fewer plugins than are configured. precedence is what makes that readable,
--- for the reason it is recorded on description_plugin_call: a plugin filtered out by
+-- for the reason it is recorded on candidate_plugin_call: a plugin filtered out by
 -- asset class, exchange or currency, blocked for this instrument, or holding no
 -- identifier it supports, writes no row at all, so a gap in the sequence means skipped.
 --
@@ -384,8 +384,8 @@ SELECT
   -- design, so the file's own row count is not available here.
   (SELECT coalesce(sum(k.tx_count), 0) FROM telemetry.resolution_key k
      WHERE k.run_id = r.id) AS key_tx_count,
-  (SELECT count(*) FROM telemetry.description_plugin_call c
-     WHERE c.run_id = r.id) AS description_call_count,
+  (SELECT count(*) FROM telemetry.candidate_plugin_call c
+     WHERE c.run_id = r.id) AS candidate_call_count,
   -- How big a price fetch cycle was. Instruments rather than days, because the
   -- instrument is what the run dashboard drills into and what a hole in a
   -- valuation is traced back to; v_price_gap.days_outstanding carries the other
@@ -528,7 +528,7 @@ JOIN telemetry.identification_attempt a ON a.id = c.identification_attempt_id
 JOIN telemetry.resolution_key k ON k.id = a.resolution_key_id
 JOIN telemetry.run r ON r.id = k.run_id;
 
-CREATE VIEW telemetry.v_description_plugin_call AS
+CREATE VIEW telemetry.v_candidate_plugin_call AS
 SELECT
   c.id,
   c.run_id,
@@ -555,7 +555,7 @@ SELECT
   r.outcome    AS run_outcome,
   r.telemetry_incomplete AS run_telemetry_incomplete,
   r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
-FROM telemetry.description_plugin_call c
+FROM telemetry.candidate_plugin_call c
 JOIN telemetry.run r ON r.id = c.run_id;
 
 CREATE VIEW telemetry.v_price_gap AS

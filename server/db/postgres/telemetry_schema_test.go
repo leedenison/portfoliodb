@@ -187,11 +187,11 @@ func TestTelemetryRetentionCascades(t *testing.T) {
 		t.Fatalf("seed identifier plugin call: %v", err)
 	}
 	if _, err := p.q.ExecContext(ctx, `
-		INSERT INTO telemetry.description_plugin_call
+		INSERT INTO telemetry.candidate_plugin_call
 			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome, duration_ms)
 		VALUES ($1::uuid, 'openai', 100, 20, 18, 'hints_returned', 900)
 	`, oldRun); err != nil {
-		t.Fatalf("seed description plugin call: %v", err)
+		t.Fatalf("seed candidate plugin call: %v", err)
 	}
 	newRun := seedRun(t, p, "tx_import", cutoff.Add(24*time.Hour))
 	seedResolutionKey(t, p, newRun)
@@ -207,7 +207,7 @@ func TestTelemetryRetentionCascades(t *testing.T) {
 		"telemetry.resolution_key",
 		"telemetry.identification_attempt",
 		"telemetry.identifier_plugin_call",
-		"telemetry.description_plugin_call",
+		"telemetry.candidate_plugin_call",
 	} {
 		var n int
 		if err := p.q.QueryRowContext(ctx,
@@ -218,7 +218,7 @@ func TestTelemetryRetentionCascades(t *testing.T) {
 		want := 1
 		if table == "telemetry.identification_attempt" ||
 			table == "telemetry.identifier_plugin_call" ||
-			table == "telemetry.description_plugin_call" {
+			table == "telemetry.candidate_plugin_call" {
 			want = 0
 		}
 		if n != want {
@@ -240,12 +240,12 @@ func TestTelemetryReaderRoleIsSelectOnly(t *testing.T) {
 		"telemetry.resolution_key",
 		"telemetry.identification_attempt",
 		"telemetry.identifier_plugin_call",
-		"telemetry.description_plugin_call",
+		"telemetry.candidate_plugin_call",
 		"telemetry.v_run",
 		"telemetry.v_resolution_key",
 		"telemetry.v_identification_attempt",
 		"telemetry.v_identifier_plugin_call",
-		"telemetry.v_description_plugin_call",
+		"telemetry.v_candidate_plugin_call",
 		"telemetry.v_instrument_label",
 	} {
 		var canSelect, canInsert, canUpdate, canDelete bool
@@ -429,12 +429,12 @@ func seedIdentifierCall(t *testing.T, p *Postgres, attemptID, outcome string) st
 	return id
 }
 
-// seedDescriptionCall inserts a description plugin call under a run.
-func seedDescriptionCall(t *testing.T, p *Postgres, runID, outcome string) string {
+// seedCandidateCall inserts a candidate plugin call under a run.
+func seedCandidateCall(t *testing.T, p *Postgres, runID, outcome string) string {
 	t.Helper()
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
-		INSERT INTO telemetry.description_plugin_call
+		INSERT INTO telemetry.candidate_plugin_call
 			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome, duration_ms)
 		VALUES ($1::uuid, 'openai', 100, 10, 4, $2, 900)
 		RETURNING id
@@ -569,7 +569,7 @@ func TestTelemetryViews_TransportFailed(t *testing.T) {
 }
 
 // TestTelemetryViews_CallFailed keeps no_hints out of the failure bucket. A
-// description plugin that ran, answered, and had nothing to offer is not broken,
+// candidate plugin that ran, answered, and had nothing to offer is not broken,
 // and counting it as broken would bury the calls that genuinely were.
 func TestTelemetryViews_CallFailed(t *testing.T) {
 	p := testDBTx(t)
@@ -589,10 +589,10 @@ func TestTelemetryViews_CallFailed(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.outcome, func(t *testing.T) {
-			id := seedDescriptionCall(t, p, runID, c.outcome)
+			id := seedCandidateCall(t, p, runID, c.outcome)
 			var got bool
 			if err := p.q.QueryRowContext(ctx,
-				`SELECT call_failed FROM telemetry.v_description_plugin_call WHERE id = $1::uuid`, id,
+				`SELECT call_failed FROM telemetry.v_candidate_plugin_call WHERE id = $1::uuid`, id,
 			).Scan(&got); err != nil {
 				t.Fatalf("select v_description_plugin_call: %v", err)
 			}
@@ -604,7 +604,7 @@ func TestTelemetryViews_CallFailed(t *testing.T) {
 }
 
 // TestTelemetryViews_RunRollupsDoNotMultiply is the test a JOIN would fail. The
-// run below has two resolution keys and two description plugin calls, which are
+// run below has two resolution keys and two candidate plugin calls, which are
 // sibling grains: joining v_run to both would produce four rows and report each
 // count as twice what it is. The rollups are scalar subqueries for that reason,
 // and the seeded attempts are here so that a join through the key side would be
@@ -618,8 +618,8 @@ func TestTelemetryViews_RunRollupsDoNotMultiply(t *testing.T) {
 	seedKeyWithOutcome(t, p, runID, "broker_description_only", 5)
 	seedAttempt(t, p, first, "primary", "identified", 0)
 	seedAttempt(t, p, first, "mismatch_check", "identified", 0)
-	seedDescriptionCall(t, p, runID, "hints_returned")
-	seedDescriptionCall(t, p, runID, "no_hints")
+	seedCandidateCall(t, p, runID, "hints_returned")
+	seedCandidateCall(t, p, runID, "no_hints")
 	// A fourth child grain under the same run. Two gaps, one carrying two calls,
 	// so a join rather than a scalar subquery would multiply the key counts by
 	// three and the gap count by two.
@@ -630,7 +630,7 @@ func TestTelemetryViews_RunRollupsDoNotMultiply(t *testing.T) {
 
 	var rows, keyCount, keyTxCount, descCount, gapCount int
 	err := p.q.QueryRowContext(ctx, `
-		SELECT count(*), max(key_count), max(key_tx_count), max(description_call_count),
+		SELECT count(*), max(key_count), max(key_tx_count), max(candidate_call_count),
 		       max(gap_count)
 		FROM telemetry.v_run WHERE id = $1::uuid
 	`, runID).Scan(&rows, &keyCount, &keyTxCount, &descCount, &gapCount)
@@ -651,7 +651,7 @@ func TestTelemetryViews_RunRollupsDoNotMultiply(t *testing.T) {
 		t.Errorf("key_tx_count = %d, want 8", keyTxCount)
 	}
 	if descCount != 2 {
-		t.Errorf("description_call_count = %d, want 2", descCount)
+		t.Errorf("candidate_call_count = %d, want 2", descCount)
 	}
 }
 
@@ -664,7 +664,7 @@ func TestTelemetryViews_RunRollupsAreZeroNotNull(t *testing.T) {
 
 	var keyCount, keyTxCount, descCount, gapCount int
 	err := p.q.QueryRowContext(context.Background(), `
-		SELECT key_count, key_tx_count, description_call_count, gap_count
+		SELECT key_count, key_tx_count, candidate_call_count, gap_count
 		FROM telemetry.v_run WHERE id = $1::uuid
 	`, runID).Scan(&keyCount, &keyTxCount, &descCount, &gapCount)
 	if err != nil {

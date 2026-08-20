@@ -203,11 +203,13 @@ enum AssetClass {
 // This is the one vocabulary here whose value names are not the strings the
 // column holds: plugin_config.category is lowercase ("corporate_event"), so
 // db.PluginCategoryToStr maps between the two. The names are what an archive
-// file spells, and those do not change.
+// file spells, so renaming one changes what an archive says -- CANDIDATE was
+// DESCRIPTION until the stage was renamed, and an archive written before that
+// no longer names a category this knows.
 enum PluginCategory {
   PLUGIN_CATEGORY_UNSPECIFIED = 0;
   IDENTIFIER = 1;
-  DESCRIPTION = 2;
+  CANDIDATE = 2;
   PRICE = 3;
   INFLATION = 4;
   CORPORATE_EVENT = 5;

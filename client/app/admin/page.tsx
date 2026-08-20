@@ -6,7 +6,7 @@ import { TRANSFER_STALE_DAYS } from "@/lib/residual-balance";
 import Link from "next/link";
 import {
   listIdentifierPlugins,
-  listDescriptionPlugins,
+  listCandidatePlugins,
   listPricePlugins,
   listWorkers,
   countUnhandledCorporateEvents,
@@ -45,11 +45,11 @@ const dashboardCards: {
       "Enable/disable identification plugins and edit config (API keys, precedence).",
   },
   {
-    id: "description",
-    title: "Description plugins",
-    href: "/admin/plugins/description",
+    id: "candidate",
+    title: "Candidate plugins",
+    href: "/admin/plugins/candidate",
     description:
-      "Enable/disable description plugins that extract identifier hints from broker text.",
+      "Enable/disable candidate plugins that extract identifier hints from broker text.",
   },
   {
     id: "price",
@@ -106,9 +106,9 @@ export default function AdminOverviewPage() {
     queryFn: listIdentifierPlugins,
     select: names,
   });
-  const { data: descriptionPlugins = [] } = useAuthedQuery({
-    queryKey: qk.plugins("description"),
-    queryFn: listDescriptionPlugins,
+  const { data: candidatePlugins = [] } = useAuthedQuery({
+    queryKey: qk.plugins("candidate"),
+    queryFn: listCandidatePlugins,
     select: names,
   });
   const { data: pricePlugins = [] } = useAuthedQuery({
@@ -141,8 +141,8 @@ export default function AdminOverviewPage() {
     if (id === "identifier" && identifierPlugins.length > 0) {
       return identifierPlugins.map((p) => p.displayName).join(", ");
     }
-    if (id === "description" && descriptionPlugins.length > 0) {
-      return descriptionPlugins.map((p) => p.displayName).join(", ");
+    if (id === "candidate" && candidatePlugins.length > 0) {
+      return candidatePlugins.map((p) => p.displayName).join(", ");
     }
     if (id === "price" && pricePlugins.length > 0) {
       return pricePlugins.map((p) => p.displayName).join(", ");

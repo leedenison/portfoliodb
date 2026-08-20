@@ -12,7 +12,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/identifier/candidate"
 	"github.com/leedenison/portfoliodb/server/txtype"
 )
 
@@ -29,9 +29,9 @@ var errBatchRejected = errors.New("batch rejected")
 // ingestDeps are the collaborators a batch needs, distinct from what it is
 // ingesting.
 type ingestDeps struct {
-	DB           db.DB
-	Registry     *identifier.Registry
-	DescRegistry *description.Registry
+	DB                db.DB
+	Registry          *identifier.Registry
+	CandidateRegistry *candidate.Registry
 	// Telemetry and RunID are the run this batch is part of. Either left unset
 	// records nothing: a batch outside a run has nothing to hang its event rows
 	// off, and the writer would reject them.
@@ -39,13 +39,13 @@ type ingestDeps struct {
 	RunID     string
 }
 
-// writeDescriptionPluginCall records one ExtractBatch invocation against the run,
+// writeCandidatePluginCall records one ProposeBatch invocation against the run,
 // and does nothing when the batch is not part of one.
-func (d ingestDeps) writeDescriptionPluginCall(ctx context.Context, c db.TelemetryDescriptionPluginCall) {
+func (d ingestDeps) writeCandidatePluginCall(ctx context.Context, c db.TelemetryCandidatePluginCall) {
 	if d.Telemetry == nil || d.RunID == "" {
 		return
 	}
-	d.Telemetry.WriteDescriptionPluginCall(ctx, c)
+	d.Telemetry.WriteCandidatePluginCall(ctx, c)
 }
 
 // ingestParams is one batch of postings and the scope they are stored under.

@@ -214,7 +214,7 @@ export function PluginConfigEditor<T extends PluginConfig>({
   title: string;
   description: string;
   /** Query key discriminator: listFn is a stable module reference but cannot be a key. */
-  category: "identifier" | "description" | "price" | "inflation";
+  category: "identifier" | "candidate" | "price" | "inflation";
   listFn: () => Promise<T[]>;
   updateFn: (
     pluginId: string,

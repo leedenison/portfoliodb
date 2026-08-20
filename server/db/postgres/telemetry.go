@@ -190,9 +190,9 @@ func (t *Telemetry) WriteIdentifierPluginCall(ctx context.Context, c db.Telemetr
 	}
 }
 
-// WriteDescriptionPluginCall implements db.TelemetryDB.
-func (t *Telemetry) WriteDescriptionPluginCall(ctx context.Context, c db.TelemetryDescriptionPluginCall) {
-	runID, ok := t.parent(ctx, c.RunID, c.RunID, "write description plugin call")
+// WriteCandidatePluginCall implements db.TelemetryDB.
+func (t *Telemetry) WriteCandidatePluginCall(ctx context.Context, c db.TelemetryCandidatePluginCall) {
+	runID, ok := t.parent(ctx, c.RunID, c.RunID, "write candidate plugin call")
 	if !ok {
 		return
 	}
@@ -201,13 +201,13 @@ func (t *Telemetry) WriteDescriptionPluginCall(ctx context.Context, c db.Telemet
 		prompt, completion, total = c.Tokens.Prompt, c.Tokens.Completion, c.Tokens.Total
 	}
 	if _, err := t.db.ExecContext(ctx, `
-		INSERT INTO telemetry.description_plugin_call
+		INSERT INTO telemetry.candidate_plugin_call
 			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome,
 			 prompt_tokens, completion_tokens, total_tokens, duration_ms)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, runID, c.PluginID, c.Precedence, c.BatchSize, c.ItemsWithHints, c.Outcome,
 		prompt, completion, total, ms(c.Duration)); err != nil {
-		t.fail(ctx, c.RunID, "write description plugin call", err)
+		t.fail(ctx, c.RunID, "write candidate plugin call", err)
 	}
 }
 

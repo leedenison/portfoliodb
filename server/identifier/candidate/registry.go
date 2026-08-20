@@ -1,8 +1,8 @@
-package description
+package candidate
 
 import "sync"
 
-// Registry holds description plugin implementations by plugin ID.
+// Registry holds candidate plugin implementations by plugin ID.
 // The service loads enabled plugins (with precedence and config) from the DB,
 // then looks them up here to invoke Extract in series by precedence.
 type Registry struct {
@@ -11,7 +11,7 @@ type Registry struct {
 	byID map[string]Plugin
 }
 
-// NewRegistry returns a new description plugin registry.
+// NewRegistry returns a new candidate plugin registry.
 func NewRegistry() *Registry {
 	return &Registry{byID: make(map[string]Plugin)}
 }

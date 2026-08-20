@@ -13,7 +13,7 @@ import { isRecordingSuite } from "../helpers/vcr";
 
 test.beforeAll(async () => {
   await loadCassette("fetch-blocks");
-  await resetAndSeedBase();
+  await resetAndSeedBase("fetch-blocks");
   if (isRecordingSuite("fetch-blocks")) {
     await corruptMassivePriceKey();
   }

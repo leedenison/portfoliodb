@@ -4,7 +4,7 @@
 import { Client } from "pg";
 import * as fs from "fs";
 import * as path from "path";
-import { isRecording } from "./vcr";
+import { isRecordingSuite } from "./vcr";
 
 const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
@@ -62,11 +62,24 @@ export async function seedFixture(filename: string): Promise<void> {
   await c.query(sql);
 }
 
-// Seed plugin config. When any suite is being recorded (VCR_MODE is non-empty)
-// uses real API keys from env vars; in replay mode uses "REDACTED" placeholders.
-export async function seedPluginConfig(): Promise<void> {
+// Seed plugin config.
+//
+// suite is the cassette this spec file records under, and is what decides
+// whether the plugins get real API keys or the "REDACTED" placeholders their
+// cassettes were sanitized to. Omit it for a spec that loads no cassette: with
+// none loaded the server refuses outbound HTTP outright, so the key is never
+// used and a real one would only be a secret sitting in a database for no
+// reason.
+//
+// It is per-suite rather than "is anything recording" because recording one
+// suite must not disturb the others. E2EMatcher compares the whole URL, and
+// EODHD and Massive carry their keys in it, so a replaying suite seeded with a
+// live key asks for a URL its cassette cannot hold and every one of its
+// interactions misses. The rate limits are per-suite for the same reason: only
+// the suite actually calling a provider needs to be slowed to its quota.
+export async function seedPluginConfig(suite?: string): Promise<void> {
   const c = await getClient();
-  const recording = isRecording();
+  const recording = suite !== undefined && isRecordingSuite(suite);
 
   const openaiKey = recording ? process.env.OPENAI_API_KEY ?? "" : "REDACTED";
   const openfigiKey = recording
@@ -188,11 +201,13 @@ export async function rawQuery(sql: string, params?: unknown[]): Promise<unknown
 }
 
 // Convenience: reset and seed the base data (users, portfolio, plugin config)
-// that all tests need.
-export async function resetAndSeedBase(): Promise<void> {
+// that all tests need. Pass the cassette name a spec loads, so that recording it
+// seeds real API keys and recording a different one does not -- see
+// seedPluginConfig.
+export async function resetAndSeedBase(suite?: string): Promise<void> {
   await resetData();
   await seedFixture("seed.sql");
-  await seedPluginConfig();
+  await seedPluginConfig(suite);
 }
 
 // Query instrument details by identifier. Returns null if not found.

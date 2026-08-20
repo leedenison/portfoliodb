@@ -9,7 +9,7 @@ import { uploadArchiveAndWait } from "../helpers/upload";
 
 test.beforeAll(async () => {
   await loadCassette("mixed-tx-types");
-  await resetAndSeedBase();
+  await resetAndSeedBase("mixed-tx-types");
 });
 
 test.afterAll(async () => {

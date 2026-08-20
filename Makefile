@@ -173,9 +173,12 @@ e2e-test: $(STAMP_DIR)/generate
 e2e-test-list:
 	@ls e2e/cassettes/*.yaml 2>/dev/null | xargs -n1 basename | sed 's/\.yaml$$//' | sort
 
-# E2E tests: record mode (real API calls, real keys from env, real rate limits).
-# Requires: VCR_SUITES (comma-separated cassette names to re-record) and API keys
-# for the suites being recorded.
+# E2E tests: re-record one or more cassettes. The whole suite still runs; only
+# the specs named in VCR_SUITES make real API calls, with real keys from env and
+# the providers' real rate limits. Every other spec replays as usual, seeded with
+# the same placeholder keys its cassette was sanitized to -- a live key there
+# would put a URL in its requests that its cassette cannot match.
+# Requires: VCR_SUITES (comma-separated cassette names) and API keys for them.
 # VCR_MODE is passed to both the server (for go-vcr) and Playwright (for seed logic).
 # Tears down any existing E2E stack first to avoid stale containers/env vars.
 e2e-test-record: $(STAMP_DIR)/generate

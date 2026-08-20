@@ -9,7 +9,7 @@ import { uploadArchiveAndWait } from "../helpers/upload";
 
 test.beforeAll(async () => {
   await loadCassette("failed-identification");
-  await resetAndSeedBase();
+  await resetAndSeedBase("failed-identification");
 });
 
 test.afterAll(async () => {

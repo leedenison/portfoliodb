@@ -18,6 +18,25 @@ identifier lookup becomes owner-scoped with a system fallback. That is the
 hottest path in ingestion and the cost is paid on every row, which makes this
 the largest item in M24.
 
+## The exclusion constraint has to change first
+
+`excl_instrument_identifiers_overlap` keys on `(identifier_type,
+COALESCE(domain,''), value, daterange)` with no owner, so two users holding
+*conflicting* mappings for one triple is rejected at insert. That is the case
+this issue routes to an admin, and under the constraint as it stands the
+disagreement never exists to be surfaced. The owner has to enter the constraint
+before any of the rest of this works.
+
+It weakens an invariant deliberately. "One name denotes one instrument at a time"
+becomes "one name per owner at a time", with system rows as the shared case. The
+second-order effect wants writing down rather than discovering: a user-owned row
+and a system row for one triple no longer collide, so a user can hold a mapping
+that contradicts the instance's, and since lookups resolve owner-first their
+transactions follow their own file. That is the user override the spec already
+describes, arriving by a new route.
+
+## Promotion
+
 A periodic sweep promotes a mapping to system-owned once a configurable number
 of users hold it with no user holding a conflicting one, deleting the rows it
 was promoted from. Conflicts are listed for an admin; resolving one deletes the

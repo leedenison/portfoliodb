@@ -29,4 +29,22 @@ on its own, so the hypothesis is answered without anyone being asked. Both route
 end with the claim eligible; neither leaves it acted on while it is still one
 user's word.
 
+The claim is recorded on the surface 0141 builds, as a `hypothesis` rather than a
+`contradiction`, and everything 0141 says about the row applies here: endpoints as
+whole triples, the mediator that produced the derived claim, the owner and the
+vintage, and a natural key that makes a re-upload bump `last_seen` rather than
+raise a duplicate.
+
+A confirmed hypothesis is deleted once the merge it authorises has happened -- the
+merge is the record. A refuted one is kept permanently, because nothing else in
+the schema can say two identifiers are not one instrument, and without it every
+later upload of the same statement asks the same question and pays for it again.
+
+Open: when an open hypothesis is re-tested. The periodic re-identification sweep
+is the cheap answer; testing eagerly when the enabled identifier plugin set changes is the
+responsive one, and it is the case adr/0060 names -- an admin paying for a richer
+tier is exactly when a refused claim becomes answerable. Also open is whether a
+refutation expires, since a provider that refuted it last year may answer
+differently now.
+
 See adr/0062-a-user-mediated-claim-is-a-lead-not-a-write.md.

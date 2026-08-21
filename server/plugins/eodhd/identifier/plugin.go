@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
@@ -16,21 +15,13 @@ import (
 // PluginID is the stable plugin_id for registration and identifier_plugin_config.
 const PluginID = "eodhd"
 
-type configJSON struct {
-	EODHDAPIKey  string `json:"eodhd_api_key"`
-	EODHDBaseURL string `json:"eodhd_base_url"`
-	CallsPerMin  *int   `json:"eodhd_calls_per_min"`
-}
-
 // Plugin implements identifier.Plugin using the EODHD REST API.
 type Plugin struct {
 	log        *slog.Logger
 	httpClient *http.Client
 	exchMap    *exchangemap.ExchangeMap
 
-	mu         sync.Mutex
-	client     *client.Client
-	lastConfig string
+	cache client.Cache
 }
 
 // NewPlugin returns a plugin. log and exchMap are optional (nil for tests).
@@ -41,7 +32,7 @@ func NewPlugin(log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.E
 func (p *Plugin) DisplayName() string { return "EODHD" }
 
 func (p *Plugin) DefaultConfig() []byte {
-	cfg := configJSON{}
+	cfg := client.Config{}
 	out, _ := json.Marshal(cfg)
 	return out
 }
@@ -139,26 +130,8 @@ func outcome(err error) identifier.Outcome {
 
 // getClient returns the shared client, rebuilding it only when config changes.
 func (p *Plugin) getClient(config []byte) (*client.Client, error) {
-	raw := string(config)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.client != nil && p.lastConfig == raw {
-		return p.client, nil
-	}
-	var cfg configJSON
-	if len(config) > 0 {
-		if err := json.Unmarshal(config, &cfg); err != nil {
-			return nil, err
-		}
-	}
-	perMin := 0
-	if cfg.CallsPerMin != nil {
-		perMin = *cfg.CallsPerMin
-	}
-	limiter := client.NewRateLimiter(perMin)
-	p.client = client.New(cfg.EODHDAPIKey, cfg.EODHDBaseURL, limiter, p.log, p.httpClient)
-	p.lastConfig = raw
-	return p.client, nil
+	c, _, err := p.cache.Get(config, p.log, p.httpClient)
+	return c, err
 }
 
 // exchangeHintFromIdentifiers returns the Domain of the first OPENFIGI_TICKER

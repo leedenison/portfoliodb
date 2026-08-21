@@ -10,6 +10,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
 	"github.com/shopspring/decimal"
 )
@@ -70,8 +71,8 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "massive/price")
 
 			p := NewPlugin(nil, httpClient)
-			cfg, err := json.Marshal(configJSON{
-				MassiveAPIKey: apiKey,
+			cfg, err := json.Marshal(client.Config{
+				APIKey: apiKey,
 			})
 			if err != nil {
 				t.Fatalf("marshal config: %v", err)

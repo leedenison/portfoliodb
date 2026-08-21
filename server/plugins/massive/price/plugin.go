@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
@@ -19,20 +18,12 @@ import (
 // PluginID is the stable plugin_id for registration and price_plugin_config.
 const PluginID = "massive"
 
-type configJSON struct {
-	MassiveAPIKey  string `json:"massive_api_key"`
-	MassiveBaseURL string `json:"massive_base_url"`
-	CallsPerMin    *int   `json:"massive_calls_per_min"`
-}
-
 // Plugin implements pricefetcher.Plugin using the Massive aggregates API.
 type Plugin struct {
 	log        *slog.Logger
 	httpClient *http.Client
 
-	mu         sync.Mutex
-	client     *client.Client
-	lastConfig string
+	cache client.Cache
 }
 
 // NewPlugin returns a plugin. log is optional (nil for tests).
@@ -43,7 +34,7 @@ func NewPlugin(log *slog.Logger, httpClient *http.Client) *Plugin {
 func (p *Plugin) DisplayName() string { return "Massive" }
 
 func (p *Plugin) DefaultConfig() []byte {
-	cfg := configJSON{}
+	cfg := client.Config{}
 	out, _ := json.Marshal(cfg)
 	return out
 }
@@ -202,24 +193,6 @@ func tickerForAssetClass(ids []identifier.Identifier, assetClass string) (string
 }
 
 func (p *Plugin) getClient(config []byte) (*client.Client, error) {
-	raw := string(config)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.client != nil && p.lastConfig == raw {
-		return p.client, nil
-	}
-	var cfg configJSON
-	if len(config) > 0 {
-		if err := json.Unmarshal(config, &cfg); err != nil {
-			return nil, err
-		}
-	}
-	perMin := 0
-	if cfg.CallsPerMin != nil {
-		perMin = *cfg.CallsPerMin
-	}
-	limiter := client.NewRateLimiter(perMin)
-	p.client = client.New(cfg.MassiveAPIKey, cfg.MassiveBaseURL, limiter, p.log, p.httpClient)
-	p.lastConfig = raw
-	return p.client, nil
+	c, _, err := p.cache.Get(config, p.log, p.httpClient)
+	return c, err
 }

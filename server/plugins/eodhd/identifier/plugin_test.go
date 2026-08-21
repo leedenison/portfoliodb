@@ -19,9 +19,9 @@ func testServer(handler http.HandlerFunc) (*httptest.Server, *http.Client) {
 
 func testConfig(t *testing.T, baseURL string) []byte {
 	t.Helper()
-	cfg, err := json.Marshal(configJSON{
-		EODHDAPIKey:  "test-key",
-		EODHDBaseURL: baseURL,
+	cfg, err := json.Marshal(eodhdclient.Config{
+		APIKey:  "test-key",
+		BaseURL: baseURL,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,11 +226,11 @@ func TestPlugin_DefaultConfig(t *testing.T) {
 	p := NewPlugin(nil, nil, nil)
 	cfg := p.DefaultConfig()
 
-	var parsed configJSON
+	var parsed eodhdclient.Config
 	if err := json.Unmarshal(cfg, &parsed); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if parsed.EODHDAPIKey != "" {
+	if parsed.APIKey != "" {
 		t.Error("default config should have empty API key")
 	}
 }

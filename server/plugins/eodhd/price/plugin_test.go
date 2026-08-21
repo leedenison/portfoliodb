@@ -18,7 +18,7 @@ import (
 )
 
 func configWithURL(url string) []byte {
-	cfg := configJSON{EODHDBaseURL: url}
+	cfg := client.Config{BaseURL: url}
 	b, _ := json.Marshal(cfg)
 	return b
 }

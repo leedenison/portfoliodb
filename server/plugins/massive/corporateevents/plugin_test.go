@@ -16,7 +16,7 @@ import (
 )
 
 func configWithURL(url string) []byte {
-	cfg := configJSON{MassiveBaseURL: url, MassiveAPIKey: "test-key"}
+	cfg := client.Config{BaseURL: url, APIKey: "test-key"}
 	b, _ := json.Marshal(cfg)
 	return b
 }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
@@ -23,21 +22,13 @@ const PluginID = "eodhd"
 // maxChunkDays is the maximum date range per EODHD API request.
 const maxChunkDays = 365
 
-type configJSON struct {
-	EODHDAPIKey  string `json:"eodhd_api_key"`
-	EODHDBaseURL string `json:"eodhd_base_url"`
-	CallsPerMin  *int   `json:"eodhd_calls_per_min"`
-}
-
 // Plugin implements pricefetcher.Plugin using the EODHD EOD API.
 type Plugin struct {
 	log        *slog.Logger
 	httpClient *http.Client
 	exchMap    *exchangemap.ExchangeMap
 
-	mu         sync.Mutex
-	client     *client.Client
-	lastConfig string
+	cache client.Cache
 }
 
 // NewPlugin returns a plugin. log and exchMap are optional (nil for tests).
@@ -48,7 +39,7 @@ func NewPlugin(log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.E
 func (p *Plugin) DisplayName() string { return "EODHD" }
 
 func (p *Plugin) DefaultConfig() []byte {
-	cfg := configJSON{}
+	cfg := client.Config{}
 	out, _ := json.Marshal(cfg)
 	return out
 }
@@ -207,24 +198,6 @@ func (p *Plugin) micToEODHDCode(mic string) string {
 }
 
 func (p *Plugin) getClient(config []byte) (*client.Client, error) {
-	raw := string(config)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.client != nil && p.lastConfig == raw {
-		return p.client, nil
-	}
-	var cfg configJSON
-	if len(config) > 0 {
-		if err := json.Unmarshal(config, &cfg); err != nil {
-			return nil, err
-		}
-	}
-	perMin := 0
-	if cfg.CallsPerMin != nil {
-		perMin = *cfg.CallsPerMin
-	}
-	limiter := client.NewRateLimiter(perMin)
-	p.client = client.New(cfg.EODHDAPIKey, cfg.EODHDBaseURL, limiter, p.log, p.httpClient)
-	p.lastConfig = raw
-	return p.client, nil
+	c, _, err := p.cache.Get(config, p.log, p.httpClient)
+	return c, err
 }

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/clock"
@@ -23,13 +22,6 @@ const PluginID = "massive"
 // expired derivative is skipped without hitting the API.
 const defaultExpiredDerivativeHorizon = 180
 
-type configJSON struct {
-	MassiveAPIKey            string `json:"massive_api_key"`
-	MassiveBaseURL           string `json:"massive_base_url"`           // for testing
-	CallsPerMin              *int   `json:"massive_calls_per_min"`      // nil or absent = unlimited
-	ExpiredDerivativeHorizon *int   `json:"expired_derivative_horizon"` // days; nil = default (180)
-}
-
 // Plugin implements identifier.Plugin using the Massive REST API.
 // The client and rate limiter are shared across concurrent Identify calls
 // and rebuilt only when the config JSON changes.
@@ -38,10 +30,7 @@ type Plugin struct {
 	httpClient *http.Client
 	timer      *clock.Timer
 
-	mu            sync.Mutex
-	client        *client.Client
-	lastConfig    string // raw config JSON used to detect changes
-	expiryHorizon time.Duration
+	cache client.Cache
 }
 
 // NewPlugin returns a plugin. log and timer are optional (nil for tests). A nil
@@ -54,7 +43,7 @@ func (p *Plugin) DisplayName() string { return "Massive" }
 
 func (p *Plugin) DefaultConfig() []byte {
 	horizon := defaultExpiredDerivativeHorizon
-	cfg := configJSON{ExpiredDerivativeHorizon: &horizon}
+	cfg := client.Config{ExpiredDerivativeHorizon: &horizon}
 	out, _ := json.Marshal(cfg)
 	return out
 }
@@ -76,7 +65,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 
-	c, err := p.getClient(config)
+	c, horizon, err := p.getClient(config)
 	if err != nil {
 		return result(nil, nil, err)
 	}
@@ -85,7 +74,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	var ids []identifier.Identifier
 	switch hints.SecurityTypeHint {
 	case identifier.SecurityTypeHintOption:
-		inst, ids, err = p.identifyOption(ctx, c, identifierHints)
+		inst, ids, err = p.identifyOption(ctx, c, horizon, identifierHints)
 	default:
 		inst, ids, err = p.identifyStock(ctx, c, identifierHints)
 	}
@@ -129,32 +118,20 @@ func outcome(err error) identifier.Outcome {
 }
 
 // getClient returns the shared client, rebuilding it only when config changes.
-func (p *Plugin) getClient(config []byte) (*client.Client, error) {
-	raw := string(config)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.client != nil && p.lastConfig == raw {
-		return p.client, nil
-	}
-	var cfg configJSON
-	if len(config) > 0 {
-		if err := json.Unmarshal(config, &cfg); err != nil {
-			return nil, err
-		}
-	}
-	perMin := 0
-	if cfg.CallsPerMin != nil {
-		perMin = *cfg.CallsPerMin
+// getClient returns the client for config and the horizon beyond which an
+// expired option is not worth an API call. The horizon is returned rather than
+// stored on the Plugin because concurrent Identify calls share one Plugin, and
+// a field written on a config change while another call reads it is a race.
+func (p *Plugin) getClient(config []byte) (*client.Client, time.Duration, error) {
+	c, cfg, err := p.cache.Get(config, p.log, p.httpClient)
+	if err != nil {
+		return nil, 0, err
 	}
 	horizon := defaultExpiredDerivativeHorizon
 	if cfg.ExpiredDerivativeHorizon != nil {
 		horizon = *cfg.ExpiredDerivativeHorizon
 	}
-	limiter := client.NewRateLimiter(perMin)
-	p.client = client.New(cfg.MassiveAPIKey, cfg.MassiveBaseURL, limiter, p.log, p.httpClient)
-	p.expiryHorizon = time.Duration(horizon) * 24 * time.Hour
-	p.lastConfig = raw
-	return p.client, nil
+	return c, time.Duration(horizon) * 24 * time.Hour, nil
 }
 
 // identifyStock looks up a stock via MIC_TICKER/OPENFIGI_TICKER hint and the ticker overview API.
@@ -183,9 +160,9 @@ func (p *Plugin) identifyStock(ctx context.Context, c *client.Client, hints []id
 }
 
 // identifyOption looks up an option via OCC hint, falling back to TICKER.
-// Options whose expiry (from the OCC symbol) is older than expiryHorizon are
+// Options whose expiry (from the OCC symbol) is older than horizon are
 // skipped without an API call.
-func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, horizon time.Duration, hints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
 	raw := findHint(hints, "OCC")
 	if raw == "" {
 		return nil, nil, identifier.ErrNotIdentified
@@ -194,13 +171,13 @@ func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []i
 	if !ok {
 		return nil, nil, identifier.ErrNotIdentified
 	}
-	if p.expiryHorizon > 0 {
+	if horizon > 0 {
 		if expiry, ok := derivative.OCCExpiry(compact); ok {
-			if p.timer.Now().Sub(expiry) > p.expiryHorizon {
+			if p.timer.Now().Sub(expiry) > horizon {
 				if p.log != nil {
 					p.log.InfoContext(ctx, "massive: skipping expired option beyond horizon",
 						"occ", compact, "expiry", expiry.Format("2006-01-02"),
-						"horizon_days", int(p.expiryHorizon.Hours()/24))
+						"horizon_days", int(horizon.Hours()/24))
 				}
 				return nil, nil, errExpiredSkipped
 			}

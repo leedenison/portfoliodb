@@ -563,14 +563,15 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			database.EXPECT().SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_RUNNING).Return(nil)
 			expectLoadPayload(database, "job-1", "user-1", payload)
 			database.EXPECT().SetJobTotalCount(gomock.Any(), "job-1", int32(1)).Return(nil)
-			// No lookup by description: the posting states an OCC, so the
-			// pre-pass asks the identifier question instead. The description
-			// lookup it used to do was cached under a hint-free key that a hinted
-			// posting never consults, so its answer was thrown away.
+			// The posting states an OCC, so the pre-pass asks the identifier
+			// question first, and then asks the description whether it already
+			// names an instrument with no identity -- the one a hinted upload
+			// used to fork away from. Here it does not.
 			//
 			// The hint reaches every lookup as the file spelled it: nothing
 			// rewrites an OCC on its way to a provider or to the instrument table.
 			database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "OCC", "", occ).Return("", nil)
+			database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "IBKR:test:statement", "AAPL 250117C00760000").Return("", nil)
 			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", occ).Return("", "", "", "", nil)
 			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "OCC", occ).Return("", nil).AnyTimes()
 			database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -619,10 +620,10 @@ func hintedTx(desc string, hints ...*apiv1.InstrumentIdentifier) *apiv1.Tx {
 	}
 }
 
-// A posting that states an identifier is looked up by it, not by its
-// description. The description lookup used to run for these too and its answer
-// was cached under a hint-free key a hinted posting never consults, so it was
-// paid for and thrown away.
+// A posting that states an identifier is looked up by it first, and reaches the
+// description only if that misses. Here it does not miss, so the description is
+// never asked: an instrument the identifiers already name has an identity, and
+// the description question is only ever about one that has none.
 func TestProposeCandidates_HintedKeyIsLookedUpByItsIdentifiers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -651,6 +652,41 @@ func TestProposeCandidates_HintedKeyIsLookedUpByItsIdentifiers(t *testing.T) {
 	}
 	if len(pre.conflicts) != 0 {
 		t.Errorf("conflicts = %v, want none", pre.conflicts)
+	}
+}
+
+// A broker-description-only instrument is findable by nothing but its
+// description, so the identifier lookup passes straight over the one already
+// holding this key's transactions. Issue 0135: without the second lookup the
+// upload best placed to identify that instrument mints a second one beside it.
+func TestProposeCandidates_HintedKeyFallsBackToTheDescription(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("desc-only-id", nil)
+
+	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"})}
+	txHints := [][]identifier.Identifier{{{Type: "ISIN", Value: "US0378331005"}}}
+
+	// No candidate registry, so the key reaches no plugin and the gates below the
+	// lookup are not what this is about.
+	pre, err := proposeCandidates(context.Background(), ingestDeps{DB: database}, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	key := cacheKeyWithHints("SRC", "APPLE INC", txHints[0])
+	if pre.descOnly[key] != "desc-only-id" {
+		t.Errorf("pre.descOnly[key] = %q, want desc-only-id", pre.descOnly[key])
+	}
+	// It is a binding, not a resolution. The identifiers still go to the plugins:
+	// what the description names has no identity, and finding one is the point.
+	if pre.resolved[key].InstrumentID != "" {
+		t.Errorf("pre.resolved[key] = %+v, want the key left unresolved", pre.resolved[key])
+	}
+	if pre.outcome[key] == db.TelemetryCandidateNotAttemptedDBHit {
+		t.Error("a description-only hit was recorded as a DB hit; it answers no identifier question")
 	}
 }
 
@@ -744,6 +780,7 @@ func TestProposeCandidates_AStatedIsinWithNoVenueIsCompleted(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 	database.EXPECT().ValidateMIC(gomock.Any(), "XNAS").Return(true, nil)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XNAS").Return("XNAS", nil)
 	expectCandidateConfig(database)
@@ -792,6 +829,7 @@ func TestProposeCandidates_AStatedVenueIsNotCompleted(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("", nil)
+	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 
 	plugin := &fakeDescPlugin{
 		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
@@ -829,6 +867,7 @@ func TestProposeCandidates_AnArchiveDoesNotCompleteAPartialIdentity(t *testing.T
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 
 	plugin := &fakeDescPlugin{
 		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},

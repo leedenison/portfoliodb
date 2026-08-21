@@ -793,16 +793,25 @@ func proposalOutcome(ctx context.Context, p identifier.Identifier, inst *identif
 }
 
 // ResolveWithPlugins calls enabled identifier plugins with the given hints, merges results, and ensures the instrument.
-// When storeSourceDescription is true and a plugin succeeds, (source, instrumentDescription) is added as a
-// non-canonical BROKER_DESCRIPTION identifier. If no plugin identifies the instrument, fallback is called.
+// If no plugin identifies the instrument, fallback is called.
 // depth tracks recursion for underlying resolution; callers pass 0.
+//
+// bindSourceDescription puts (source, instrumentDescription) among the identifiers
+// the instrument is ensured with, as a non-canonical BROKER_DESCRIPTION. What that
+// does depends on whether the row is already there, and both callers want one of
+// the two: on the description path it is not, so the mapping is stored and every
+// later upload of that description resolves by lookup; on the hinted path the
+// caller only sets it having found the row already stored, so it matches instead
+// and binds the result to the instrument that description already names. Either
+// way it is the same act -- naming the description as one of the identifiers this
+// instrument is known by.
 func ResolveWithPlugins(
 	ctx context.Context,
 	database db.DB,
 	registry *identifier.Registry,
 	broker, source, instrumentDescription string,
 	ident identifier.Identity,
-	storeSourceDescription bool,
+	bindSourceDescription bool,
 	fallback FallbackFunc,
 	tel Attempt,
 	logger *slog.Logger,
@@ -1124,7 +1133,7 @@ func ResolveWithPlugins(
 				hasSource = true
 			}
 		}
-		if storeSourceDescription && !hasSource {
+		if bindSourceDescription && !hasSource {
 			identifiers = append(identifiers, db.IdentifierInput{
 				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 				Canonical: false,

@@ -357,9 +357,17 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		}
 	}
 
-	// Path A: client supplied identifier_hints -- resolve by identifiers only.
-	// "Do not store" means no persistent BROKER_DESCRIPTION identifier is
-	// created in the DB (the `false` arg to resolveWithIdentifierPlugins).
+	// Path A: client supplied identifier_hints -- resolve by identifiers, and
+	// bind to the instrument the description already names where that instrument
+	// has no identity of its own.
+	//
+	// No persistent BROKER_DESCRIPTION identifier is created here either way. The
+	// binding below passes one to EnsureInstrument only when the pre-pass found
+	// the row already stored, so it matches rather than inserts: the client's
+	// identifiers stay authoritative and no description-derived mapping is minted
+	// to pollute later lookups (adr/0004). Whether one should be is 0106's
+	// question.
+	//
 	// The in-memory batch cache above is still used to avoid repeated DB
 	// lookups within the same upload.
 	if len(identifierHints) > 0 {
@@ -370,14 +378,26 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			keys.end(ctx, key, db.TelemetryResolutionConflictingHints, "")
 			return resolveResult{}, fmt.Errorf("conflicting identifier hints resolve to different instruments")
 		}
-		// No DB hit: call identifier plugins with hints; do not persist (source, description) as BROKER_DESCRIPTION.
+		// The identifiers named no instrument, but the description may already
+		// name one that nothing has identified. Binding to it is what stops a
+		// second instrument being minted beside the one already holding this
+		// description's transactions -- and it is what carries the plugins'
+		// identifiers on to it, since an instrument with no identity is completed
+		// by what identifies it.
+		descOnly := pre.descOnly[key]
+		if descOnly != "" {
+			ingestionLogger().InfoContext(ctx, "instrument resolution: binding to the instrument this description already names",
+				"source", source, "instrument_description", instrumentDescription, "instrument_id", descOnly,
+				"stated", identification.HintsSummary(identifierHints))
+		}
+		// No DB hit: call identifier plugins with hints.
 		//
 		// Any proposals are what the candidate plugins offered for the gap this
 		// key's stated identifiers left -- a venue for an ISIN that named none.
 		// They are passed apart from the stated ones and stay that way: they
 		// choose between the listings the stated identifier produced, and
 		// introduce none of their own. See adr/0057.
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Proposed: proposedIdentifiers(proposedHintsCache[key].Proposals), Hints: hints}, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Proposed: proposedIdentifiers(proposedHintsCache[key].Proposals), Hints: hints}, cache, key, rowIndex, descOnly != "", hintsValidAt, keys, db.TelemetryPurposePrimary)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.
@@ -479,7 +499,7 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 // purpose names the attempt this call records. Only the primary one stamps the
 // key: the mismatch-check probes run against the same key and would otherwise
 // stamp it with their own answer before the resolution that decides it.
-func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, ident identifier.Identity, cache map[string]resolveResult, key string, rowIndex int32, storeSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
+func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, ident identifier.Identity, cache map[string]resolveResult, key string, rowIndex int32, bindSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
 	// Ingestion-specific fallback: broker-description-only instrument.
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
@@ -490,7 +510,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 			nil, "", nil, nil, nil)
 	}
 
-	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, ident, storeSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
+	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, ident, bindSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
 	if err != nil {
 		return resolveResult{}, err
 	}

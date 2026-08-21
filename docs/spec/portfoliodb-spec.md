@@ -112,7 +112,7 @@ flowchart TD
 
 | Upload shape | Candidate plugins | Identifier plugins | Outcome |
 |--------------|--------------------|--------------------|---------|
-| Txs with **identifiers** (no description-only path) | Not used | Resolve by hints (DB or plugins) | Canonical instrument or broker-description-only; source/description not stored when resolved by client hints. |
+| Txs with **identifiers** (no description-only path) | Not used | Resolve by hints (DB or plugins) | Canonical instrument or broker-description-only; source/description not stored when resolved by client hints. Where the identifiers name nothing and the description already names an instrument with no identity, resolution binds to that instrument and completes it rather than forking a second one. |
 | Txs with **description + hints only** | Not run if DB hit by (source, description) | Not run if no extracted hints | Re-upload: use cached instrument. |
 | Txs with **description + hints only** | Return **no** identifiers | Not called | Broker-description-only; error "description extraction failed". |
 | Txs with **description + hints only** | Return identifiers | Resolve (DB or plugins) | Canonical instrument; (source, description) stored. |

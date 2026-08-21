@@ -315,6 +315,101 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 	}
 }
 
+// pathATestDB is the mock a Path A resolution needs: the stated ISIN names
+// nothing, one plugin answers, and the exchange lookups are incidental.
+func pathATestDB(t *testing.T, ctrl *gomock.Controller) (*mock.MockDB, *identifier.Registry) {
+	t.Helper()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10}}, nil)
+	registry := identifier.NewRegistry()
+	registry.Register("local", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+	})
+	return database, registry
+}
+
+// hasBrokerDescription reports whether the identifiers an instrument was ensured
+// with name the description under its source.
+func hasBrokerDescription(idns []db.IdentifierInput, source, desc string) bool {
+	for _, idn := range idns {
+		if idn.Ref.Type == "BROKER_DESCRIPTION" && idn.Ref.Domain == source && idn.Ref.Value == desc {
+			return true
+		}
+	}
+	return false
+}
+
+// TestResolve_PathABindsToTheInstrumentTheDescriptionAlreadyNames is issue 0135.
+// A description already held by an instrument nothing has identified must reach
+// that instrument when a later upload carries identifiers. Naming the description
+// among the identifiers is how: the row is already stored, so EnsureInstrument
+// matches it rather than minting a second instrument beside the one already
+// holding this description's transactions.
+func TestResolve_PathABindsToTheInstrumentTheDescriptionAlreadyNames(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	source := "IBKR:test:statement"
+	desc := "APPLE INC COM"
+	database, registry := pathATestDB(t, ctrl)
+
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			if !hasBrokerDescription(idns, source, desc) {
+				t.Errorf("the description was not named, so this ensure mints a second instrument beside %q: %+v", "desc-only-id", idns)
+			}
+			return "desc-only-id", nil
+		})
+
+	hints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+	pre := prePass{descOnly: map[string]string{cacheKeyWithHints(source, desc, hints): "desc-only-id"}}
+	r, err := Resolve(context.Background(), database, registry, "IBKR", source, desc, stockHints, hints, pre, 0, nil, nil)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if r.InstrumentID != "desc-only-id" {
+		t.Errorf("InstrumentID = %q, want the instrument the description already named", r.InstrumentID)
+	}
+}
+
+// TestResolve_PathAStoresNoDescriptionWhereNoneIsHeld is the other half of the
+// same rule. Where the description names nothing -- or names an instrument that
+// already has an identity, which the pre-pass declines to report -- no mapping is
+// minted: the client's identifiers are authoritative and a description-derived
+// one would pollute later lookups. See adr/0004; whether it should be stored is
+// 0106's question.
+func TestResolve_PathAStoresNoDescriptionWhereNoneIsHeld(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	source := "IBKR:test:statement"
+	desc := "APPLE INC COM"
+	database, registry := pathATestDB(t, ctrl)
+
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			if hasBrokerDescription(idns, source, desc) {
+				t.Errorf("(source, description) minted on the hinted path: %+v", idns)
+			}
+			return "resolved-id", nil
+		})
+
+	hints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+	r, err := Resolve(context.Background(), database, registry, "IBKR", source, desc, stockHints, hints, prePass{}, 0, nil, nil)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if r.InstrumentID != "resolved-id" {
+		t.Errorf("InstrumentID = %q, want resolved-id", r.InstrumentID)
+	}
+}
+
 func TestResolve_PluginReturnsUnderlying_ResolvesUnderlyingThenDerivative(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

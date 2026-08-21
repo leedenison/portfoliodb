@@ -351,10 +351,13 @@ func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentID
 // all, and it is what the gate change needs: whether to pay a plugin for a key
 // cannot be decided without knowing whether that key is already resolved.
 //
-// Both lookups happen here and nowhere else. A key with no stated identifiers
-// is looked up by its description; a key with them is looked up by them. Resolve
-// asks the database nothing further: a single match is in the cache, more than
-// one is in conflicts, and neither is queried twice.
+// Every lookup happens here and nowhere else. A key with no stated identifiers
+// is looked up by its description; a key with them is looked up by them, and
+// then by its description too, because the instrument a description alone names
+// is invisible to an identifier lookup and is exactly the one a hinted upload
+// used to fork away from. Resolve asks the database nothing further: a single
+// match is in the cache, more than one is in conflicts, an instrument holding
+// only the description is in descOnly, and none is queried twice.
 //
 // What reaches the plugins is the key whose identity is incomplete rather than
 // the key that stated nothing. A source that named a venue has said the last
@@ -382,6 +385,11 @@ type prePass struct {
 	// proposed is what the candidate plugins offered, already filtered, with the
 	// call each came from so a field can name both its parents.
 	proposed map[string]keyProposals
+	// descOnly is the keys whose stated identifiers named nothing, but whose
+	// description already names an instrument carrying no identity. Resolution
+	// binds to that instrument rather than minting a second one beside it and
+	// leaving the first holding the transactions already attached to it.
+	descOnly map[string]string
 	// outcome is what became of each key here, stage one of its resolution record.
 	outcome map[string]string
 }
@@ -390,6 +398,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 	database := deps.DB
 	cache := make(map[string]resolveResult)
 	conflicts := make(map[string]bool)
+	descOnly := make(map[string]string)
 	var proposedHintsCache map[string]keyProposals
 	outcome := make(map[string]string)
 	fail := func(err error) (prePass, error) { return prePass{}, err }
@@ -426,9 +435,26 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 				outcome[key] = db.TelemetryCandidateNotAttemptedDBHit
 				continue
 			}
-			// The database did not recognise what the source stated, so what the
-			// source stated is all there is -- and a plugin is asked to fill it
-			// out only where it is genuinely partial.
+			// The database did not recognise what the source stated, but it may
+			// recognise the description: a broker-description-only instrument is
+			// findable by nothing else, so the identifier lookup passes straight
+			// over the one already holding this key's transactions. Recorded here
+			// with the other lookup and read by Resolve, which binds to it.
+			//
+			// Only an instrument carrying no identity answers. One that has been
+			// identified is a second identity, and a description that is not
+			// injective may not associate it with this one. See adr/0061.
+			id, err := database.FindDescriptionOnlyInstrument(ctx, source, desc)
+			if err != nil {
+				return fail(err)
+			}
+			if id != "" {
+				descOnly[key] = id
+			}
+			// What the source stated is all there is, then -- and a plugin is
+			// asked to fill it out only where it is genuinely partial. A
+			// description-only hit does not change that: it names no identifier,
+			// so it leaves the stated identity exactly as partial as it found it.
 			//
 			// The two refusals are recorded apart. One says the gate did its job
 			// and the source had already named a listing; the other says this kind
@@ -477,7 +503,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 			outcome[key] = itemOutcomes[id]
 		}
 	}
-	return prePass{resolved: cache, conflicts: conflicts, proposed: proposedHintsCache, outcome: outcome}, nil
+	return prePass{resolved: cache, conflicts: conflicts, proposed: proposedHintsCache, descOnly: descOnly, outcome: outcome}, nil
 }
 
 // resolveInstruments resolves each tx to an instrument ID using the pre-populated

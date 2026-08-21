@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A hinted re-upload forks a new instrument instead of enriching the existing one
 milestone: M17
 ---

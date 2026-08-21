@@ -328,12 +328,10 @@ type ExportPosting struct {
 	// The stated routing hint, empty when the source made no claim.
 	AssetClassHint string
 	Description    string
-	// The instrument's best identifier, or all three empty for a posting whose
+	// The instrument's best identifier, or the zero ref for a posting whose
 	// instrument never resolved. Chosen by bestIdentifierJoin so that every
 	// export naming one identifier per instrument agrees which one.
-	IdentifierType     string
-	IdentifierValue    string
-	IdentifierDomain   string
+	Ref                InstrumentRef
 	Quantity           decimal.Decimal
 	UnitPrice          *decimal.Decimal
 	TradingCurrency    string
@@ -609,13 +607,11 @@ const (
 )
 
 // ClaimedIdentifier is one identifier inside a claim, and what the result said
-// about it. The whole triple is carried because a ticker under two domains
-// names two listings.
+// about it. The ref rather than a bare value, because a ticker under two
+// domains names two listings.
 type ClaimedIdentifier struct {
-	Type   string
-	Domain string
-	Value  string
-	Role   string // ClaimRoleReturned or ClaimRoleFiltered
+	Ref  InstrumentRef
+	Role string // ClaimRoleReturned or ClaimRoleFiltered
 }
 
 // IdentityClaim is what one identifier plugin result said in one answer: the
@@ -650,6 +646,26 @@ func VintageDate(t *time.Time) *time.Time {
 	}
 	d := t.UTC().Truncate(24 * time.Hour)
 	return &d
+}
+
+// InstrumentRef names an instrument by one identifier and no server UUID, which
+// is the only name that means anything in another instance.
+//
+// Every export that has to name an instrument names it this way, and
+// bestIdentifierJoin picks the identifier so that they all agree which one. An
+// identity claim is the same thing said several times over: each
+// [ClaimedIdentifier] is one of these, and the claim asserts they denote one
+// security.
+//
+// It is the persistence-layer counterpart of archive.v1.InstrumentRef, and is
+// deliberately not identifier.Identifier: that is the domain triple plugins
+// speak, and db cannot import the package holding it without a cycle. The db
+// tags are here because the sqlx row structs in db/postgres embed this to scan
+// the three columns flat.
+type InstrumentRef struct {
+	Type   string `db:"identifier_type"`
+	Value  string `db:"value"`
+	Domain string `db:"domain"`
 }
 
 // ProviderIdentifierInput is a provider-specific identifier for an instrument.
@@ -720,12 +736,10 @@ type PluginConfigRowFull struct {
 // tables export into this one shape, because they are the same statement about
 // two fetchers.
 type ExportFetchBlock struct {
-	IdentifierType   string
-	IdentifierValue  string
-	IdentifierDomain string
-	PluginID         string
-	Reason           string
-	FirstBlockedAt   time.Time
+	Ref            InstrumentRef
+	PluginID       string
+	Reason         string
+	FirstBlockedAt time.Time
 }
 
 // FetchBlockInput is one fetch block to restore, carrying the knowledge time
@@ -764,12 +778,10 @@ type EODPriceRow struct {
 
 // ExportPriceRow is a single price row with the best instrument identifier for export.
 type ExportPriceRow struct {
-	IdentifierType   string
-	IdentifierValue  string
-	IdentifierDomain string
-	AssetClass       string
-	Currency         string
-	PriceDate        time.Time
+	Ref        InstrumentRef
+	AssetClass string
+	Currency   string
+	PriceDate  time.Time
 	// The share count this bar is denominated in, or nil when it is the bar's
 	// own PriceDate. The column is NOT NULL and defaults to the price date, so
 	// only a value that differs from it says anything, and only that value is
@@ -792,13 +804,11 @@ type ExportPriceRow struct {
 // and those two fields are what route the identifier plugins when the importing
 // instance has never seen it.
 type ExportPriceCoverageRow struct {
-	IdentifierType   string
-	IdentifierValue  string
-	IdentifierDomain string
-	AssetClass       string
-	Currency         string
-	From             time.Time
-	Before           time.Time
+	Ref        InstrumentRef
+	AssetClass string
+	Currency   string
+	From       time.Time
+	Before     time.Time
 }
 
 // ExportCoverageRow is one half-open [From, Before) corporate event coverage
@@ -808,12 +818,10 @@ type ExportPriceCoverageRow struct {
 // events is still a group, and the asset class is what routes the identifier
 // plugins when the importing instance does not know the instrument.
 type ExportCoverageRow struct {
-	IdentifierType   string
-	IdentifierValue  string
-	IdentifierDomain string
-	AssetClass       string
-	From             time.Time
-	Before           time.Time
+	Ref        InstrumentRef
+	AssetClass string
+	From       time.Time
+	Before     time.Time
 }
 
 // EODPriceListDB provides paginated listing of EOD prices for admin UI.
@@ -1181,10 +1189,9 @@ type InstrumentRow struct {
 	// The underlying named by its highest-priority identifier rather than by
 	// UUID, which is how a file has to name it. Populated by
 	// ListInstrumentsForExport and nil everywhere else; use UnderlyingID within
-	// one instance.
-	UnderlyingIdentifierType   *string
-	UnderlyingIdentifierValue  *string
-	UnderlyingIdentifierDomain *string
+	// one instance. One pointer rather than three, because a half-named
+	// underlying is not a state this can be in.
+	Underlying *InstrumentRef
 }
 
 // HoldingDeclarationRow is a single holding declaration for API responses.
@@ -1248,14 +1255,12 @@ type InitializeTx struct {
 type ExportDeclaration struct {
 	Broker  string
 	Account string
-	// The instrument's best identifier, or all three empty for an instrument
+	// The instrument's best identifier, or the zero ref for an instrument
 	// carrying none. Chosen by bestIdentifierJoin so that every export naming
 	// one identifier per instrument agrees which one.
-	IdentifierType   string
-	IdentifierValue  string
-	IdentifierDomain string
-	DeclaredQty      decimal.Decimal
-	AsOfDate         time.Time
+	Ref         InstrumentRef
+	DeclaredQty decimal.Decimal
+	AsOfDate    time.Time
 	// The share count the declared quantity is denominated in, or nil when it is
 	// the declaration's own as_of_date. The column is NOT NULL and the insert
 	// trigger defaults it to that date, so only a value that differs from it
@@ -1460,15 +1465,13 @@ type CashDividend struct {
 // ExportUnhandledCorporateEvent is one unhandled event named the way a file
 // names it: by the best identifier for the instrument rather than by its id.
 type ExportUnhandledCorporateEvent struct {
-	IdentifierType   string
-	IdentifierValue  string
-	IdentifierDomain string
-	EventType        string
-	ExDate           *time.Time
-	Detail           string
-	Data             []byte // JSONB, carried as the text it is stored as
-	Resolved         bool
-	CreatedAt        time.Time
+	Ref       InstrumentRef
+	EventType string
+	ExDate    *time.Time
+	Detail    string
+	Data      []byte // JSONB, carried as the text it is stored as
+	Resolved  bool
+	CreatedAt time.Time
 }
 
 // CorporateEventCoverage is one half-open [CoveredFrom, CoveredBefore) coverage
@@ -1681,34 +1684,30 @@ type HeldInstrument struct {
 // ExportStockSplit is one stock split row with the best identifier for the
 // instrument, used by ExportCorporateEvents.
 type ExportStockSplit struct {
-	IdentifierType   string
-	IdentifierValue  string
-	IdentifierDomain string
-	AssetClass       string
-	DataProvider     string
-	ExDate           time.Time
-	SplitFrom        string // numeric as decimal string
-	SplitTo          string
-	FirstKnownAt     time.Time
+	Ref          InstrumentRef
+	AssetClass   string
+	DataProvider string
+	ExDate       time.Time
+	SplitFrom    string // numeric as decimal string
+	SplitTo      string
+	FirstKnownAt time.Time
 }
 
 // ExportCashDividend is one cash dividend row with the best identifier for
 // the instrument, used by ExportCorporateEvents.
 type ExportCashDividend struct {
-	IdentifierType   string
-	IdentifierValue  string
-	IdentifierDomain string
-	AssetClass       string
-	DataProvider     string
-	ExDate           time.Time
-	PayDate          *time.Time
-	RecordDate       *time.Time
-	DeclarationDate  *time.Time
-	Amount           string
-	Currency         string
-	Frequency        string
-	Type             string
-	FirstKnownAt     time.Time
+	Ref             InstrumentRef
+	AssetClass      string
+	DataProvider    string
+	ExDate          time.Time
+	PayDate         *time.Time
+	RecordDate      *time.Time
+	DeclarationDate *time.Time
+	Amount          string
+	Currency        string
+	Frequency       string
+	Type            string
+	FirstKnownAt    time.Time
 }
 
 // ResidualBalance is the net value left in one non-asset account, aggregated over
@@ -2234,15 +2233,13 @@ type TelemetryIdentifierPluginCall struct {
 // identifiers arriving together are a claim somebody made, where the same
 // identifiers gathered from separate calls are a set the resolver assembled.
 //
-// The whole triple is recorded, because a ticker under two domains names two
-// listings. RunID is carried for the reason it is on the call: so a failed write
-// can mark the run.
+// The whole ref is recorded rather than a bare value, because a ticker under two
+// domains names two listings. RunID is carried for the reason it is on the call:
+// so a failed write can mark the run.
 type TelemetryIdentifierClaim struct {
 	RunID  string
 	CallID string
-	Type   string
-	Domain string
-	Value  string
+	Ref    InstrumentRef
 	Role   string // ClaimRoleReturned or ClaimRoleFiltered
 }
 

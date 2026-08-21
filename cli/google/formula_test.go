@@ -1,11 +1,11 @@
 package main
 
 import (
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"strings"
 	"testing"
 	"time"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 )
 
 func TestChunkRange(t *testing.T) {

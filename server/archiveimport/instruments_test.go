@@ -51,7 +51,7 @@ func TestInstrumentPart_Success(t *testing.T) {
 			}
 			for _, c := range claims[0].Identifiers {
 				if c.Role != db.ClaimRoleReturned {
-					t.Errorf("%s role = %q; a file states its names, it does not corroborate them", c.Type, c.Role)
+					t.Errorf("%s role = %q; a file states its names, it does not corroborate them", c.Ref.Type, c.Role)
 				}
 			}
 			return "inst-1", nil

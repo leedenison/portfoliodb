@@ -834,11 +834,11 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
-	if rows[0].IdentifierType != "MIC_TICKER" || rows[0].IdentifierValue != "AAPL" {
-		t.Errorf("expected MIC_TICKER/AAPL, got %s/%s", rows[0].IdentifierType, rows[0].IdentifierValue)
+	if rows[0].Ref.Type != "MIC_TICKER" || rows[0].Ref.Value != "AAPL" {
+		t.Errorf("expected MIC_TICKER/AAPL, got %s/%s", rows[0].Ref.Type, rows[0].Ref.Value)
 	}
-	if rows[0].IdentifierDomain != "XNAS" {
-		t.Errorf("expected domain XNAS, got %q", rows[0].IdentifierDomain)
+	if rows[0].Ref.Domain != "XNAS" {
+		t.Errorf("expected domain XNAS, got %q", rows[0].Ref.Domain)
 	}
 	if rows[0].AssetClass != "STOCK" {
 		t.Errorf("expected STOCK, got %q", rows[0].AssetClass)
@@ -894,7 +894,7 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 	r := rows[0]
-	if r.IdentifierType != "MIC_TICKER" || r.IdentifierValue != "AAPL" {
+	if r.Ref.Type != "MIC_TICKER" || r.Ref.Value != "AAPL" {
 		t.Errorf("identifier: %+v", r)
 	}
 	if r.Amount != "0.24" || r.Currency != "USD" || r.Frequency != "quarterly" {
@@ -2009,8 +2009,8 @@ func TestListCorporateEventCoverageForExport_MergesAcrossPlugins(t *testing.T) {
 		t.Errorf("expected [2020-01-01, 2024-01-01), got [%s, %s)",
 			cov[0].From.Format("2006-01-02"), cov[0].Before.Format("2006-01-02"))
 	}
-	if cov[0].IdentifierType != "MIC_TICKER" || cov[0].IdentifierValue != "AAPL" {
-		t.Errorf("got identifier %s %s", cov[0].IdentifierType, cov[0].IdentifierValue)
+	if cov[0].Ref.Type != "MIC_TICKER" || cov[0].Ref.Value != "AAPL" {
+		t.Errorf("got identifier %s %s", cov[0].Ref.Type, cov[0].Ref.Value)
 	}
 }
 
@@ -2061,8 +2061,8 @@ func TestListUnhandledCorporateEventsForExport(t *testing.T) {
 	}
 	var resolved, unresolved int
 	for _, r := range rows {
-		if r.IdentifierValue != "XYZ" {
-			t.Errorf("identifier = %s %s", r.IdentifierType, r.IdentifierValue)
+		if r.Ref.Value != "XYZ" {
+			t.Errorf("identifier = %s %s", r.Ref.Type, r.Ref.Value)
 		}
 		if r.Resolved {
 			resolved++

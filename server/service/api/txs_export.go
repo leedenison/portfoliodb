@@ -100,12 +100,8 @@ func posting(r db.ExportPosting) *archivev1.Posting {
 	}
 	// A posting whose instrument never resolved has no identifier to name, and
 	// resolves from its description on the way back in.
-	if r.IdentifierType != "" {
-		p.IdentifierHints = []*archivev1.InstrumentRef{{
-			Type:   identifierTypeFromString(r.IdentifierType),
-			Value:  r.IdentifierValue,
-			Domain: r.IdentifierDomain,
-		}}
+	if r.Ref.Type != "" {
+		p.IdentifierHints = []*archivev1.InstrumentRef{archiveRef(r.Ref)}
 	}
 	if r.UnitPrice != nil {
 		p.UnitPrice = proto.String(r.UnitPrice.String())

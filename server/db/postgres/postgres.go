@@ -297,10 +297,26 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 		ExchangeAcronym:     r.ExchangeAcronym,
 		ExchangeCountryCode: r.ExchangeCountryCode,
 
-		UnderlyingIdentifierType:   r.UnderlyingIdentifierType,
-		UnderlyingIdentifierValue:  r.UnderlyingIdentifierValue,
-		UnderlyingIdentifierDomain: r.UnderlyingIdentifierDomain,
+		Underlying: r.underlyingRef(),
 	}
+}
+
+// underlyingRef assembles the underlying's name out of the three nullable
+// columns the export query selects. They are null together and populated
+// together, which is what the single pointer on db.InstrumentRow says and these
+// three columns cannot.
+func (r *instrumentRow) underlyingRef() *db.InstrumentRef {
+	if r.UnderlyingIdentifierType == nil {
+		return nil
+	}
+	ref := &db.InstrumentRef{Type: *r.UnderlyingIdentifierType}
+	if r.UnderlyingIdentifierValue != nil {
+		ref.Value = *r.UnderlyingIdentifierValue
+	}
+	if r.UnderlyingIdentifierDomain != nil {
+		ref.Domain = *r.UnderlyingIdentifierDomain
+	}
+	return ref
 }
 
 // holdingRow is the sqlx-scannable shape for computing holdings.

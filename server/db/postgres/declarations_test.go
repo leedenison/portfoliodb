@@ -899,9 +899,9 @@ func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
 		t.Fatalf("read %d rows, want 2", len(rows))
 	}
 	// MIC_TICKER outranks ISIN, which outranks BROKER_DESCRIPTION.
-	if rows[0].IdentifierType != "MIC_TICKER" || rows[0].IdentifierValue != "AAPL" || rows[0].IdentifierDomain != "XNAS" {
+	if rows[0].Ref.Type != "MIC_TICKER" || rows[0].Ref.Value != "AAPL" || rows[0].Ref.Domain != "XNAS" {
 		t.Fatalf("identifier = %s %s %s, want MIC_TICKER AAPL XNAS",
-			rows[0].IdentifierType, rows[0].IdentifierValue, rows[0].IdentifierDomain)
+			rows[0].Ref.Type, rows[0].Ref.Value, rows[0].Ref.Domain)
 	}
 	if rows[0].ShareCountBasis != nil {
 		t.Fatalf("share_count_basis = %v, want nil where it equals as_of_date", rows[0].ShareCountBasis)
@@ -940,7 +940,7 @@ func TestListHoldingDeclarationsForExport_KeepsAnUnidentifiedInstrument(t *testi
 	if len(rows) != 1 {
 		t.Fatalf("read %d rows, want the unidentified one to survive", len(rows))
 	}
-	if rows[0].IdentifierValue != "" {
-		t.Fatalf("identifier value = %q, want empty", rows[0].IdentifierValue)
+	if rows[0].Ref.Value != "" {
+		t.Fatalf("identifier value = %q, want empty", rows[0].Ref.Value)
 	}
 }

@@ -113,19 +113,17 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 
 // exportPriceRow is a sqlx-scannable version of db.ExportPriceRow.
 type exportPriceRow struct {
-	IdentifierType   string           `db:"identifier_type"`
-	IdentifierValue  string           `db:"value"`
-	IdentifierDomain string           `db:"domain"`
-	AssetClass       string           `db:"asset_class"`
-	Currency         string           `db:"currency"`
-	PriceDate        time.Time        `db:"price_date"`
-	ShareCountBasis  *time.Time       `db:"share_count_basis"`
-	Open             *decimal.Decimal `db:"open"`
-	High             *decimal.Decimal `db:"high"`
-	Low              *decimal.Decimal `db:"low"`
-	Close            decimal.Decimal  `db:"close"`
-	AdjustedClose    *decimal.Decimal `db:"adjusted_close"`
-	Volume           *int64           `db:"volume"`
+	db.InstrumentRef
+	AssetClass      string           `db:"asset_class"`
+	Currency        string           `db:"currency"`
+	PriceDate       time.Time        `db:"price_date"`
+	ShareCountBasis *time.Time       `db:"share_count_basis"`
+	Open            *decimal.Decimal `db:"open"`
+	High            *decimal.Decimal `db:"high"`
+	Low             *decimal.Decimal `db:"low"`
+	Close           decimal.Decimal  `db:"close"`
+	AdjustedClose   *decimal.Decimal `db:"adjusted_close"`
+	Volume          *int64           `db:"volume"`
 }
 
 // ListPricesForExport implements db.EODPriceListDB.
@@ -154,19 +152,17 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 	out := make([]db.ExportPriceRow, len(rows))
 	for i, r := range rows {
 		out[i] = db.ExportPriceRow{
-			IdentifierType:   r.IdentifierType,
-			IdentifierValue:  r.IdentifierValue,
-			IdentifierDomain: r.IdentifierDomain,
-			AssetClass:       r.AssetClass,
-			Currency:         r.Currency,
-			PriceDate:        r.PriceDate,
-			ShareCountBasis:  r.ShareCountBasis,
-			Open:             r.Open,
-			High:             r.High,
-			Low:              r.Low,
-			Close:            r.Close,
-			AdjustedClose:    r.AdjustedClose,
-			Volume:           r.Volume,
+			Ref:             r.InstrumentRef,
+			AssetClass:      r.AssetClass,
+			Currency:        r.Currency,
+			PriceDate:       r.PriceDate,
+			ShareCountBasis: r.ShareCountBasis,
+			Open:            r.Open,
+			High:            r.High,
+			Low:             r.Low,
+			Close:           r.Close,
+			AdjustedClose:   r.AdjustedClose,
+			Volume:          r.Volume,
 		}
 	}
 	return out, nil
@@ -174,13 +170,11 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 
 // exportPriceCoverageRow is a sqlx-scannable version of db.ExportPriceCoverageRow.
 type exportPriceCoverageRow struct {
-	IdentifierType   string    `db:"identifier_type"`
-	IdentifierValue  string    `db:"value"`
-	IdentifierDomain string    `db:"domain"`
-	AssetClass       string    `db:"asset_class"`
-	Currency         string    `db:"currency"`
-	From             time.Time `db:"covered_from"`
-	Before           time.Time `db:"covered_before"`
+	db.InstrumentRef
+	AssetClass string    `db:"asset_class"`
+	Currency   string    `db:"currency"`
+	From       time.Time `db:"covered_from"`
+	Before     time.Time `db:"covered_before"`
 }
 
 // ListPriceCoverageForExport implements db.EODPriceListDB.
@@ -210,13 +204,11 @@ func (p *Postgres) ListPriceCoverageForExport(ctx context.Context) ([]db.ExportP
 	out := make([]db.ExportPriceCoverageRow, len(rows))
 	for i, r := range rows {
 		out[i] = db.ExportPriceCoverageRow{
-			IdentifierType:   r.IdentifierType,
-			IdentifierValue:  r.IdentifierValue,
-			IdentifierDomain: r.IdentifierDomain,
-			AssetClass:       r.AssetClass,
-			Currency:         r.Currency,
-			From:             r.From,
-			Before:           r.Before,
+			Ref:        r.InstrumentRef,
+			AssetClass: r.AssetClass,
+			Currency:   r.Currency,
+			From:       r.From,
+			Before:     r.Before,
 		}
 	}
 	return out, nil

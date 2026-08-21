@@ -16,6 +16,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/api/sheets/v4"
 	"os"
 	"path/filepath"
@@ -167,12 +168,9 @@ func runImport(ctx, rpcCtx context.Context, sheetsSrv *sheets.Service, apiClient
 	fmt.Fprintf(os.Stderr, "Done. %d prices submitted for import.\n", rowCount)
 }
 
-// instKey names an instrument the way an archive file does.
-type instKey struct{ typ, value, domain string }
-
 // buildCoverage queries ListPriceGaps and converts the gap ranges into date
 // intervals, keyed by the instrument they belong to.
-func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) map[instKey][]*archivev1.DateInterval {
+func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) map[db.InstrumentRef][]*archivev1.DateInterval {
 	resp, err := apiClient.ListPriceGaps(rpcCtx, &apiv1.ListPriceGapsRequest{
 		AssetClasses: []typev1.AssetClass{
 			typev1.AssetClass_STOCK,
@@ -185,12 +183,12 @@ func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) map
 		return nil
 	}
 
-	coverage := make(map[instKey][]*archivev1.DateInterval)
+	coverage := make(map[db.InstrumentRef][]*archivev1.DateInterval)
 	n := 0
 	for _, gaps := range [][]*apiv1.PriceGap{resp.GetPriceGaps(), resp.GetFxGaps()} {
 		for _, pg := range gaps {
 			ident := pg.GetIdentifier()
-			k := instKey{ident.GetType().String(), ident.GetValue(), ident.GetDomain()}
+			k := db.InstrumentRef{Type: ident.GetType().String(), Value: ident.GetValue(), Domain: ident.GetDomain()}
 			for _, gap := range pg.GetGaps() {
 				coverage[k] = append(coverage[k], &archivev1.DateInterval{
 					From:   gap.GetFrom(),
@@ -206,10 +204,10 @@ func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) map
 
 // attachCoverage moves each instrument's gap ranges onto its own group, which
 // is where an archive states coverage.
-func attachCoverage(groups []*archivev1.PriceGroup, coverage map[instKey][]*archivev1.DateInterval) {
+func attachCoverage(groups []*archivev1.PriceGroup, coverage map[db.InstrumentRef][]*archivev1.DateInterval) {
 	for _, g := range groups {
 		ref := g.GetInstrument()
-		k := instKey{ref.GetType().String(), ref.GetValue(), ref.GetDomain()}
+		k := db.InstrumentRef{Type: ref.GetType().String(), Value: ref.GetValue(), Domain: ref.GetDomain()}
 		if spans, ok := coverage[k]; ok {
 			g.Coverage = spans
 		}

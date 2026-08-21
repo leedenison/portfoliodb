@@ -234,14 +234,12 @@ func (p *Postgres) ListHoldingDeclarations(ctx context.Context, userID string) (
 
 // exportDeclaration is the scan target for ListHoldingDeclarationsForExport.
 type exportDeclaration struct {
-	Broker           string          `db:"broker"`
-	Account          string          `db:"account"`
-	IdentifierType   string          `db:"identifier_type"`
-	IdentifierValue  string          `db:"value"`
-	IdentifierDomain string          `db:"domain"`
-	DeclaredQty      decimal.Decimal `db:"declared_qty"`
-	AsOfDate         time.Time       `db:"as_of_date"`
-	ShareCountBasis  *time.Time      `db:"share_count_basis"`
+	Broker  string `db:"broker"`
+	Account string `db:"account"`
+	db.InstrumentRef
+	DeclaredQty     decimal.Decimal `db:"declared_qty"`
+	AsOfDate        time.Time       `db:"as_of_date"`
+	ShareCountBasis *time.Time      `db:"share_count_basis"`
 }
 
 // ListHoldingDeclarationsForExport implements db.HoldingDeclarationDB.
@@ -285,14 +283,12 @@ func (p *Postgres) ListHoldingDeclarationsForExport(ctx context.Context, userID 
 	out := make([]db.ExportDeclaration, len(rows))
 	for i, r := range rows {
 		out[i] = db.ExportDeclaration{
-			Broker:           r.Broker,
-			Account:          r.Account,
-			IdentifierType:   r.IdentifierType,
-			IdentifierValue:  r.IdentifierValue,
-			IdentifierDomain: r.IdentifierDomain,
-			DeclaredQty:      r.DeclaredQty,
-			AsOfDate:         r.AsOfDate,
-			ShareCountBasis:  r.ShareCountBasis,
+			Broker:          r.Broker,
+			Account:         r.Account,
+			Ref:             r.InstrumentRef,
+			DeclaredQty:     r.DeclaredQty,
+			AsOfDate:        r.AsOfDate,
+			ShareCountBasis: r.ShareCountBasis,
 		}
 	}
 	return out, nil

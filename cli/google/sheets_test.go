@@ -3,6 +3,7 @@ package main
 import (
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"os"
 	"path/filepath"
 	"testing"
@@ -240,8 +241,8 @@ func TestAttachCoverage(t *testing.T) {
 		{Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"}},
 		{Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_FX_PAIR, Value: "GBPUSD"}},
 	}
-	attachCoverage(groups, map[instKey][]*archivev1.DateInterval{
-		{"MIC_TICKER", "AAPL", "XNAS"}: {{From: "2024-01-01", Before: "2024-02-01"}},
+	attachCoverage(groups, map[db.InstrumentRef][]*archivev1.DateInterval{
+		{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"}: {{From: "2024-01-01", Before: "2024-02-01"}},
 	})
 
 	if len(groups[0].GetCoverage()) != 1 {

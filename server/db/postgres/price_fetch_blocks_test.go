@@ -57,8 +57,8 @@ func TestListPriceFetchBlocksForExport(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if blocks[0].IdentifierType != "BROKER_DESCRIPTION" || blocks[0].IdentifierValue != "AAPL" {
-		t.Fatalf("identifier = %s %s", blocks[0].IdentifierType, blocks[0].IdentifierValue)
+	if blocks[0].Ref.Type != "BROKER_DESCRIPTION" || blocks[0].Ref.Value != "AAPL" {
+		t.Fatalf("identifier = %s %s", blocks[0].Ref.Type, blocks[0].Ref.Value)
 	}
 	if blocks[0].PluginID != "massive" || blocks[0].Reason != "404" {
 		t.Fatalf("block = %+v", blocks[0])

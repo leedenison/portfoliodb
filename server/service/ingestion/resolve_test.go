@@ -153,7 +153,10 @@ func TestResolve_NoExtractedHints_ExtractionFailed(t *testing.T) {
 	ctx := context.Background()
 	source := "IBKR:test:statement"
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "UNKNOWN", Canonical: false}}, gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", "", "", []db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: source},
+			Canonical: false,
+		}}, gomock.Any(), "", nil, nil, nil).
 		Return("broker-only-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: nil}, 0, nil, nil)
@@ -193,7 +196,10 @@ func TestResolve_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *testing.T) 
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "p1", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "UNKNOWN", Canonical: false}}, gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", "", "", []db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: source},
+			Canonical: false,
+		}}, gomock.Any(), "", nil, nil, nil).
 		Return("broker-only-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "UNKNOWN")}, 0, nil, nil)
@@ -286,7 +292,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			hasSource := false
 			for _, idn := range idns {
-				if idn.Type == "BROKER_DESCRIPTION" && idn.Domain == source && idn.Value == desc {
+				if idn.Ref.Type == "BROKER_DESCRIPTION" && idn.Ref.Domain == source && idn.Ref.Value == desc {
 					hasSource = true
 					if idn.Canonical {
 						t.Errorf("broker description identifier should be Canonical=false, got true")
@@ -455,7 +461,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 			// Merged: source from high first, ISIN from high, CUSIP from low (different types).
 			types := make(map[string]string)
 			for _, idn := range idns {
-				types[idn.Type] = idn.Value
+				types[idn.Ref.Type] = idn.Ref.Value
 			}
 			if types["BROKER_DESCRIPTION"] != "Y" || types["ISIN"] != "US0000000000" || types["CUSIP"] != "12345" {
 				t.Errorf("merged identifiers: got %v, want BROKER_DESCRIPTION=Y, ISIN=US0000000000, CUSIP=12345", types)
@@ -510,8 +516,8 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "STOCK", "", "", "High", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			for _, idn := range idns {
-				if idn.Type == "ISIN" && idn.Value != "HIGH-ISIN" {
-					t.Errorf("same-type conflict: ISIN = %q, want HIGH-ISIN (high precedence)", idn.Value)
+				if idn.Ref.Type == "ISIN" && idn.Ref.Value != "HIGH-ISIN" {
+					t.Errorf("same-type conflict: ISIN = %q, want HIGH-ISIN (high precedence)", idn.Ref.Value)
 				}
 			}
 			return "id", nil
@@ -550,7 +556,10 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "slow", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "SLOW", Canonical: false}}, gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", "", "", []db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SLOW", Domain: source},
+			Canonical: false,
+		}}, gomock.Any(), "", nil, nil, nil).
 		Return("fallback-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", source, "SLOW", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "SLOW")}, 0, nil, nil)
@@ -588,7 +597,10 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "bad", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "BAD", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "BAD", Canonical: false}}, gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "BAD", "", "", []db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BAD", Domain: source},
+			Canonical: false,
+		}}, gomock.Any(), "", nil, nil, nil).
 		Return("fallback-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", source, "BAD", identifier.Hints{}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, "BAD")}, 0, nil, nil)

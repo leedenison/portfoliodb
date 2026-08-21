@@ -180,9 +180,14 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 
 	// Create instrument with both ISIN (priority 3) and MIC_TICKER (priority 1).
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Apple", "", "", []db.IdentifierInput{
-		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-		{Type: "ISIN", Value: "US0378331005", Canonical: true},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+			Canonical: true,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -312,14 +317,18 @@ func TestListPricesForExport_OrdersByDomain(t *testing.T) {
 	ctx := context.Background()
 
 	xlon, err := p.EnsureInstrument(ctx, "STOCK", "XLON", "GBP", "VOD", "", "", []db.IdentifierInput{
-		{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD", Canonical: true},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XLON"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XLON instrument: %v", err)
 	}
 	xnas, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "VOD", "", "", []db.IdentifierInput{
-		{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD", Canonical: true},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XNAS"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNAS instrument: %v", err)
 	}
@@ -416,8 +425,10 @@ func TestListPrices_Pagination(t *testing.T) {
 func setupTickerInstrument(t *testing.T, p *Postgres, ticker string) string {
 	t.Helper()
 	id, err := p.EnsureInstrument(context.Background(), "STOCK", "XNAS", "USD", ticker, "", "", []db.IdentifierInput{
-		{Type: "MIC_TICKER", Domain: "XNAS", Value: ticker, Canonical: true},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: ticker, Domain: "XNAS"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument %s: %v", ticker, err)
 	}

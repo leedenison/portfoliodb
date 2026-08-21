@@ -38,7 +38,7 @@ func FilterIdentifiers(supported []string, ids []db.IdentifierInput) []db.Identi
 	}
 	var out []db.IdentifierInput
 	for _, id := range ids {
-		if set[id.Type] {
+		if set[id.Ref.Type] {
 			out = append(out, id)
 		}
 	}
@@ -55,7 +55,7 @@ func FilterIdentifiers(supported []string, ids []db.IdentifierInput) []db.Identi
 func ToIdentifiers(ids []db.IdentifierInput) []identifier.Identifier {
 	out := make([]identifier.Identifier, len(ids))
 	for i, id := range ids {
-		out[i] = identifier.Identifier{Type: id.Type, Domain: id.Domain, Value: id.Value}
+		out[i] = identifier.Identifier{Type: id.Ref.Type, Domain: id.Ref.Domain, Value: id.Ref.Value}
 	}
 	return out
 }

@@ -144,8 +144,8 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 	// before an earlier split and is not what this restatement builds on.
 	var currentOCC string
 	for _, idn := range opt.Identifiers {
-		if idn.Type == "OCC" && idn.ValidBefore == nil {
-			currentOCC = idn.Value
+		if idn.Ref.Type == "OCC" && idn.ValidBefore == nil {
+			currentOCC = idn.Ref.Value
 			break
 		}
 	}
@@ -174,7 +174,10 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 		}
 		mints = append(mints, db.OptionMint{
 			ExDate: f.split.ExDate,
-			OCC:    db.IdentifierInput{Type: "OCC", Value: occ, Canonical: true},
+			OCC: db.IdentifierInput{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: occ},
+				Canonical: true,
+			},
 			Strike: strike,
 		})
 	}
@@ -199,7 +202,7 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 	if log != nil {
 		last := mints[len(mints)-1]
 		log.InfoContext(ctx, "option splits: restated",
-			"option", opt.ID, "old_occ", currentOCC, "new_occ", last.OCC.Value,
+			"option", opt.ID, "old_occ", currentOCC, "new_occ", last.OCC.Ref.Value,
 			"old_strike", *opt.Strike, "new_strike", last.Strike,
 			"splits", len(factors))
 	}

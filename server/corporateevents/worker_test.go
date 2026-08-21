@@ -118,10 +118,15 @@ func TestPluginAccepts(t *testing.T) {
 
 func TestFilterIdentifiers(t *testing.T) {
 	ids := []db.IdentifierInput{
-		{Type: "MIC_TICKER", Value: "AAPL"},
-		{Type: "ISIN", Value: "US0378331005"},
-		{Type: "OPENFIGI_TICKER", Value: "BBG000B9XRY4"},
-	}
+		{
+			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+		},
+		{
+			Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+		},
+		{
+			Ref: db.InstrumentRef{Type: "OPENFIGI_TICKER", Value: "BBG000B9XRY4"},
+		}}
 	got := pluginutil.FilterIdentifiers([]string{"MIC_TICKER", "OPENFIGI_TICKER"}, ids)
 	if len(got) != 2 {
 		t.Fatalf("expected 2, got %d", len(got))
@@ -277,9 +282,11 @@ func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:          instID,
-			AssetClass:  strPtr("STOCK"),
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+			}},
 		},
 	}, nil)
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
@@ -334,9 +341,11 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:          instID,
-			AssetClass:  strPtr("STOCK"),
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+			}},
 		},
 	}, nil)
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
@@ -385,9 +394,11 @@ func TestRunCycle_OptionPassRunsWithoutSplitsLanding(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:          instID,
-			AssetClass:  strPtr("STOCK"),
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+			}},
 		},
 	}, nil)
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
@@ -440,9 +451,11 @@ func TestRunCycle_PermanentErrorCreatesBlock(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:          instID,
-			AssetClass:  strPtr("STOCK"),
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+			}},
 		},
 	}, nil)
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
@@ -493,9 +506,11 @@ func TestRunCycle_SpecialDividendRoutedToUnhandled(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:          instID,
-			AssetClass:  strPtr("STOCK"),
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+			}},
 		},
 	}, nil)
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
@@ -554,9 +569,11 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 		map[string]map[string]bool{instID: {"blocked": true}}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:          instID,
-			AssetClass:  strPtr("STOCK"),
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+			}},
 		},
 	}, nil)
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)

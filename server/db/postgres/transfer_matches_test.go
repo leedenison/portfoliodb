@@ -141,7 +141,10 @@ func transferUser(t *testing.T, p *Postgres, sub string) (userID, instID string)
 	ctx := context.Background()
 	userID, _ = p.GetOrCreateUser(ctx, sub, "U", sub+"@t.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: sub, Value: "GBP", Canonical: false}}, nil, "", nil, nil, nil)
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GBP", Domain: sub},
+			Canonical: false,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -321,14 +324,22 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 	// against the one that loses the merge -- the survivor is whichever carries more
 	// identifiers -- so the rewrite is the thing under test rather than a no-op.
 	mergedAway, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "ISIN", Value: "TM1", Canonical: true}}, nil, "", nil, nil, nil)
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM1"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
 	if _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
-		{Type: "CUSIP", Value: "TM1", Canonical: true},
-		{Type: "SEDOL", Value: "TM1", Canonical: true},
-	}, nil, "", nil, nil, nil); err != nil {
+		{
+			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM1"},
+			Canonical: true,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "SEDOL", Value: "TM1"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil); err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
 	from, to := transferFixture(t, p, userID, mergedAway)
@@ -341,9 +352,14 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 
 	// Naming both identifiers at once is what merges them.
 	survivor, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
-		{Type: "ISIN", Value: "TM1", Canonical: true},
-		{Type: "CUSIP", Value: "TM1", Canonical: true},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM1"},
+			Canonical: true,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM1"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}

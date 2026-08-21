@@ -206,8 +206,10 @@ func TestGetPortfolioExternalFlows_SecurityTransferFlowsInShares(t *testing.T) {
 
 	userID, _ := p.GetOrCreateUser(ctx, "sub|flow-shares", "U", "u@flow-shares.com")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
-		{Type: "BROKER_DESCRIPTION", Domain: "FIDELITY", Value: "AAPL Corp", Canonical: false},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "FIDELITY"},
+			Canonical: false,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -430,8 +432,10 @@ func TestGetPortfolioExternalFlows_InstrumentFilterSeesTheCashLeg(t *testing.T) 
 	userID, _ := p.GetOrCreateUser(ctx, "sub|flow-instfilter", "U", "u@flow-instfilter.com")
 	cashID := usdCash(t, p)
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
-		{Type: "BROKER_DESCRIPTION", Domain: "FIDELITY", Value: "AAPL Corp", Canonical: false},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "FIDELITY"},
+			Canonical: false,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

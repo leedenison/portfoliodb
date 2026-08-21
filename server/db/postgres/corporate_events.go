@@ -717,7 +717,7 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 		}
 		for _, idn := range mints {
 			if err := insertIdentifierRow(ctx, tx, uid, idn); err != nil {
-				return fmt.Errorf("apply option split: mint %s: %w", idn.Value, err)
+				return fmt.Errorf("apply option split: mint %s: %w", idn.Ref.Value, err)
 			}
 		}
 		if err := txp.UpdateInstrumentStrike(ctx, params.InstrumentID, params.Mints[len(params.Mints)-1].Strike); err != nil {
@@ -746,7 +746,7 @@ func absorbDuplicateHolder(ctx context.Context, tx queryable, instrumentID uuid.
 		return nil
 	}
 	if err := mergeInstruments(ctx, tx, instrumentID, holder); err != nil {
-		return fmt.Errorf("absorb duplicate %s holding %s: %w", holder, idn.Value, err)
+		return fmt.Errorf("absorb duplicate %s holding %s: %w", holder, idn.Ref.Value, err)
 	}
 	return nil
 }
@@ -755,7 +755,7 @@ func insertIdentifierRow(ctx context.Context, tx queryable, instrumentID uuid.UU
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, instrumentID, idn.Type, nullStr(idn.Domain), idn.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+	`, instrumentID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 	return err
 }
 
@@ -768,12 +768,12 @@ func identifierHolder(ctx context.Context, tx queryable, idn db.IdentifierInput)
 		WHERE identifier_type = $1 AND COALESCE(domain, '') = $2 AND value = $3
 		  AND daterange(valid_from, valid_before) && daterange($4, $5)
 		LIMIT 1
-	`, idn.Type, idn.Domain, idn.Value, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore)).Scan(&holder)
+	`, idn.Ref.Type, idn.Ref.Domain, idn.Ref.Value, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore)).Scan(&holder)
 	if errors.Is(err, sql.ErrNoRows) {
 		return uuid.Nil, nil
 	}
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("find identifier holder for %s: %w", idn.Value, err)
+		return uuid.Nil, fmt.Errorf("find identifier holder for %s: %w", idn.Ref.Value, err)
 	}
 	return holder, nil
 }

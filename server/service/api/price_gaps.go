@@ -132,16 +132,16 @@ func bestIdentifier(ids []db.IdentifierInput) *apiv1.InstrumentIdentifier {
 	var best *apiv1.InstrumentIdentifier
 	bestPri := len(identifierPriority) + 1
 	for _, id := range ids {
-		pri, ok := identifierPriority[id.Type]
+		pri, ok := identifierPriority[id.Ref.Type]
 		if !ok {
 			continue
 		}
 		if pri < bestPri {
 			bestPri = pri
 			best = &apiv1.InstrumentIdentifier{
-				Type:      identifierTypeFromString(id.Type),
-				Value:     id.Value,
-				Domain:    id.Domain,
+				Type:      identifierTypeFromString(id.Ref.Type),
+				Value:     id.Ref.Value,
+				Domain:    id.Ref.Domain,
 				Canonical: id.Canonical,
 			}
 		}

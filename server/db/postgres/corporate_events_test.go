@@ -811,10 +811,18 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 
 	// Create an instrument with three identifiers, MIC_TICKER should win.
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
-		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: "Apple Inc.", Canonical: false},
-		{Type: "ISIN", Value: "US0378331005", Canonical: true},
-		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "Apple Inc.", Domain: "TEST"},
+			Canonical: false,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+			Canonical: true,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -859,8 +867,10 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
-		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -998,8 +1008,10 @@ func TestApplyOptionSplit(t *testing.T) {
 	expiry := d(2025, 1, 17)
 	optFields := &db.OptionFields{Strike: decf(150), Expiry: expiry, PutCall: "C"}
 	optID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL 250117C00150000", "", "", []db.IdentifierInput{
-		{Type: "OCC", Value: "AAPL250117C00150000", Canonical: true},
-	}, nil, underlyingID, nil, nil, optFields)
+		{
+			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00150000"},
+			Canonical: true,
+		}}, nil, underlyingID, nil, nil, optFields)
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -1036,7 +1048,10 @@ func TestApplyOptionSplit(t *testing.T) {
 		OldOCCValue:  "AAPL250117C00150000",
 		Mints: []db.OptionMint{{
 			ExDate: d(2024, 7, 1),
-			OCC:    db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00037500", Canonical: true},
+			OCC: db.IdentifierInput{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00037500"},
+				Canonical: true,
+			},
 			Strike: decf(37.5),
 		}},
 	}
@@ -1455,8 +1470,11 @@ func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike flo
 	}
 	optFields := &db.OptionFields{Strike: decf(strike), Expiry: expiry, PutCall: "C"}
 	id, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", occ, "", "", []db.IdentifierInput{
-		{Type: "OCC", Value: occ, Canonical: true, ValidFrom: validFrom},
-	}, nil, underlyingID, nil, nil, optFields)
+		{
+			Ref:       db.InstrumentRef{Type: "OCC", Value: occ},
+			Canonical: true,
+			ValidFrom: validFrom,
+		}}, nil, underlyingID, nil, nil, optFields)
 	if err != nil {
 		t.Fatalf("ensure option %s: %v", occ, err)
 	}
@@ -1734,7 +1752,7 @@ func TestListPendingOptionSplits_MultipleAndFilter(t *testing.T) {
 	}
 	var hasOCC bool
 	for _, idn := range filtered[0].Option.Identifiers {
-		if idn.Type == "OCC" {
+		if idn.Ref.Type == "OCC" {
 			hasOCC = true
 		}
 	}
@@ -1768,7 +1786,10 @@ func TestListPendingOptionSplits_ClearedByApply(t *testing.T) {
 		OldOCCValue:  "AAPL250117C00200000",
 		Mints: []db.OptionMint{{
 			ExDate: d(2024, 6, 1),
-			OCC:    db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
+			OCC: db.IdentifierInput{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00100000"},
+				Canonical: true,
+			},
 			Strike: decf(100),
 		}},
 	}); err != nil {
@@ -1808,7 +1829,10 @@ func TestApplyOptionSplit_ConvergesOnStaleOldOCC(t *testing.T) {
 		OldOCCValue:  "AAPL250117C00200000",
 		Mints: []db.OptionMint{{
 			ExDate: d(2024, 6, 1),
-			OCC:    db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
+			OCC: db.IdentifierInput{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00100000"},
+				Canonical: true,
+			},
 			Strike: decf(100),
 		}},
 	}); err != nil {
@@ -1822,12 +1846,18 @@ func TestApplyOptionSplit_ConvergesOnStaleOldOCC(t *testing.T) {
 		Mints: []db.OptionMint{
 			{
 				ExDate: d(2024, 6, 1),
-				OCC:    db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
+				OCC: db.IdentifierInput{
+					Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00100000"},
+					Canonical: true,
+				},
 				Strike: decf(100),
 			},
 			{
 				ExDate: d(2024, 9, 1),
-				OCC:    db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00025000", Canonical: true},
+				OCC: db.IdentifierInput{
+					Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00025000"},
+					Canonical: true,
+				},
 				Strike: decf(25),
 			},
 		},
@@ -1886,7 +1916,10 @@ func TestApplyOptionSplit_AbsorbsDuplicateHoldingTheMintedName(t *testing.T) {
 		OldOCCValue:  "AAPL250117C00200000",
 		Mints: []db.OptionMint{{
 			ExDate: d(2024, 6, 1),
-			OCC:    db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
+			OCC: db.IdentifierInput{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00100000"},
+				Canonical: true,
+			},
 			Strike: decf(100),
 		}},
 	}); err != nil {
@@ -1931,8 +1964,8 @@ func assertOCCHistory(t *testing.T, inst *db.InstrumentRow, want []occSpan) {
 	t.Helper()
 	var got []occSpan
 	for _, idn := range inst.Identifiers {
-		if idn.Type == "OCC" {
-			got = append(got, occSpan{idn.Value, idn.ValidFrom, idn.ValidBefore})
+		if idn.Ref.Type == "OCC" {
+			got = append(got, occSpan{idn.Ref.Value, idn.ValidFrom, idn.ValidBefore})
 		}
 	}
 	sort.Slice(got, func(i, j int) bool {

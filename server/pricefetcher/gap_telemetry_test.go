@@ -230,8 +230,10 @@ func TestCycleRecordsAFilledGap(t *testing.T) {
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 70, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{{
-			ID:          "inst-1",
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "XNAS:AAPL"}},
+			ID: "inst-1",
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "XNAS:AAPL"},
+			}},
 		}},
 	}.expect(mockDB)
 
@@ -285,8 +287,10 @@ func TestCycleRecordsAnEmptyAnswerAsSettled(t *testing.T) {
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 70, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{{
-			ID:          "inst-1",
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "XNAS:AAPL"}},
+			ID: "inst-1",
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "XNAS:AAPL"},
+			}},
 		}},
 	}.expect(mockDB)
 
@@ -329,8 +333,10 @@ func TestCycleRecordsAHistoryLimitWithoutADuration(t *testing.T) {
 			{PluginID: "eodhd", Precedence: 70, Config: []byte("{}"), MaxHistoryDays: &maxHist},
 		},
 		insts: []*db.InstrumentRow{{
-			ID:          "inst-1",
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "XNAS:AAPL"}},
+			ID: "inst-1",
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "XNAS:AAPL"},
+			}},
 		}},
 	}.expect(mockDB)
 
@@ -371,8 +377,10 @@ func TestCycleRecordsAPluginFailure(t *testing.T) {
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 70, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{{
-			ID:          "inst-1",
-			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "XNAS:AAPL"}},
+			ID: "inst-1",
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "XNAS:AAPL"},
+			}},
 		}},
 	}.expect(mockDB)
 
@@ -448,8 +456,12 @@ func TestCancelledCycleStopsAndLeavesTheRestUnstamped(t *testing.T) {
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 70, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{
-			{ID: "inst-1", Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "XNAS:AAPL"}}},
-			{ID: "inst-2", Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "XNAS:MSFT"}}},
+			{ID: "inst-1", Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "XNAS:AAPL"},
+			}}},
+			{ID: "inst-2", Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "XNAS:MSFT"},
+			}}},
 		},
 	}.expect(mockDB)
 

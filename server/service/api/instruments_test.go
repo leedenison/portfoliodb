@@ -29,9 +29,14 @@ func TestListInstruments_Success(t *testing.T) {
 	rows := []*dbpkg.InstrumentRow{
 		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD"),
 			Identifiers: []dbpkg.IdentifierInput{
-				{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true},
-				{Type: "ISIN", Value: "US0378331005", Canonical: true},
-			}},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+					Canonical: true,
+				},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+					Canonical: true,
+				}}},
 	}
 	db.EXPECT().
 		ListInstruments(gomock.Any(), "", []string(nil), int32(30), "").
@@ -150,9 +155,14 @@ func TestExportSystemArchive_Instruments_Success(t *testing.T) {
 		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD"),
 			ContractMultiplier: decimal.NewFromInt(1),
 			Identifiers: []dbpkg.IdentifierInput{
-				{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true},
-				{Type: "BROKER_DESCRIPTION", Value: "APPLE INC", Domain: "IBKR", Canonical: false},
-			}},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+					Canonical: true,
+				},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "APPLE INC", Domain: "IBKR"},
+					Canonical: false,
+				}}},
 	}
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)
 	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
@@ -198,9 +208,16 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 			// it wears now. Both travel, or a file exported before the split
 			// would name a symbol the importing instance has never heard of.
 			Identifiers: []dbpkg.IdentifierInput{
-				{Type: "OCC", Value: "AAPL260116C00301000", Canonical: true, ValidBefore: &namedFrom},
-				{Type: "OCC", Value: "AAPL260116C00150500", Canonical: true, ValidFrom: &namedFrom},
-			},
+				{
+					Ref:         dbpkg.InstrumentRef{Type: "OCC", Value: "AAPL260116C00301000"},
+					Canonical:   true,
+					ValidBefore: &namedFrom,
+				},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "OCC", Value: "AAPL260116C00150500"},
+					Canonical: true,
+					ValidFrom: &namedFrom,
+				}},
 			Underlying: &dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 		},
 	}
@@ -247,7 +264,10 @@ func TestExportSystemArchive_Instruments_CarriesProviderIdentifiers(t *testing.T
 	rows := []*dbpkg.InstrumentRow{
 		{ID: "id-1", AssetClass: strPtr("STOCK"), Currency: strPtr("USD"),
 			ContractMultiplier: decimal.NewFromInt(1),
-			Identifiers:        []dbpkg.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true}},
+			Identifiers: []dbpkg.IdentifierInput{{
+				Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+				Canonical: true,
+			}},
 			ProviderIdentifiers: []dbpkg.ProviderIdentifierInput{
 				{Provider: "eodhd", Type: "EODHD_EXCH_CODE", Value: "US"},
 				{Provider: "openfigi", Type: "FIGI", Domain: "XNAS", Value: "BBG000B9XRY4"},

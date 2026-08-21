@@ -93,8 +93,10 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 	fxIDs := make(map[string]string, len(foreignCurrencies))
 	for _, cur := range foreignCurrencies {
 		id, err := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
-			{Type: "FX_PAIR", Domain: "", Value: cur + "USD", Canonical: true},
-		}, nil, "", nil, nil, nil)
+			{
+				Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: cur + "USD", Domain: ""},
+				Canonical: true,
+			}}, nil, "", nil, nil, nil)
 		if err != nil {
 			t.Fatalf("ensure fx pair %s: %v", cur, err)
 		}
@@ -118,8 +120,10 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 			cur = foreignCurrencies[(i/load.foreignEvery)%len(foreignCurrencies)]
 		}
 		instID, err := p.EnsureInstrument(ctx, "STOCK", "", cur, desc, "", "", []db.IdentifierInput{
-			{Type: "BROKER_DESCRIPTION", Domain: "BENCH", Value: desc, Canonical: false},
-		}, nil, "", nil, nil, nil)
+			{
+				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "BENCH"},
+				Canonical: false,
+			}}, nil, "", nil, nil, nil)
 		if err != nil {
 			t.Fatalf("ensure instrument: %v", err)
 		}

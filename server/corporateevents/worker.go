@@ -207,7 +207,9 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 			// Merge provider-specific identifiers for this plugin.
 			for _, pi := range inst.ProviderIdentifiers {
 				if pi.Provider == pe.id {
-					ids = append(ids, db.IdentifierInput{Type: pi.Type, Domain: pi.Domain, Value: pi.Value})
+					ids = append(ids, db.IdentifierInput{
+						Ref: db.InstrumentRef{Type: pi.Type, Value: pi.Value, Domain: pi.Domain},
+					})
 				}
 			}
 			ids = pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), ids)

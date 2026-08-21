@@ -391,7 +391,10 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
 		// No claim: one description associates nothing with anything, and
 		// nobody asserted an identity for it.
-		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, nil, "", nil, nil, nil)
+		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
+			Canonical: false,
+		}}, nil, "", nil, nil, nil)
 		if ensureErr != nil {
 			return resolveResult{}, ensureErr
 		}
@@ -480,7 +483,10 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	// Ingestion-specific fallback: broker-description-only instrument.
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
-			[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}},
+			[]db.IdentifierInput{{
+				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
+				Canonical: false,
+			}},
 			nil, "", nil, nil, nil)
 	}
 

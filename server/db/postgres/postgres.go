@@ -436,9 +436,12 @@ func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*
 		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical, &validFrom, &validBefore); err != nil {
 			return err
 		}
-		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
+		idn := db.IdentifierInput{
+			Ref:       db.InstrumentRef{Type: idType, Value: val},
+			Canonical: canonical,
+		}
 		if domain.Valid {
-			idn.Domain = domain.String
+			idn.Ref.Domain = domain.String
 		}
 		if validFrom.Valid {
 			idn.ValidFrom = &validFrom.Time

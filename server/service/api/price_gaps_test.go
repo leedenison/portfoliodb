@@ -73,16 +73,26 @@ func TestListPriceGaps_Success(t *testing.T) {
 			ID: "inst-1", AssetClass: &stockAC, ExchangeMIC: &mic, Currency: &currency, Name: &name,
 			Exchange: "NASDAQ",
 			Identifiers: []dbpkg.IdentifierInput{
-				{Type: "BROKER_DESCRIPTION", Domain: "src", Value: "AAPL", Canonical: false},
-				{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-				{Type: "ISIN", Value: "US0378331005", Canonical: true},
-			},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "src"},
+					Canonical: false,
+				},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+					Canonical: true,
+				},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+					Canonical: true,
+				}},
 		},
 		{
 			ID: "inst-fx", AssetClass: &fxAC, Currency: &currency, Name: &fxName,
 			Identifiers: []dbpkg.IdentifierInput{
-				{Type: "FX_PAIR", Value: "GBPUSD", Canonical: true},
-			},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "FX_PAIR", Value: "GBPUSD"},
+					Canonical: true,
+				}},
 		},
 	}
 
@@ -144,11 +154,17 @@ func TestListPriceGaps_AssetClassFilter(t *testing.T) {
 	instruments := []*dbpkg.InstrumentRow{
 		{
 			ID: "inst-stock", AssetClass: &stockAC, Exchange: "NASDAQ",
-			Identifiers: []dbpkg.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}},
+			Identifiers: []dbpkg.IdentifierInput{{
+				Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+				Canonical: true,
+			}},
 		},
 		{
 			ID: "inst-etf", AssetClass: &etfAC, Exchange: "NYSE Arca",
-			Identifiers: []dbpkg.IdentifierInput{{Type: "MIC_TICKER", Domain: "ARCX", Value: "SPY", Canonical: true}},
+			Identifiers: []dbpkg.IdentifierInput{{
+				Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "SPY", Domain: "ARCX"},
+				Canonical: true,
+			}},
 		},
 	}
 	priceGaps := []dbpkg.InstrumentDateRanges{
@@ -182,8 +198,10 @@ func TestListPriceGaps_SkipsInstrumentsWithoutUsableIdentifier(t *testing.T) {
 		{
 			ID: "inst-no-id", AssetClass: &stockAC,
 			Identifiers: []dbpkg.IdentifierInput{
-				{Type: "BROKER_DESCRIPTION", Domain: "src", Value: "Some Stock", Canonical: false},
-			},
+				{
+					Ref:       dbpkg.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "Some Stock", Domain: "src"},
+					Canonical: false,
+				}},
 		},
 	}
 	priceGaps := []dbpkg.InstrumentDateRanges{
@@ -211,26 +229,38 @@ func TestBestIdentifier(t *testing.T) {
 		wantVal  string
 	}{
 		{
-			name:     "prefers MIC_TICKER over ISIN",
-			ids:      []dbpkg.IdentifierInput{{Type: "ISIN", Value: "US0378331005"}, {Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+			name: "prefers MIC_TICKER over ISIN",
+			ids: []dbpkg.IdentifierInput{{
+				Ref: dbpkg.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+			}, {
+				Ref: dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+			}},
 			wantType: "MIC_TICKER",
 			wantVal:  "AAPL",
 		},
 		{
-			name:     "prefers OPENFIGI_TICKER over FX_PAIR",
-			ids:      []dbpkg.IdentifierInput{{Type: "FX_PAIR", Value: "GBPUSD"}, {Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"}},
+			name: "prefers OPENFIGI_TICKER over FX_PAIR",
+			ids: []dbpkg.IdentifierInput{{
+				Ref: dbpkg.InstrumentRef{Type: "FX_PAIR", Value: "GBPUSD"},
+			}, {
+				Ref: dbpkg.InstrumentRef{Type: "OPENFIGI_TICKER", Value: "AAPL", Domain: "US"},
+			}},
 			wantType: "OPENFIGI_TICKER",
 			wantVal:  "AAPL",
 		},
 		{
-			name:     "falls back to FX_PAIR",
-			ids:      []dbpkg.IdentifierInput{{Type: "FX_PAIR", Value: "EURUSD"}},
+			name: "falls back to FX_PAIR",
+			ids: []dbpkg.IdentifierInput{{
+				Ref: dbpkg.InstrumentRef{Type: "FX_PAIR", Value: "EURUSD"},
+			}},
 			wantType: "FX_PAIR",
 			wantVal:  "EURUSD",
 		},
 		{
 			name: "no usable identifier",
-			ids:  []dbpkg.IdentifierInput{{Type: "BROKER_DESCRIPTION", Value: "foo"}},
+			ids: []dbpkg.IdentifierInput{{
+				Ref: dbpkg.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "foo"},
+			}},
 		},
 	}
 	for _, tc := range tests {

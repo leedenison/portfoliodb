@@ -313,7 +313,7 @@ func TestResolveWithPlugins_DatesNamesFromTheHintVintage(t *testing.T) {
 			}
 			for _, idn := range idns {
 				if idn.ValidFrom == nil || !idn.ValidFrom.Equal(validAt) {
-					t.Errorf("%s valid_from = %v, want the hint vintage %v", idn.Type, idn.ValidFrom, validAt)
+					t.Errorf("%s valid_from = %v, want the hint vintage %v", idn.Ref.Type, idn.ValidFrom, validAt)
 				}
 			}
 			return "new-id", nil
@@ -509,7 +509,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			hasSource := false
 			for _, idn := range idns {
-				if idn.Type == "BROKER_DESCRIPTION" && idn.Domain == source && idn.Value == desc && !idn.Canonical {
+				if idn.Ref.Type == "BROKER_DESCRIPTION" && idn.Ref.Domain == source && idn.Ref.Value == desc && !idn.Canonical {
 					hasSource = true
 				}
 			}
@@ -840,8 +840,8 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			for _, idn := range idns {
-				if idn.Type == "OPENFIGI_SHARE_CLASS" {
-					t.Errorf("OPENFIGI_GLOBAL from inconsistent plugin should not be merged, got %q", idn.Value)
+				if idn.Ref.Type == "OPENFIGI_SHARE_CLASS" {
+					t.Errorf("OPENFIGI_GLOBAL from inconsistent plugin should not be merged, got %q", idn.Ref.Value)
 				}
 			}
 			return "id", nil
@@ -1061,7 +1061,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			hasFIGI := false
 			for _, idn := range idns {
-				if idn.Type == "OPENFIGI_SHARE_CLASS" && idn.Value == "BBG000B9XRY4" {
+				if idn.Ref.Type == "OPENFIGI_SHARE_CLASS" && idn.Ref.Value == "BBG000B9XRY4" {
 					hasFIGI = true
 				}
 			}
@@ -1690,8 +1690,8 @@ func TestResolveWithPlugins_ForeignVenueContradictsTheWinnersMarket(t *testing.T
 			gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			for _, id := range ids {
-				if id.Type == "ISIN" {
-					t.Errorf("ISIN %q merged from a listing outside the market the winner named", id.Value)
+				if id.Ref.Type == "ISIN" {
+					t.Errorf("ISIN %q merged from a listing outside the market the winner named", id.Ref.Value)
 				}
 			}
 			return "new-id", nil
@@ -1831,8 +1831,8 @@ func TestResolveWithPlugins_ProposalIsNeverPersisted(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Real Co", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			for _, id := range ids {
-				if id.Type == "ISIN" {
-					t.Errorf("proposed ISIN %q reached EnsureInstrument", id.Value)
+				if id.Ref.Type == "ISIN" {
+					t.Errorf("proposed ISIN %q reached EnsureInstrument", id.Ref.Value)
 				}
 			}
 			return "new-id", nil
@@ -2382,7 +2382,7 @@ func TestResolveWithPlugins_FilteredValueIsClaimedNotStored(t *testing.T) {
 		t.Errorf("roles = %v", roles)
 	}
 	for _, s := range stored {
-		if s.Type == "ISIN" {
+		if s.Ref.Type == "ISIN" {
 			t.Error("a filtered value was written onto the instrument")
 		}
 	}

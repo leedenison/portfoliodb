@@ -88,7 +88,7 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	}
 	identifiers := make([]*apiv1.InstrumentIdentifier, 0, len(row.Identifiers))
 	for _, idn := range row.Identifiers {
-		pi := &apiv1.InstrumentIdentifier{Type: identifierTypeFromString(idn.Type), Domain: idn.Domain, Value: idn.Value, Canonical: idn.Canonical}
+		pi := &apiv1.InstrumentIdentifier{Type: identifierTypeFromString(idn.Ref.Type), Domain: idn.Ref.Domain, Value: idn.Ref.Value, Canonical: idn.Canonical}
 		if idn.ValidFrom != nil {
 			pi.ValidFrom = proto.String(idn.ValidFrom.Format("2006-01-02"))
 		}

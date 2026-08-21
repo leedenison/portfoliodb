@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A proposed identifier is distinguishable from a stated one
 milestone: M17
 dependencies: [0129]

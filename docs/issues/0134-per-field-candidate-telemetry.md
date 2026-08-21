@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Per-field candidate telemetry
 milestone: M17
 dependencies: [0131]

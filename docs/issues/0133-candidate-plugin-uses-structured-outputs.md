@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: The candidate plugin uses structured outputs and returns per-field confidence
 milestone: M17
 dependencies: [0131]

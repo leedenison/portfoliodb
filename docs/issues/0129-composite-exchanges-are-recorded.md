@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Composite exchanges are recorded rather than guessed
 milestone: M17
 ---

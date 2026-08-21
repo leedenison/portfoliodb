@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Candidate plugins complete a partial identity
 milestone: M17
 dependencies: [0130]

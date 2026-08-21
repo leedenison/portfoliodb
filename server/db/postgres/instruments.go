@@ -328,6 +328,36 @@ func (p *Postgres) FindInstrumentBySourceDescription(ctx context.Context, source
 	return p.FindInstrumentByIdentifier(ctx, "BROKER_DESCRIPTION", source, description)
 }
 
+// FindDescriptionOnlyInstrument implements db.InstrumentDB.
+//
+// canonical = false marks a broker description and nothing else, so holding no
+// canonical identifier is the stored form of broker-description-only. The guard
+// is a NOT EXISTS rather than a second round trip because the caller asks one
+// question -- does this description name an instrument with no identity -- and
+// two lookups would let the answer change between them.
+//
+// It orders by validity for the same reason FindInstrumentByIdentifier does.
+func (p *Postgres) FindDescriptionOnlyInstrument(ctx context.Context, source, description string) (string, error) {
+	var id uuid.UUID
+	err := p.q.QueryRowContext(ctx, `
+		SELECT ii.instrument_id FROM instrument_identifiers ii
+		WHERE ii.identifier_type = 'BROKER_DESCRIPTION' AND ii.domain = $1 AND ii.value = $2
+		  AND NOT EXISTS (
+			SELECT 1 FROM instrument_identifiers c
+			WHERE c.instrument_id = ii.instrument_id AND c.canonical
+		  )
+		ORDER BY ii.valid_before IS NULL DESC, ii.valid_before DESC
+		LIMIT 1
+	`, source, description).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("find description-only instrument: %w", err)
+	}
+	return id.String(), nil
+}
+
 // GetInstrument implements db.InstrumentDB.
 func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.InstrumentRow, error) {
 	instUUID, err := uuid.Parse(instrumentID)
@@ -567,10 +597,50 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		}
 		return survivor.String(), nil
 	}
-	// Exactly one instrument: update underlying and option fields.
+	// Exactly one instrument: update underlying and option fields, and complete
+	// it outright where it had no identity to begin with.
 	if len(distinctIDs) == 1 {
 		id := distinctIDs[0]
-		if err := updateInstrumentOnMatch(ctx, p.q, id, underlyingUUID, optionFields); err != nil {
+		descOnly, err := holdsNoCanonicalIdentifier(ctx, p.q, id)
+		if err != nil {
+			return "", err
+		}
+		if !descOnly {
+			if err := updateInstrumentOnMatch(ctx, p.q, id, underlyingUUID, optionFields); err != nil {
+				return "", err
+			}
+			return id.String(), nil
+		}
+		// The instrument is nothing but a broker's text for a security: it holds
+		// no canonical identifier and every column is null. So what identified it
+		// is written on, rather than found and dropped as it is for an instrument
+		// that already has an identity.
+		//
+		// This asserts no association between two identities and chains nothing
+		// through the description (adr/0061), because there is no second identity
+		// here -- the identifiers arrive together and become this instrument's
+		// first. It is also the one write adr/0004's "a stored value wins" has
+		// nothing to protect: there is no stored value.
+		//
+		// An instrument that does hold a canonical identifier is left alone. What
+		// may be added to one is 0136, and it is a different question with a
+		// different answer.
+		err = p.runInTx(ctx, func(exec queryable) error {
+			if err := mergeIntoInstrument(ctx, exec, id, db.InstrumentMerge{
+				AssetClass:  assetClass,
+				ExchangeMIC: exchangeMIC,
+				Currency:    currency,
+				CIK:         cik,
+				SICCode:     sicCode,
+				ValidFrom:   validFrom,
+				ValidBefore: validBefore,
+				Identifiers: identifiers,
+			}); err != nil {
+				return err
+			}
+			return updateInstrumentOnMatch(ctx, exec, id, underlyingUUID, optionFields)
+		})
+		if err != nil {
 			return "", err
 		}
 		return id.String(), nil
@@ -619,11 +689,29 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	return newID.String(), nil
 }
 
+// holdsNoCanonicalIdentifier reports whether an instrument is nothing but a
+// broker description. canonical = false marks one of those and nothing else, so
+// the absence of a canonical row is the stored form of broker-description-only.
+func holdsNoCanonicalIdentifier(ctx context.Context, exec queryable, id uuid.UUID) (bool, error) {
+	var exists bool
+	err := exec.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM instrument_identifiers WHERE instrument_id = $1 AND canonical)
+	`, id).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check canonical identifiers: %w", err)
+	}
+	return !exists, nil
+}
+
 // updateInstrumentOnMatch optionally sets underlying_id and option fields on an
 // existing instrument. It writes no identifier, which is what leaves each name's
 // valid_from where it was: matching an existing instrument is not evidence that
 // any of its names became correct today, and moving them is what used to disarm
 // the retroactive option-split guard.
+//
+// An instrument holding no identity at all is the exception, handled by its
+// caller: an absent name is inserted with the vintage the resolution stamped on
+// it (adr/0055), which is a different act from moving one that is already there.
 func updateInstrumentOnMatch(ctx context.Context, exec queryable, id uuid.UUID, underlyingID *uuid.UUID, optionFields *db.OptionFields) error {
 	if optionFields != nil {
 		_, err := exec.ExecContext(ctx, `
@@ -793,43 +881,65 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 			idns[i].Ref.Domain = p.normalizeToOperatingMIC(ctx, idns[i].Ref.Domain)
 		}
 	}
+	in.ExchangeMIC = mic
+	in.Identifiers = idns
 	return p.runInTx(ctx, func(exec queryable) error {
-		for _, idn := range idns {
-			// ON CONFLICT with no target covers the exclusion constraint as well as
-			// a unique index, so an identifier the row already holds over an
-			// overlapping interval is still a no-op rather than an error.
-			_, err := exec.ExecContext(ctx, `
-				INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)
-				ON CONFLICT DO NOTHING
-			`, uid, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
-			if err != nil {
-				return fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
-			}
-		}
-		// The WHERE guard leaves a row that needs nothing unwritten, which keeps
-		// naming exchange_mic in the SET list from firing the name recompute on
-		// every instrument in the file.
-		_, err := exec.ExecContext(ctx, `
-			UPDATE instruments SET
-				asset_class = COALESCE(asset_class, $2),
-				exchange_mic = COALESCE(exchange_mic, $3),
-				currency = COALESCE(currency, $4),
-				cik = COALESCE(cik, $5),
-				sic_code = COALESCE(sic_code, $6),
-				valid_from = COALESCE(valid_from, $7),
-				valid_before = COALESCE(valid_before, $8)
-			WHERE id = $1
-			  AND (asset_class IS NULL OR exchange_mic IS NULL OR currency IS NULL
-			       OR cik IS NULL OR sic_code IS NULL
-			       OR valid_from IS NULL OR valid_before IS NULL)
-		`, uid, nullStr(in.AssetClass), nullStr(mic), nullStr(in.Currency),
-			nullStr(in.CIK), nullStr(in.SICCode), nullTime(in.ValidFrom), nullTime(in.ValidBefore))
-		if err != nil {
-			return fmt.Errorf("merge instrument columns: %w", err)
-		}
-		return nil
+		return mergeIntoInstrument(ctx, exec, uid, in)
 	})
+}
+
+// mergeIntoInstrument adds what an instrument does not already have: identifiers
+// it lacks, and columns that are still NULL. A stored value always wins
+// (adr/0004), so it fills blanks and never rewrites.
+//
+// It takes an exec rather than opening its own transaction because both callers
+// already have one to run in, and because the second of them -- EnsureInstrument
+// completing a broker-description-only instrument -- has other writes that must
+// land or fail with these.
+//
+// MIC normalisation is the caller's: EnsureInstrument has already done it for the
+// whole identifier set, and doing it twice would ask the exchange table the same
+// question again.
+//
+// name is not among the columns. A trigger derives it from the identifiers in
+// force, so an inserted MIC_TICKER takes over from the broker description on its
+// own, and writing it here would fight that.
+func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in db.InstrumentMerge) error {
+	for _, idn := range in.Identifiers {
+		// ON CONFLICT with no target covers the exclusion constraint as well as
+		// a unique index, so an identifier the row already holds over an
+		// overlapping interval is still a no-op rather than an error.
+		_, err := exec.ExecContext(ctx, `
+			INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT DO NOTHING
+		`, id, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+		if err != nil {
+			return fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
+		}
+	}
+	// The WHERE guard leaves a row that needs nothing unwritten, which keeps
+	// naming exchange_mic in the SET list from firing the name recompute on
+	// every instrument in the file.
+	_, err := exec.ExecContext(ctx, `
+		UPDATE instruments SET
+			asset_class = COALESCE(asset_class, $2),
+			exchange_mic = COALESCE(exchange_mic, $3),
+			currency = COALESCE(currency, $4),
+			cik = COALESCE(cik, $5),
+			sic_code = COALESCE(sic_code, $6),
+			valid_from = COALESCE(valid_from, $7),
+			valid_before = COALESCE(valid_before, $8)
+		WHERE id = $1
+		  AND (asset_class IS NULL OR exchange_mic IS NULL OR currency IS NULL
+		       OR cik IS NULL OR sic_code IS NULL
+		       OR valid_from IS NULL OR valid_before IS NULL)
+	`, id, nullStr(in.AssetClass), nullStr(in.ExchangeMIC), nullStr(in.Currency),
+		nullStr(in.CIK), nullStr(in.SICCode), nullTime(in.ValidFrom), nullTime(in.ValidBefore))
+	if err != nil {
+		return fmt.Errorf("merge instrument columns: %w", err)
+	}
+	return nil
 }
 
 // UpdateInstrumentStrike implements db.InstrumentDB.

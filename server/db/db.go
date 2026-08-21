@@ -1338,6 +1338,13 @@ type InstrumentDB interface {
 	FindInstrumentByTickerIgnoringSeparators(ctx context.Context, value string) (string, error)
 	// FindInstrumentBySourceDescription looks up instrument_id by (source, NULL domain, instrument_description). Returns "" if not found.
 	FindInstrumentBySourceDescription(ctx context.Context, source, description string) (string, error)
+	// FindDescriptionOnlyInstrument is the same lookup narrowed to an instrument
+	// carrying no canonical identifier -- one that is nothing but the broker's
+	// text for a security. It returns "" for a description naming an instrument
+	// that has since been identified, which is a different thing entirely: that
+	// instrument has an identity, and a description is not allowed to associate
+	// it with another one.
+	FindDescriptionOnlyInstrument(ctx context.Context, source, description string) (string, error)
 	// GetInstrument returns an instrument by ID with its identifiers, or nil if not found.
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.

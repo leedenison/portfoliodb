@@ -338,6 +338,219 @@ func TestEnsureInstrument_LeavesNameDatesAlone(t *testing.T) {
 	}
 }
 
+// descriptionOnly is the instrument a first upload leaves behind when nothing
+// identified the security: one non-canonical BROKER_DESCRIPTION and no other
+// name, with every column still null.
+func descriptionOnly(t *testing.T, p *Postgres, source, desc string) string {
+	t.Helper()
+	id, err := p.EnsureInstrument(context.Background(), "", "", "", desc, "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source},
+		Canonical: false,
+	}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure broker-description-only instrument: %v", err)
+	}
+	return id
+}
+
+// TestEnsureInstrument_CompletesADescriptionOnlyInstrument covers issue 0135's
+// second half. An instrument holding nothing but a broker's text for a security
+// has no identity, so the resolution that identifies it writes what it found on
+// to it rather than finding it and dropping everything but the match.
+func TestEnsureInstrument_CompletesADescriptionOnlyInstrument(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	const source = "IBKR:acct:statement"
+	const desc = "VANGUARD FTSE ALL-WORLD UCITS ETF"
+	id := descriptionOnly(t, p, source, desc)
+
+	// The same description, now arriving with what the identifier plugins
+	// resolved for it.
+	again, err := p.EnsureInstrument(ctx, "STOCK", "XLON", "USD", "", "0000320193", "6770", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00BK5BQT80"}, Canonical: true, ValidFrom: day(2025, 3, 1)},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VWRP", Domain: "XLON"}, Canonical: true, ValidFrom: day(2025, 3, 1)},
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if again != id {
+		t.Fatalf("ensure returned %q, want the existing instrument %q rather than a second one", again, id)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if isin := findIdentifier(row, "ISIN", "IE00BK5BQT80"); isin == nil {
+		t.Errorf("ISIN not written onto the instrument that had no identity")
+	} else if isin.ValidFrom == nil || !isin.ValidFrom.Equal(*day(2025, 3, 1)) {
+		t.Errorf("ISIN valid_from = %v, want the resolution's own vintage 2025-03-01", isin.ValidFrom)
+	}
+	if findIdentifier(row, "MIC_TICKER", "VWRP") == nil {
+		t.Errorf("MIC_TICKER not written onto the instrument that had no identity")
+	}
+	if row.AssetClass == nil || *row.AssetClass != "STOCK" {
+		t.Errorf("asset_class = %v, want STOCK", row.AssetClass)
+	}
+	if row.ExchangeMIC == nil || *row.ExchangeMIC != "XLON" {
+		t.Errorf("exchange_mic = %v, want XLON", row.ExchangeMIC)
+	}
+	if row.Currency == nil || *row.Currency != "USD" {
+		t.Errorf("currency = %v, want USD", row.Currency)
+	}
+	if row.CIK == nil || *row.CIK != "0000320193" {
+		t.Errorf("cik = %v, want it filled", row.CIK)
+	}
+	if row.SICCode == nil || *row.SICCode != "6770" {
+		t.Errorf("sic_code = %v, want it filled", row.SICCode)
+	}
+	// The name is trigger-derived from the identifiers in force, so the ticker
+	// takes over from the broker description without either caller writing it.
+	if row.Name == nil || *row.Name != "VWRP" {
+		t.Errorf("name = %v, want the ticker to have displaced the broker description", row.Name)
+	}
+}
+
+// TestEnsureInstrument_LeavesAnIdentifiedInstrumentAlone is the other side of the
+// line 0135 draws. An instrument that already holds a canonical identifier has an
+// identity, and what may be added to one is 0136's question, asked under a
+// corroboration rule this path does not apply.
+func TestEnsureInstrument_LeavesAnIdentifiedInstrumentAlone(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	id, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	again, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("re-ensure: %v", err)
+	}
+	if again != id {
+		t.Fatalf("re-ensure returned %q, want %q", again, id)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if findIdentifier(row, "MIC_TICKER", "AAPL") != nil {
+		t.Errorf("ticker written onto an instrument that already had an identity; that is 0136's to decide")
+	}
+	if row.ExchangeMIC != nil {
+		t.Errorf("exchange_mic = %v, want it left null", row.ExchangeMIC)
+	}
+	if row.Currency != nil {
+		t.Errorf("currency = %v, want it left null", row.Currency)
+	}
+}
+
+// TestEnsureInstrument_CompletionLeavesAStoredNameDateAlone extends the write
+// discipline of TestEnsureInstrument_LeavesNameDatesAlone over the completion
+// path. Inserting a name the instrument does not hold is not the same act as
+// moving one it does: the first takes the resolution's own vintage (adr/0055),
+// the second is what used to disarm the retroactive option-split guard.
+func TestEnsureInstrument_CompletionLeavesAStoredNameDateAlone(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	const source = "IBKR:acct:statement"
+	const desc = "CISCO SYSTEMS INC JAN25 60 CALL"
+	id := descriptionOnly(t, p, source, desc)
+
+	// The description-only instrument gains a name at the vintage the export
+	// stated it as of.
+	if _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "OCC", Value: "CSCO250117C00060000"}, Canonical: true, ValidFrom: day(2024, 1, 1)},
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
+	}, nil, "", nil, nil, nil); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	// A later upload restating the same name must not move the bound, and the
+	// instrument now holds an identity, so nothing else is written either.
+	if _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "OCC", Value: "CSCO250117C00060000"}, Canonical: true, ValidFrom: day(2025, 6, 1)},
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
+	}, nil, "", nil, nil, nil); err != nil {
+		t.Fatalf("re-ensure: %v", err)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	stored := findIdentifier(row, "OCC", "CSCO250117C00060000")
+	if stored == nil || stored.ValidFrom == nil || !stored.ValidFrom.Equal(*day(2024, 1, 1)) {
+		t.Errorf("valid_from moved on an incidental touch: got %v, want 2024-01-01", stored)
+	}
+	if n := len(row.Identifiers); n != 2 {
+		t.Errorf("identifiers = %d, want the OCC restated rather than a second row", n)
+	}
+}
+
+// TestFindDescriptionOnlyInstrument covers the lookup issue 0135 adds to the
+// hinted path: it answers only for a description naming an instrument with no
+// identity, and stops answering the moment that instrument has one.
+func TestFindDescriptionOnlyInstrument(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	const source = "IBKR:acct:statement"
+	const desc = "SOME UNLISTED FUND ACC"
+	id := descriptionOnly(t, p, source, desc)
+
+	got, err := p.FindDescriptionOnlyInstrument(ctx, source, desc)
+	if err != nil {
+		t.Fatalf("find: %v", err)
+	}
+	if got != id {
+		t.Fatalf("find = %q, want %q", got, id)
+	}
+
+	// A description nobody has seen names nothing.
+	got, err = p.FindDescriptionOnlyInstrument(ctx, source, "A DESCRIPTION NOBODY UPLOADED")
+	if err != nil {
+		t.Fatalf("find unknown: %v", err)
+	}
+	if got != "" {
+		t.Errorf("find unknown = %q, want empty", got)
+	}
+
+	// The same description under another source is another mapping.
+	got, err = p.FindDescriptionOnlyInstrument(ctx, "IBKR:acct:confirmation", desc)
+	if err != nil {
+		t.Fatalf("find other source: %v", err)
+	}
+	if got != "" {
+		t.Errorf("find other source = %q, want empty", got)
+	}
+
+	// Once the instrument has an identity the description no longer answers for
+	// it: what may be added to an identified instrument is 0136's question.
+	if err := p.InsertInstrumentIdentifier(ctx, id, db.IdentifierInput{
+		Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00B3RBWM25"}, Canonical: true,
+	}); err != nil {
+		t.Fatalf("insert canonical identifier: %v", err)
+	}
+	got, err = p.FindDescriptionOnlyInstrument(ctx, source, desc)
+	if err != nil {
+		t.Fatalf("find after identification: %v", err)
+	}
+	if got != "" {
+		t.Errorf("find after identification = %q, want empty", got)
+	}
+}
+
 // TestMergeInstrumentFromArchive_RestoresNameDates covers the archive round
 // trip: a file states the interval each name was correct over, and an import
 // that dropped it would leave an already-restated option looking unrestated and

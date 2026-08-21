@@ -2,6 +2,7 @@
 status: open
 title: An instrument accumulates what resolution learns
 milestone: M17
+dependencies: [0140]
 ---
 
 When resolution reaches an instrument that already exists, what it learned
@@ -26,6 +27,14 @@ column is null for good -- which is the other half of why exchanges stay blank
 Fill columns that are null and insert identifiers the instrument does not have.
 Do not overwrite a value already present: adr/0004 makes the identifier the
 source of truth for an existing instrument, and that stands.
+
+"What resolution learns" is narrower than what it was passed. An identifier is
+inserted when it is authoritatively corroborated with a name the instrument
+already holds -- the same test 0140 applies at the merge site, asked here at the
+second call site. A value that arrived in the same set without any single result
+tying it to a name on the row is not something this instrument learned, and
+writing it would assert an association nobody made. Columns are unaffected: they
+are metadata, and metadata has never merged anything.
 
 The current behaviour has a reason attached and it needs respecting rather than
 reverting. The comment ties writing no identifier to leaving each name's

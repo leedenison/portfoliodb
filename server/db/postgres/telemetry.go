@@ -176,17 +176,38 @@ func (t *Telemetry) WriteIdentificationAttempt(ctx context.Context, a db.Telemet
 }
 
 // WriteIdentifierPluginCall implements db.TelemetryDB.
-func (t *Telemetry) WriteIdentifierPluginCall(ctx context.Context, c db.TelemetryIdentifierPluginCall) {
+func (t *Telemetry) WriteIdentifierPluginCall(ctx context.Context, c db.TelemetryIdentifierPluginCall) string {
 	attemptID, ok := t.parent(ctx, c.RunID, c.AttemptID, "write identifier plugin call")
+	if !ok {
+		return ""
+	}
+	var id string
+	if err := t.db.QueryRowContext(ctx, `
+		INSERT INTO telemetry.identifier_plugin_call
+			(identification_attempt_id, plugin_id, outcome, retries, duration_ms)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id
+	`, attemptID, c.PluginID, c.Outcome, c.Retries, ms(c.Duration)).Scan(&id); err != nil {
+		t.fail(ctx, c.RunID, "write identifier plugin call", err)
+		return ""
+	}
+	return id
+}
+
+// WriteIdentifierClaim implements db.TelemetryDB. A claim whose call failed to
+// write has nothing to hang off and is dropped rather than written against a
+// null, exactly as a candidate field is.
+func (t *Telemetry) WriteIdentifierClaim(ctx context.Context, c db.TelemetryIdentifierClaim) {
+	callID, ok := t.parent(ctx, c.RunID, c.CallID, "write identifier claim")
 	if !ok {
 		return
 	}
 	if _, err := t.db.ExecContext(ctx, `
-		INSERT INTO telemetry.identifier_plugin_call
-			(identification_attempt_id, plugin_id, outcome, retries, duration_ms)
+		INSERT INTO telemetry.identifier_claim
+			(call_id, identifier_type, domain, value, role)
 		VALUES ($1, $2, $3, $4, $5)
-	`, attemptID, c.PluginID, c.Outcome, c.Retries, ms(c.Duration)); err != nil {
-		t.fail(ctx, c.RunID, "write identifier plugin call", err)
+	`, callID, c.Type, nullStr(c.Domain), c.Value, c.Role); err != nil {
+		t.fail(ctx, c.RunID, "write identifier claim", err)
 	}
 }
 

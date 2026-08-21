@@ -121,13 +121,26 @@ func TestWriteNest(t *testing.T) {
 	if attemptID == "" {
 		t.Fatal("WriteIdentificationAttempt returned no id")
 	}
-	tel.WriteIdentifierPluginCall(ctx, db.TelemetryIdentifierPluginCall{
+	callID := tel.WriteIdentifierPluginCall(ctx, db.TelemetryIdentifierPluginCall{
 		RunID:     runID,
 		AttemptID: attemptID,
 		PluginID:  "openfigi",
 		Outcome:   db.TelemetryPluginCallWon,
 		Retries:   1,
 		Duration:  1500 * time.Millisecond,
+	})
+	if callID == "" {
+		t.Fatal("WriteIdentifierPluginCall returned no id")
+	}
+	// What this call claimed: a FIGI it returned, and the ISIN it was filtered
+	// on and deliberately did not echo back.
+	tel.WriteIdentifierClaim(ctx, db.TelemetryIdentifierClaim{
+		RunID: runID, CallID: callID,
+		Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8", Role: db.ClaimRoleReturned,
+	})
+	tel.WriteIdentifierClaim(ctx, db.TelemetryIdentifierClaim{
+		RunID: runID, CallID: callID,
+		Type: "ISIN", Value: "US0378331005", Role: db.ClaimRoleFiltered,
 	})
 	tel.EndResolutionKey(ctx, keyID, db.TelemetryResolutionKeyOutcome{
 		RunID:            runID,
@@ -168,6 +181,47 @@ func TestWriteNest(t *testing.T) {
 	}
 	if runKind != db.TelemetryRunTxImport || !isImport {
 		t.Errorf("run = (%s, import=%v), want (tx_import, import=true)", runKind, isImport)
+	}
+
+	// The claims under one call are what that call said in one answer, so the
+	// view has to keep them reachable by call_id rather than only by run. A
+	// filtered row sits beside a returned one and is graded with it: the ISIN
+	// never came back in the payload, and the association still holds.
+	rows, err := tel.db.Query(`
+		SELECT identifier_type, value, role, plugin_id, key_description, is_import
+		FROM telemetry.v_identifier_claim WHERE call_id = $1::uuid
+		ORDER BY role
+	`, callID)
+	if err != nil {
+		t.Fatalf("read v_identifier_claim: %v", err)
+	}
+	defer rows.Close()
+	type claimRow struct {
+		typ, value, role, plugin, description string
+		isImport                              bool
+	}
+	var claims []claimRow
+	for rows.Next() {
+		var c claimRow
+		if err := rows.Scan(&c.typ, &c.value, &c.role, &c.plugin, &c.description, &c.isImport); err != nil {
+			t.Fatalf("scan claim: %v", err)
+		}
+		claims = append(claims, c)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("claim rows: %v", err)
+	}
+	want := []claimRow{
+		{"ISIN", "US0378331005", db.ClaimRoleFiltered, "openfigi", "APPLE INC COM", true},
+		{"OPENFIGI_SHARE_CLASS", "BBG001S5N8V8", db.ClaimRoleReturned, "openfigi", "APPLE INC COM", true},
+	}
+	if len(claims) != len(want) {
+		t.Fatalf("claims = %+v, want %+v", claims, want)
+	}
+	for i := range want {
+		if claims[i] != want[i] {
+			t.Errorf("claim %d = %+v, want %+v", i, claims[i], want[i])
+		}
 	}
 
 	var extraction, resolution string

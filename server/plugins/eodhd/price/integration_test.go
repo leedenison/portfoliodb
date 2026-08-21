@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
 )
@@ -20,7 +21,7 @@ func TestIntegration_EODHD_FetchPrices(t *testing.T) {
 	tests := []struct {
 		name       string
 		cassette   string
-		ids        []pricefetcher.Identifier
+		ids        []identifier.Identifier
 		assetClass string
 		from       time.Time
 		to         time.Time
@@ -30,7 +31,7 @@ func TestIntegration_EODHD_FetchPrices(t *testing.T) {
 		{
 			name:       "fx_gbpusd_subscription_limit",
 			cassette:   "testdata/cassettes/fx_gbpusd_sub_limit",
-			ids:        []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}},
+			ids:        []identifier.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}},
 			assetClass: db.AssetClassFX,
 			from:       time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 			to:         time.Date(2025, 4, 7, 0, 0, 0, 0, time.UTC),

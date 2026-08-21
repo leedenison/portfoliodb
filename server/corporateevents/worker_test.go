@@ -7,6 +7,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"go.uber.org/mock/gomock"
 )
@@ -178,7 +179,7 @@ func (s *stubPlugin) AcceptableAssetClasses() map[string]bool { return s.assetCl
 func (s *stubPlugin) AcceptableExchanges() map[string]bool    { return s.exchanges }
 func (s *stubPlugin) AcceptableCurrencies() map[string]bool   { return s.currencies }
 func (s *stubPlugin) DefaultConfig() []byte                   { return []byte(`{}`) }
-func (s *stubPlugin) FetchEvents(_ context.Context, _ []byte, _ []Identifier, _ string, _, _ time.Time) (*Events, error) {
+func (s *stubPlugin) FetchEvents(_ context.Context, _ []byte, _ []identifier.Identifier, _ string, _, _ time.Time) (*Events, error) {
 	s.calls++
 	return s.result, s.err
 }

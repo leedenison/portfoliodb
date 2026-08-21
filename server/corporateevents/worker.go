@@ -216,7 +216,7 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 			}
 
 			callCtx, callCancel := context.WithTimeout(ctx, pluginutil.TimeoutFromConfig(pe.config, DefaultPluginTimeout))
-			result, err := pe.plugin.FetchEvents(callCtx, pe.config, toPluginIdentifiers(ids), assetClass, gap.From, gap.Before)
+			result, err := pe.plugin.FetchEvents(callCtx, pe.config, pluginutil.ToIdentifiers(ids), assetClass, gap.From, gap.Before)
 			callCancel()
 			if err != nil {
 				var permErr *ErrPermanent
@@ -312,14 +312,6 @@ func computeMissingIntervals(earliestTxDate, endBefore time.Time, coverage []db.
 		cached = append(cached, db.DateRange{From: c.CoveredFrom, Before: c.CoveredBefore})
 	}
 	return db.SubtractRanges(needed, db.MergeRanges(cached))
-}
-
-func toPluginIdentifiers(ids []db.IdentifierInput) []Identifier {
-	out := make([]Identifier, len(ids))
-	for i, id := range ids {
-		out[i] = Identifier{Type: id.Type, Domain: id.Domain, Value: id.Value}
-	}
-	return out
 }
 
 func splitsToDB(instrumentID, provider string, splits []Split) []db.StockSplit {

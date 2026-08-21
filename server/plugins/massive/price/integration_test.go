@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/pricefetcher"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
 	"github.com/shopspring/decimal"
 )
@@ -20,7 +20,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 	tests := []struct {
 		name       string
 		cassette   string
-		ids        []pricefetcher.Identifier
+		ids        []identifier.Identifier
 		assetClass string
 		from       time.Time
 		to         time.Time
@@ -30,7 +30,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 		{
 			name:       "fx_eurusd",
 			cassette:   "testdata/cassettes/fx_eurusd",
-			ids:        []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}},
+			ids:        []identifier.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}},
 			assetClass: db.AssetClassFX,
 			from:       time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
 			to:         time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),
@@ -39,7 +39,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 		{
 			name:       "fx_gbpusd",
 			cassette:   "testdata/cassettes/fx_gbpusd",
-			ids:        []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}},
+			ids:        []identifier.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}},
 			assetClass: db.AssetClassFX,
 			from:       time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
 			to:         time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),
@@ -48,7 +48,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 		{
 			name:       "fx_gbxusd_derived",
 			cassette:   "testdata/cassettes/fx_gbpusd",
-			ids:        []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}},
+			ids:        []identifier.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}},
 			assetClass: db.AssetClassFX,
 			from:       time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
 			to:         time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),
@@ -57,7 +57,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 		{
 			name:       "fx_stock_for_comparison",
 			cassette:   "testdata/cassettes/fx_stock_aapl",
-			ids:        []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ids:        []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 			assetClass: db.AssetClassStock,
 			from:       time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
 			to:         time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),

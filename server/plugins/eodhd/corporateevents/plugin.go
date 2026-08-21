@@ -24,6 +24,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 )
@@ -77,7 +78,7 @@ func (p *Plugin) AcceptableExchanges() map[string]bool { return nil }
 
 func (p *Plugin) AcceptableCurrencies() map[string]bool { return nil }
 
-func (p *Plugin) FetchEvents(ctx context.Context, config []byte, identifiers []corporateevents.Identifier, assetClass string, from, before time.Time) (*corporateevents.Events, error) {
+func (p *Plugin) FetchEvents(ctx context.Context, config []byte, identifiers []identifier.Identifier, assetClass string, from, before time.Time) (*corporateevents.Events, error) {
 	symbol := p.symbolFromIdentifiers(identifiers)
 	if symbol == "" {
 		return nil, corporateevents.ErrNoData
@@ -153,7 +154,7 @@ func (p *Plugin) translateError(err error, symbol string) error {
 
 // symbolFromIdentifiers picks the EODHD API symbol from identifiers.
 // Format: {ticker}.{eodhd_exchange_code}.
-func (p *Plugin) symbolFromIdentifiers(ids []corporateevents.Identifier) string {
+func (p *Plugin) symbolFromIdentifiers(ids []identifier.Identifier) string {
 	// Prefer provider-specific EODHD exchange code over MIC lookup.
 	var ticker string
 	for _, id := range ids {

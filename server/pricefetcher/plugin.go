@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // ErrNoData indicates the plugin cannot provide price data for this
@@ -79,14 +81,6 @@ type FetchResult struct {
 	ShareCountBasis ShareCountBasis
 }
 
-// Identifier is a minimal (type, domain, value) tuple passed to plugins.
-// Defined here to avoid importing server/identifier.
-type Identifier struct {
-	Type   string
-	Domain string
-	Value  string
-}
-
 // Plugin is the price fetcher plugin interface. Implementations live under
 // server/plugins/<datasource>/price (e.g. server/plugins/massive/price).
 type Plugin interface {
@@ -122,7 +116,7 @@ type Plugin interface {
 	// providers (e.g. GBXUSD for British pence). Plugins must handle these
 	// by fetching the source pair and scaling the result. Use RewriteFXPair
 	// to detect derived pairs and ScaleBars to apply the conversion.
-	FetchPrices(ctx context.Context, config []byte, identifiers []Identifier, assetClass string, from, before time.Time) (*FetchResult, error)
+	FetchPrices(ctx context.Context, config []byte, identifiers []identifier.Identifier, assetClass string, from, before time.Time) (*FetchResult, error)
 
 	// DefaultConfig returns the plugin's default config JSON. Inserted on
 	// startup when no row exists so the admin can edit via the UI.

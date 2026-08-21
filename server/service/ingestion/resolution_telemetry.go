@@ -245,27 +245,6 @@ func resolutionOutcome(r identification.ResolveResult) string {
 	return db.TelemetryResolutionBrokerDescriptionOnly
 }
 
-// identifierRef is an instrument as an archive names it: an identifier and
-// nothing else. It is the grain the price and corporate event parts resolve and
-// cache on, and the grain their resolution keys are written at.
-type identifierRef struct {
-	Type   string
-	Domain string
-	Value  string
-}
-
-// cacheKey is what the per-archive resolve cache keys on, so the cache and the
-// telemetry ledger cannot disagree about what counts as the same instrument.
-func (r identifierRef) cacheKey() string {
-	return r.Type + "\x00" + r.Domain + "\x00" + r.Value
-}
-
-// description names the key in the absence of a broker description, which is what
-// these parts resolve without.
-func (r identifierRef) description() string {
-	return r.Type + ":" + r.Domain + ":" + r.Value
-}
-
 // newIdentifierResolutionKeys writes a key row per distinct identifier an archive
 // names, and returns the ledger that stamps them.
 //
@@ -279,7 +258,7 @@ func (r identifierRef) description() string {
 //
 // Extraction is recorded as not attempted because every one of these rows already
 // names an identifier, which is the same reason a posting carrying one skips it.
-func newIdentifierResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID string, refs []identifierRef) *resolutionKeys {
+func newIdentifierResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID string, refs []identifier.Identifier) *resolutionKeys {
 	if tel == nil || runID == "" {
 		return nil
 	}
@@ -294,21 +273,21 @@ func newIdentifierResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID 
 		hintDiffs:     make(map[string]string),
 		stamped:       make(map[string]bool),
 	}
-	var order []identifierRef
+	var order []identifier.Identifier
 	counts := make(map[string]int)
 	for _, r := range refs {
-		key := r.cacheKey()
+		key := r.Key()
 		if counts[key] == 0 {
 			order = append(order, r)
 		}
 		counts[key]++
 	}
 	for _, r := range order {
-		key := r.cacheKey()
+		key := r.Key()
 		k.candidate[key] = db.TelemetryCandidateNotAttemptedRunKind
 		k.ids[key] = tel.StartResolutionKey(ctx, db.TelemetryResolutionKey{
 			RunID:              runID,
-			Description:        r.description(),
+			Description:        r.String(),
 			TxCount:            counts[key],
 			HadIdentifierHints: true,
 		})

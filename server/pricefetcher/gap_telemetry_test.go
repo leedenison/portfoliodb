@@ -9,6 +9,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 )
@@ -477,7 +478,7 @@ type cancelStub struct {
 	cancel context.CancelFunc
 }
 
-func (s *cancelStub) FetchPrices(ctx context.Context, cfg []byte, ids []Identifier, ac string, from, before time.Time) (*FetchResult, error) {
+func (s *cancelStub) FetchPrices(ctx context.Context, cfg []byte, ids []identifier.Identifier, ac string, from, before time.Time) (*FetchResult, error) {
 	r, err := s.fetchStub.FetchPrices(ctx, cfg, ids, ac, from, before)
 	s.cancel()
 	return r, err

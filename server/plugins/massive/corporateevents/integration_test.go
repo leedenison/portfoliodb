@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
 )
 
@@ -36,7 +36,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 	tests := []struct {
 		name         string
 		cassette     string
-		ids          []corporateevents.Identifier
+		ids          []identifier.Identifier
 		assetClass   string
 		from         time.Time
 		before       time.Time
@@ -46,7 +46,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 		{
 			name:         "aapl_dividend_nov_2025",
 			cassette:     "testdata/cassettes/aapl_dividend_nov_2025",
-			ids:          []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ids:          []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 			assetClass:   db.AssetClassStock,
 			from:         time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC),
 			before:       time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC),
@@ -61,7 +61,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 			// in one page at default limit).
 			name:         "aapl_last_12_months",
 			cassette:     "testdata/cassettes/aapl_last_12_months",
-			ids:          []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+			ids:          []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 			assetClass:   db.AssetClassStock,
 			from:         time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC),
 			before:       time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
@@ -75,7 +75,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 			// dividend, so the dividends response is the empty array.
 			name:       "nflx_split_last_12_months",
 			cassette:   "testdata/cassettes/nflx_split_last_12_months",
-			ids:        []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "NFLX"}},
+			ids:        []identifier.Identifier{{Type: "MIC_TICKER", Value: "NFLX"}},
 			assetClass: db.AssetClassStock,
 			from:       time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC),
 			before:     time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),

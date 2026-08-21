@@ -22,6 +22,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 )
 
@@ -76,7 +77,7 @@ func (p *Plugin) AcceptableExchanges() map[string]bool { return nil }
 // matches the instrument currency is left to the caller / display layer.
 func (p *Plugin) AcceptableCurrencies() map[string]bool { return nil }
 
-func (p *Plugin) FetchEvents(ctx context.Context, config []byte, identifiers []corporateevents.Identifier, assetClass string, from, before time.Time) (*corporateevents.Events, error) {
+func (p *Plugin) FetchEvents(ctx context.Context, config []byte, identifiers []identifier.Identifier, assetClass string, from, before time.Time) (*corporateevents.Events, error) {
 	ticker := tickerFromIdentifiers(identifiers)
 	if ticker == "" {
 		return nil, corporateevents.ErrNoData
@@ -151,7 +152,7 @@ func (p *Plugin) translateError(err error, ticker string) error {
 
 // tickerFromIdentifiers picks a Massive ticker symbol from identifiers.
 // Massive uses bare tickers (no exchange suffix) for US securities.
-func tickerFromIdentifiers(ids []corporateevents.Identifier) string {
+func tickerFromIdentifiers(ids []identifier.Identifier) string {
 	for _, id := range ids {
 		if id.Type == "SEGMENT_MIC_TICKER" && id.Value != "" {
 			return id.Value

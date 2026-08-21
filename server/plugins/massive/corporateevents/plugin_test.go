@@ -11,6 +11,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 )
 
@@ -63,7 +64,7 @@ func TestFetchEvents_StockSplitsAndDividends(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	got, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC))
@@ -118,7 +119,7 @@ func TestFetchEvents_PaginationFollowsNextURL(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	got, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC))
@@ -139,7 +140,7 @@ func TestFetchEvents_404IsPermanent(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := NewPlugin(nil, srv.Client())
-	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "BOGUS"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "BOGUS"}}
 	_, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC))
@@ -156,7 +157,7 @@ func TestFetchEvents_403IsPermanent(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := NewPlugin(nil, srv.Client())
-	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	_, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC))
@@ -172,7 +173,7 @@ func TestFetchEvents_429IsTransient(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := NewPlugin(nil, srv.Client())
-	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	_, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC))
@@ -184,7 +185,7 @@ func TestFetchEvents_429IsTransient(t *testing.T) {
 
 func TestFetchEvents_NoSupportedIdentifier(t *testing.T) {
 	p := NewPlugin(nil, nil)
-	ids := []corporateevents.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+	ids := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 	_, err := p.FetchEvents(context.Background(), nil, ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC))
@@ -235,7 +236,7 @@ func TestFetchEvents_SpecialDividendType(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	got, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC))

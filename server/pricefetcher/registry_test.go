@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // stubPlugin is a minimal Plugin for registry tests.
@@ -16,7 +18,7 @@ func (s *stubPlugin) SupportedIdentifierTypes() []string      { return nil }
 func (s *stubPlugin) AcceptableAssetClasses() map[string]bool { return nil }
 func (s *stubPlugin) AcceptableExchanges() map[string]bool    { return nil }
 func (s *stubPlugin) AcceptableCurrencies() map[string]bool   { return nil }
-func (s *stubPlugin) FetchPrices(_ context.Context, _ []byte, _ []Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
+func (s *stubPlugin) FetchPrices(_ context.Context, _ []byte, _ []identifier.Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
 	return nil, ErrNoData
 }
 func (s *stubPlugin) DefaultConfig() []byte { return nil }

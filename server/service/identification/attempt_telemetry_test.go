@@ -200,7 +200,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 			{PluginID: "odd", Precedence: 10},
 		}, nil)
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -352,7 +352,7 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "opt", Precedence: 10}}, nil)
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-		gomock.Any(), gomock.Any(), gomock.Any(), "underlying-id", gomock.Any(), gomock.Any(), gomock.Any()).
+		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-id", gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("opt-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,

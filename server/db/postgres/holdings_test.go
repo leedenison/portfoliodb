@@ -29,7 +29,7 @@ func TestComputeHoldings_instrumentNameOverTxDescription(t *testing.T) {
 
 	// Create a cash instrument with a canonical name "USD".
 	cashID, err := p.EnsureInstrument(ctx, "CASH", "", "USD", "USD", "", "",
-		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure cash instrument: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 		{OrderDate: ts,
 			TradeDate: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-5", Account: ""},
 	}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
 	instIDs := make([]string, 0, 10)
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "FRAC", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
 	to := timestamppb.New(now)
 	ts := timestamppb.New(now.Add(-30 * time.Minute))
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSCO", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSCO", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -198,7 +198,7 @@ func splitStraddlingHolding(t *testing.T, p *Postgres, sub, buyQty, sellQty stri
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, sub, "U", sub+"@u.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SPL" + sub, Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SPL" + sub, Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestComputeHoldings_closedAcrossInexactSplit(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|split-inexact", "U", "u@si.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "REV", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "REV", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

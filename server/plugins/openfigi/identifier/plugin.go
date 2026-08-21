@@ -77,7 +77,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	var cfg configJSON
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
-			return result(nil, nil, err)
+			return result(nil, nil, nil, err)
 		}
 	}
 	p.config = cfg
@@ -88,7 +88,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	p.openfigi = NewOpenFIGIClient(cfg.OpenFIGIAPIKey, baseURL, p.log, p.httpClient)
 
 	if len(identifierHints) == 0 {
-		return result(nil, nil, identifier.ErrNotIdentified)
+		return result(nil, nil, nil, identifier.ErrNotIdentified)
 	}
 	// Use OpenFIGI Mapping only (no Search API); try first hint that we can map.
 	// Only stated identifiers are queried: mapping a proposed one would answer
@@ -96,7 +96,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	// resolver is trying to test rather than one this can settle. See adr/0057.
 	results, matchedHint, err := p.tryOpenFIGIFromHints(ctx, identifierHints, hints)
 	if err != nil {
-		return result(nil, nil, err)
+		return result(nil, nil, nil, err)
 	}
 	// Proposals rank but do not resolve: a proposed venue picks between listings
 	// the stated identifier already produced, and picks nothing on its own.
@@ -145,20 +145,55 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 				ids = append(ids, *matchedHint)
 			}
 		}
-		return result(inst, ids, nil)
+		return result(inst, ids, mappingFilter(matchedHint), nil)
 	}
-	return result(nil, nil, identifier.ErrNotIdentified)
+	return result(nil, nil, nil, identifier.ErrNotIdentified)
 }
 
 // result pairs the identification with the outcome the resolver records for
 // this call. Identify makes at most one mapping call that decides the answer,
-// so one call is one outcome.
-func result(inst *identifier.Instrument, ids []identifier.Identifier, err error) (identifier.Result, error) {
+// so one call is one outcome. filtered is what that call constrained the
+// provider to, and is empty on every path that did not get an answer.
+func result(inst *identifier.Instrument, ids, filtered []identifier.Identifier, err error) (identifier.Result, error) {
 	return identifier.Result{
 		Instrument:  inst,
 		Identifiers: ids,
+		Filtered:    filtered,
 		Telemetry:   identifier.Telemetry{Outcome: outcome(err)},
 	}, err
+}
+
+// mappingFilter is the claim a successful mapping call made by filtering.
+//
+// The Mapping API matches its idType/idValue exactly and answers with nothing
+// when the value matches nothing, so a non-empty response asserts that the
+// filtered value denotes the security in it. That holds whether or not the
+// value comes back in the payload, which is the case this exists for: Identify
+// deliberately declines to echo a matched ISIN or CUSIP because OpenFIGI may
+// return a corrected value for those types, so without this the association the
+// provider proved is discarded on the way to the merge site. See adr/0060.
+//
+// A MIC_TICKER hint is filtered on its value alone. tryOpenFIGIFromHints
+// deliberately does not send the domain as micCode -- OpenFIGI matches MICs
+// precisely and a caller may have mapped an exchange to the wrong one -- so the
+// venue was never constrained and the claim must not say it was. An
+// OPENFIGI_TICKER hint does send its domain as exchCode, so its whole triple was
+// filtered.
+//
+// The currency filter is not here. It is strict, and Identify records it where
+// it belongs, on the instrument. As an identifier type CURRENCY denotes a
+// currency instrument rather than a listing of a security, so claiming a
+// filtered CURRENCY alongside a security's identifiers would assert something
+// nobody said.
+func mappingFilter(matched *identifier.Identifier) []identifier.Identifier {
+	if matched == nil || matched.Value == "" {
+		return nil
+	}
+	f := *matched
+	if f.Type == "MIC_TICKER" {
+		f.Domain = ""
+	}
+	return []identifier.Identifier{f}
 }
 
 // outcome classifies an Identify error into the vocabulary the resolver records.

@@ -1156,3 +1156,98 @@ func TestPlugin_Identify_ProposedVenueRanksButIsNotReturned(t *testing.T) {
 		}
 	}
 }
+
+// The mapping call filtered on the stated ISIN, so answering at all asserts the
+// ISIN denotes the security in the answer. The plugin deliberately does not
+// echo a matched ISIN back, because OpenFIGI may return a corrected value for
+// that type -- which is exactly why the association has to travel as a filter
+// rather than as a returned identifier. See adr/0060.
+func TestPlugin_Identify_MatchedISINIsReportedAsFiltered(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var jobs []MappingJob
+		if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 || jobs[0].IDType != "ID_ISIN" || jobs[0].IDValue != "US4592001014" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI: "BBG000BLNNH6", Ticker: "IBM", Name: "INTL BUSINESS MACHINES CORP",
+				ExchCode: "US", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{"openfigi_api_key": "test-key", "openfigi_base_url": server.URL})
+	p := NewPlugin(nil, http.DefaultClient, nil)
+	res, err := p.Identify(context.Background(), config, "IBKR", "IBKR:test:statement", "IBM",
+		identifier.Identity{Stated: []identifier.Identifier{{Type: "ISIN", Value: "US4592001014"}}})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if len(res.Filtered) != 1 || res.Filtered[0].Type != "ISIN" || res.Filtered[0].Value != "US4592001014" {
+		t.Errorf("Filtered = %+v; want the stated ISIN", res.Filtered)
+	}
+	for _, id := range res.Identifiers {
+		if id.Type == "ISIN" {
+			t.Error("the matched ISIN was echoed back as a returned identifier")
+		}
+	}
+}
+
+// A MIC_TICKER hint is filtered on its value alone, because the domain is
+// deliberately not sent as micCode. The claim must not say the venue was
+// constrained when the request never constrained it.
+func TestPlugin_Identify_FilteredMICTickerDropsTheVenue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var jobs []MappingJob
+		if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 || jobs[0].MICCode != "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI: "BBG000BLNNH6", Ticker: "IBM", Name: "INTL BUSINESS MACHINES CORP",
+				ExchCode: "US", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{"openfigi_api_key": "test-key", "openfigi_base_url": server.URL})
+	p := NewPlugin(nil, http.DefaultClient, nil)
+	res, err := p.Identify(context.Background(), config, "IBKR", "IBKR:test:statement", "IBM",
+		identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "IBM"}}})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if len(res.Filtered) != 1 || res.Filtered[0].Type != "MIC_TICKER" || res.Filtered[0].Value != "IBM" {
+		t.Fatalf("Filtered = %+v", res.Filtered)
+	}
+	if res.Filtered[0].Domain != "" {
+		t.Errorf("Filtered domain = %q; the MIC was never sent, so nothing constrained the venue", res.Filtered[0].Domain)
+	}
+}
+
+// A call that got no answer filtered on nothing: the filter matching nothing is
+// the provider declining to assert anything at all.
+func TestPlugin_Identify_NoAnswerClaimsNothing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{{Data: nil}})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{"openfigi_api_key": "test-key", "openfigi_base_url": server.URL})
+	p := NewPlugin(nil, http.DefaultClient, nil)
+	res, err := p.Identify(context.Background(), config, "IBKR", "IBKR:test:statement", "IBM",
+		identifier.Identity{Stated: []identifier.Identifier{{Type: "ISIN", Value: "US4592001014"}}})
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Fatalf("err = %v, want ErrNotIdentified", err)
+	}
+	if len(res.Filtered) != 0 {
+		t.Errorf("Filtered = %+v; want none", res.Filtered)
+	}
+}

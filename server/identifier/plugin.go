@@ -41,9 +41,33 @@ type Telemetry struct {
 // Result is what Identify returns. Telemetry is populated on every path,
 // including the error paths, where it carries the most.
 type Result struct {
-	Instrument  *Instrument
+	Instrument *Instrument
+	// Identifiers is what the call returned, and the only part of the answer
+	// that is stored.
 	Identifiers []Identifier
-	Telemetry   Telemetry
+	// Filtered is what the call was strictly filtered on: values the request
+	// constrained the provider to, where an empty match would have been
+	// answered "no identifier found". Answering at all is the provider
+	// asserting that the filtered value denotes the security it described, so a
+	// filtered identifier is graded with a returned one when deciding whether
+	// an association was claimed -- which matters because a provider may
+	// deliberately decline to echo a matched value back.
+	//
+	// Strictly is the whole of it. A filter the provider silently relaxes when
+	// it matches nothing is a hint, and a response to one confirms nothing --
+	// it is the echo a real filter merely resembles. Nothing can check a
+	// provider's strictness from outside, so a plugin populating this must say
+	// at the site which request made the value a filter, exactly as it must for
+	// a confirmed instrument field.
+	//
+	// Set it only for identifier-scope claims. A filter on the currency
+	// constrains what the security is, not which security it is, and belongs on
+	// the Instrument where confirmedFields already grades it.
+	//
+	// See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md
+	// and adr/0065-a-plugin-declares-what-it-claims-a-call-records-what-it-claimed.md.
+	Filtered  []Identifier
+	Telemetry Telemetry
 }
 
 // Plugin is the instrument identification plugin interface.

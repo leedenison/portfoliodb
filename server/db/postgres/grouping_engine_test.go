@@ -38,7 +38,7 @@ func engineFixture(t *testing.T, sub string) (*Postgres, string, string) {
 	}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "ENGINE", Value: "ENG-" + sub, Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

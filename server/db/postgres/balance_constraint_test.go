@@ -37,7 +37,7 @@ func balanceSeed(t *testing.T, p *Postgres, sub string) (string, string) {
 		t.Fatalf("create user: %v", err)
 	}
 	usd, err := p.EnsureInstrument(ctx, "CASH", "", "USD", "USD", "", "",
-		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure USD: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 	ctx := context.Background()
 	userID, usd := balanceSeed(t, p, "sub|balance-recompute")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "",
-		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "SPLT", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "SPLT", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

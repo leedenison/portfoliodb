@@ -814,7 +814,7 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: "Apple Inc.", Canonical: false},
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -860,7 +860,7 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -999,7 +999,7 @@ func TestApplyOptionSplit(t *testing.T) {
 	optFields := &db.OptionFields{Strike: decf(150), Expiry: expiry, PutCall: "C"}
 	optID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL 250117C00150000", "", "", []db.IdentifierInput{
 		{Type: "OCC", Value: "AAPL250117C00150000", Canonical: true},
-	}, underlyingID, nil, nil, optFields)
+	}, nil, underlyingID, nil, nil, optFields)
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -1456,7 +1456,7 @@ func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike flo
 	optFields := &db.OptionFields{Strike: decf(strike), Expiry: expiry, PutCall: "C"}
 	id, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", occ, "", "", []db.IdentifierInput{
 		{Type: "OCC", Value: occ, Canonical: true, ValidFrom: validFrom},
-	}, underlyingID, nil, nil, optFields)
+	}, nil, underlyingID, nil, nil, optFields)
 	if err != nil {
 		t.Fatalf("ensure option %s: %v", occ, err)
 	}

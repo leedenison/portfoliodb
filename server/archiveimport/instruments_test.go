@@ -39,10 +39,20 @@ func TestInstrumentPart_Success(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectAnyMerge(database)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ interface{}, _ *db.OptionFields) (string, error) {
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, claims []db.IdentityClaim, _ string, _, _ interface{}, _ *db.OptionFields) (string, error) {
 			if len(idns) < 2 {
 				t.Errorf("expected at least 2 identifiers, got %d", len(idns))
+			}
+			// The instrument block names its identifiers together, so it is one
+			// claim holding all of them rather than one claim each.
+			if len(claims) != 1 || len(claims[0].Identifiers) != len(idns) {
+				t.Fatalf("claims = %+v; want one holding all %d identifiers", claims, len(idns))
+			}
+			for _, c := range claims[0].Identifiers {
+				if c.Role != db.ClaimRoleReturned {
+					t.Errorf("%s role = %q; a file states its names, it does not corroborate them", c.Type, c.Role)
+				}
 			}
 			return "inst-1", nil
 		})
@@ -67,11 +77,11 @@ func TestInstrumentPart_RestoresOptionTermsAndMultiplier(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectAnyMerge(database)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("underlying-1", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-1", nil, nil, gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []db.IdentifierInput, _ string, _, _ interface{}, opts *db.OptionFields) (string, error) {
+		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-1", nil, nil, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ interface{}, opts *db.OptionFields) (string, error) {
 			if opts == nil {
 				t.Fatal("option terms were not restored")
 			}
@@ -117,7 +127,7 @@ func TestInstrumentPart_UnderlyingRefNotInArchive_FallsBackToInstance(t *testing
 	// file whose underlying this instance already knows still imports.
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("known-1", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "known-1", nil, nil, gomock.Any()).
+		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "known-1", nil, nil, gomock.Any()).
 		Return("option-1", nil)
 	part := instrumentPart(&archivev1.Instrument{
 		AssetClass:  typev1.AssetClass_OPTION,
@@ -172,7 +182,7 @@ func TestInstrumentPart_DuplicateTypeValueInPayload(t *testing.T) {
 	expectAnyMerge(database)
 	// First instrument (ISIN 1) is ensured; second is rejected as duplicate (type, value) in payload.
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "", "", "", gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("inst-1", nil)
 	part := instrumentPart(
 		&archivev1.Instrument{Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
@@ -194,7 +204,7 @@ func TestInstrumentPart_RestoresProviderIdentifiers(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectAnyMerge(database)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("inst-1", nil)
 	database.EXPECT().
 		SaveProviderIdentifiers(gomock.Any(), "inst-1", []db.ProviderIdentifierInput{
@@ -226,7 +236,7 @@ func TestInstrumentPart_NoProviderIdentifiers_NoWrite(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectAnyMerge(database)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("inst-1", nil)
 	// No SaveProviderIdentifiers expectation: the mock controller fails the test
 	// if it is called.
@@ -249,7 +259,7 @@ func TestInstrumentPart_NoProviderIdentifiers_NoWrite(t *testing.T) {
 func TestInstrumentPart_MergesWhatTheFileCarries(t *testing.T) {
 	database, rep := newPartTest(t)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "FX", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", gomock.Any(), nil, nil).
+		EnsureInstrument(gomock.Any(), "FX", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", gomock.Any(), nil, nil).
 		Return("seeded-eurusd", nil)
 	database.EXPECT().
 		MergeInstrumentFromArchive(gomock.Any(), "seeded-eurusd", gomock.Any()).

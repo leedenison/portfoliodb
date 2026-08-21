@@ -495,7 +495,15 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // Finds by any identifier; if not found, creates instrument and inserts identifiers.
 // When multiple identifiers resolve to different instruments, merges them eagerly and returns the survivor.
 // On unique violation (identifier already exists for another instrument), returns the existing instrument ID (eager merge).
-func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, underlyingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields) (string, error) {
+//
+// claims is what the caller's answers actually asserted, kept apart by the
+// answer that produced them. Nothing here reads it yet. The merge below still
+// acts on the flat identifier set, which is the union 0140 replaces: a set the
+// caller assembled from several results is not an association anybody stated,
+// and two results agreeing about a currency and a venue have not said they are
+// the same security. Carrying the partition is 0139; acting on it is 0140.
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields) (string, error) {
+	_ = claims
 	if len(identifiers) == 0 {
 		return "", fmt.Errorf("at least one identifier required")
 	}

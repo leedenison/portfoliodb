@@ -150,8 +150,12 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	if err != nil {
 		return fail(err.Error())
 	}
+	// The instrument block names its identifiers together, so it is one claim
+	// rather than a set assembled from several answers. An archive carrying
+	// instrument data is admin-only and authoritative at every level, which is
+	// what makes that claim admissible (adr/0063).
 	id, err := database.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchangeMic(), inst.GetCurrency(),
-		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, underlyingID,
+		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, []db.IdentityClaim{archiveClaim(idns)}, underlyingID,
 		archiveDate(inst.ValidFrom), archiveDate(inst.ValidBefore), opts)
 	if err != nil {
 		return fail(err.Error())
@@ -262,4 +266,17 @@ func refKey(t typev1.IdentifierType, value, domain string) importInstKey {
 
 func isDerivative(ac typev1.AssetClass) bool {
 	return ac == typev1.AssetClass_OPTION || ac == typev1.AssetClass_FUTURE
+}
+
+// archiveClaim is the archive's instrument block read as one identity claim.
+// Every identifier is returned rather than filtered: the file states them, it
+// does not corroborate them by constraining a provider.
+func archiveClaim(idns []db.IdentifierInput) db.IdentityClaim {
+	c := db.IdentityClaim{Identifiers: make([]db.ClaimedIdentifier, 0, len(idns))}
+	for _, i := range idns {
+		c.Identifiers = append(c.Identifiers, db.ClaimedIdentifier{
+			Type: i.Type, Domain: i.Domain, Value: i.Value, Role: db.ClaimRoleReturned,
+		})
+	}
+	return c
 }

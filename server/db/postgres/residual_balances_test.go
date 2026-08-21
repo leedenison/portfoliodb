@@ -45,7 +45,7 @@ func seedResiduals(t *testing.T, p *Postgres, userID string, seeds ...residualSe
 func usdInstrument(t *testing.T, p *Postgres) string {
 	t.Helper()
 	id, err := p.EnsureInstrument(context.Background(), "CASH", "", "USD", "USD", "", "",
-		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure USD: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestListResidualBalances_SecurityCommodity(t *testing.T) {
 	p := testDBTx(t)
 	userID := newUser(t, p, "sub|security")
 	stockID, err := p.EnsureInstrument(context.Background(), "STOCK", "", "USD", "", "", "",
-		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure stock: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestListResidualBalances_ShareResidualAcrossSplit(t *testing.T) {
 	ctx := context.Background()
 	userID := newUser(t, p, "sub|residual-split")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "JRN", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "JRN", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestListResidualBalances_ShareResidualReportedInTodaysShareCount(t *testing
 	ctx := context.Background()
 	userID := newUser(t, p, "sub|residual-split-open")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "JRN2", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "JRN2", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

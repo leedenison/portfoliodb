@@ -1,5 +1,14 @@
 # Instrument resolution order, caching, and eager merge
 
+Amended by [0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md)
+and [0064](0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md). The
+resolution order and the batch cache below stand. What the eager merge acts on
+does not: merging on the identifiers handed to `EnsureInstrument` merges on a set
+the resolver assembled from several plugin results, and 0060 requires an
+association a single result actually stated. 0064 adds what happens when a merge
+cannot complete. The "Identity is current state" section was already superseded by
+[0055](0055-identifier-validity-is-an-interval.md).
+
 Instrument resolution is ordered to minimize calls to expensive, quota-managed
 identifier plugins: (1) DB lookup by `(source, description)` or existing
 identifiers, (2) a per-batch cache so the same `(source, description)` resolves
@@ -20,7 +29,8 @@ merge keeps the security master converging as data improves; the same logic can
 later back a periodic sweep. Because the identifier set an instrument can have is
 open-ended (some instruments have no CUSIP, plugin coverage varies), the system
 does **not** treat "only one standard identifier known" as an error — merge-on-
-conflict is what reconciles instruments once a shared identifier appears.
+conflict is what reconciles instruments once a shared identifier appears -- once
+some one result has said the two identifiers belong together (0060).
 
 ## Identity is current state, not a time-varying fact
 

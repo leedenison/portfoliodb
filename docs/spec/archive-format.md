@@ -78,6 +78,13 @@ expensive. **Restoring the system archive first is a recommendation, not a
 constraint** -- avoiding that cost is what the archive buys, not a mechanism it
 depends on.
 
+That split also settles who may state instrument identity. Only a system archive
+carries instruments and only an admin may import one, so its identifiers are written
+on the file's authority; a user archive has no instrument part, and its postings state
+identifier hints that resolve exactly as a broker upload's do. Neither needs a rule of
+its own -- the boundary is in the message shape. See
+[identifiers.md](identifiers.md) for what makes an identity claim authoritative.
+
 Full reasoning: `docs/adr/0033-system-and-user-archives-are-separate.md`.
 
 ## The three levels

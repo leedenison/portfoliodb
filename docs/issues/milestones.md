@@ -10,9 +10,12 @@ guarantees. The split exists so that productionisation is deferred deliberately
 rather than by always losing to the next feature; P01 is the gate on the first
 real deployment, not a list that never comes due.
 
-The M numbers currently run in rough priority order, which for the open work is
-also dependency order: no open issue depends on an issue in a higher-numbered
-milestone. Neither property is promised to hold as milestones are added.
+The M numbers run in rough priority order. They were also dependency order until
+M24, which is prerequisite work found after the milestones around it were
+numbered, so two open issues now depend forward into it: 0088 from M18 through
+0123, and 0136 from M17. Numbers are append-only, so a milestone that turns out
+to come first cannot be renumbered to say so, and neither property is promised to
+hold as milestones are added.
 
 Numbers are not reused. A gap is a milestone that was retired.
 

@@ -2,6 +2,7 @@ package identification
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,10 +15,11 @@ import (
 // telPlugin is a fakePlugin that also reports how the call went, which is the
 // half of a plugin-call row only a plugin can supply.
 type telPlugin struct {
-	inst    *identifier.Instrument
-	ids     []identifier.Identifier
-	outcome identifier.Outcome
-	err     error
+	inst     *identifier.Instrument
+	ids      []identifier.Identifier
+	filtered []identifier.Identifier
+	outcome  identifier.Outcome
+	err      error
 	// failFirst makes the first call fail so the retry loop runs once, which is
 	// what puts a 1 in the retries column.
 	failFirst bool
@@ -32,6 +34,7 @@ func (p *telPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ iden
 	return identifier.Result{
 		Instrument:  p.inst,
 		Identifiers: p.ids,
+		Filtered:    p.filtered,
 		Telemetry:   identifier.Telemetry{Outcome: p.outcome},
 	}, p.err
 }
@@ -46,24 +49,35 @@ type errTransportType struct{}
 
 func (errTransportType) Error() string { return "transport failed" }
 
-// attemptSpy records the attempt rows a resolution writes and the plugin calls
-// under each of them.
+// attemptSpy records the attempt rows a resolution writes, the plugin calls
+// under each of them, and the identifiers each call claimed.
 type attemptSpy struct {
 	attempts []db.TelemetryIdentificationAttempt
 	calls    map[string][]db.TelemetryIdentifierPluginCall
+	// claims by plugin id, which is what the call id is derived from here.
+	claims map[string][]db.TelemetryIdentifierClaim
 }
 
 func newAttemptSpy(t *testing.T, tel *mock.MockTelemetryDB) *attemptSpy {
 	t.Helper()
-	s := &attemptSpy{calls: map[string][]db.TelemetryIdentifierPluginCall{}}
+	s := &attemptSpy{
+		calls:  map[string][]db.TelemetryIdentifierPluginCall{},
+		claims: map[string][]db.TelemetryIdentifierClaim{},
+	}
 	tel.EXPECT().WriteIdentificationAttempt(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, a db.TelemetryIdentificationAttempt) string {
 			s.attempts = append(s.attempts, a)
 			return string(rune('a' + len(s.attempts) - 1))
 		}).AnyTimes()
 	tel.EXPECT().WriteIdentifierPluginCall(gomock.Any(), gomock.Any()).
-		Do(func(_ context.Context, c db.TelemetryIdentifierPluginCall) {
+		DoAndReturn(func(_ context.Context, c db.TelemetryIdentifierPluginCall) string {
 			s.calls[c.PluginID] = append(s.calls[c.PluginID], c)
+			return "call-" + c.PluginID
+		}).AnyTimes()
+	tel.EXPECT().WriteIdentifierClaim(gomock.Any(), gomock.Any()).
+		Do(func(_ context.Context, c db.TelemetryIdentifierClaim) {
+			plugin := strings.TrimPrefix(c.CallID, "call-")
+			s.claims[plugin] = append(s.claims[plugin], c)
 		}).AnyTimes()
 	return s
 }
@@ -378,5 +392,86 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 	}
 	if under.ResolutionKeyID != primary.ResolutionKeyID {
 		t.Error("the underlying attempt hangs off a different key from the resolution that caused it")
+	}
+}
+
+// TestIdentifierClaimsAreRecordedPerCall pins what one call said in one answer.
+// The rows under a call id are the claim; the same identifiers spread over two
+// calls are a set the resolver assembled, and telling those apart is the whole
+// reason this is recorded per call rather than per attempt.
+//
+// A result discarded as inconsistent still made a claim. It contributes nothing
+// to the instrument, and dropping its claim as well would leave the
+// contradiction with nowhere to be read from afterwards.
+func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tel := mock.NewMockTelemetryDB(ctrl)
+	spy := newAttemptSpy(t, tel)
+
+	registry := identifier.NewRegistry()
+	// Returns a FIGI while strictly filtered on an ISIN it does not echo back.
+	registry.Register("high", &telPlugin{
+		inst:     &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Currency: "USD"},
+		ids:      []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
+		filtered: []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+		outcome:  identifier.OutcomeIdentified,
+	})
+	// Contradicts the winner's currency, so it is discarded from the merge.
+	registry.Register("odd", &telPlugin{
+		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Currency: "EUR"},
+		ids:     []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}},
+		outcome: identifier.OutcomeIdentified,
+	})
+	// Answered and had nothing, so it asserted nothing.
+	registry.Register("quiet", &telPlugin{outcome: identifier.OutcomeNotIdentified, err: identifier.ErrNotIdentified})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "high", Precedence: 30},
+			{PluginID: "odd", Precedence: 20},
+			{PluginID: "quiet", Precedence: 10},
+		}, nil)
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return("inst-1", nil)
+
+	_, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "USD"}},
+		false, nil, scope(tel), nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+
+	// The winner's claim: what it returned and what it was filtered on, graded
+	// alike and under one call.
+	got := spy.claims["high"]
+	if len(got) != 2 {
+		t.Fatalf("high claimed %+v, want the FIGI and the ISIN", got)
+	}
+	roles := map[string]string{}
+	for _, c := range got {
+		roles[c.Type] = c.Role
+		if c.RunID != "run-1" || c.CallID != "call-high" {
+			t.Errorf("claim = %+v, want it under the call and the run", c)
+		}
+	}
+	if roles["OPENFIGI_SHARE_CLASS"] != db.ClaimRoleReturned || roles["ISIN"] != db.ClaimRoleFiltered {
+		t.Errorf("roles = %v", roles)
+	}
+
+	if len(spy.claims["odd"]) != 1 || spy.claims["odd"][0].Type != "CUSIP" {
+		t.Errorf("odd claimed %+v; a discarded result still said something", spy.claims["odd"])
+	}
+	if len(spy.claims["quiet"]) != 0 {
+		t.Errorf("quiet claimed %+v; an empty answer asserts nothing", spy.claims["quiet"])
 	}
 }

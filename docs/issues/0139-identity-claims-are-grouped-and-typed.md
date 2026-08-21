@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Identity claims are grouped and typed
 milestone: M24
 ---

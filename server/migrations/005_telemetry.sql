@@ -214,6 +214,44 @@ CREATE TABLE telemetry.identifier_plugin_call (
 CREATE INDEX idx_telemetry_identifier_plugin_call_attempt
   ON telemetry.identifier_plugin_call (identification_attempt_id);
 
+-- One identifier an identifier plugin call returned, or was strictly filtered on.
+--
+-- The whole triple is recorded because a ticker under two domains names two
+-- listings, so a claim that dropped the domain would assert something the call
+-- did not.
+--
+-- A filtered row is graded with a returned one. A provider answering "no
+-- identifier found" when its filter matches nothing has asserted that the
+-- filtered value denotes the security it described, so the association holds
+-- whether or not the value came back in the payload -- which matters because the
+-- OpenFIGI plugin deliberately declines to echo a matched ISIN or CUSIP. A filter
+-- the provider silently relaxes is a hint and asserts nothing, so only a strict
+-- one is recorded this way.
+--
+-- The rows under one call_id are what one plugin said in one answer, and it is
+-- that grouping rather than the plugin's identity that decides whether an
+-- association between two of them may be acted on: identifiers arriving together
+-- are a claim somebody made, and the same identifiers gathered from separate
+-- calls are a set the resolver assembled.
+--
+-- Recording it here closes an inversion. candidate_field carries the value, the
+-- field and the confidence for every field a candidate plugin proposed -- full
+-- detail on claims that are not evidence and can never merge -- while
+-- identifier_plugin_call carried a plugin id and an outcome and no identifiers at
+-- all, for the results that do.
+CREATE TABLE telemetry.identifier_claim (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  call_id         UUID NOT NULL
+                  REFERENCES telemetry.identifier_plugin_call (id) ON DELETE CASCADE,
+  identifier_type TEXT NOT NULL,
+  domain          TEXT,
+  value           TEXT NOT NULL,
+  role            TEXT NOT NULL CHECK (role IN ('returned', 'filtered'))
+);
+
+CREATE INDEX idx_telemetry_identifier_claim_call
+  ON telemetry.identifier_claim (call_id);
+
 -- One plugin invocation over a batch. This hangs off the run rather than off a
 -- resolution key: one ProposeBatch call covers many descriptions at once, so it has no
 -- single parent key. Identifier plugins are called once per plugin per attempt and do
@@ -607,6 +645,50 @@ SELECT
   r.telemetry_incomplete AS run_telemetry_incomplete,
   r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
 FROM telemetry.identifier_plugin_call c
+JOIN telemetry.identification_attempt a ON a.id = c.identification_attempt_id
+JOIN telemetry.resolution_key k ON k.id = a.resolution_key_id
+JOIN telemetry.run r ON r.id = k.run_id;
+
+-- One row per claim, with its call and that call's parents flattened in. It
+-- carries no judgement column of its own: whether an association may be acted on
+-- is a question about two rows sharing a call_id rather than about one row, so a
+-- panel groups rather than filters.
+CREATE VIEW telemetry.v_identifier_claim AS
+SELECT
+  cl.id,
+  cl.call_id,
+  cl.identifier_type,
+  cl.domain,
+  cl.value,
+  cl.role,
+  c.plugin_id,
+  c.outcome     AS call_outcome,
+  c.identification_attempt_id,
+  a.purpose      AS attempt_purpose,
+  a.depth        AS attempt_depth,
+  a.outcome      AS attempt_outcome,
+  a.asset_class  AS attempt_asset_class,
+  a.outcome NOT IN ('db_short_circuit', 'no_eligible_plugins') AS reached_plugins,
+  k.id          AS resolution_key_id,
+  k.source      AS key_source,
+  k.description AS key_description,
+  k.tx_count    AS key_tx_count,
+  k.outcome     AS key_outcome,
+  k.outcome IS NOT NULL AND k.outcome IN ('db_source_description',
+                                          'db_identifier_hints',
+                                          'identified') AS key_resolved,
+  r.id         AS run_id,
+  r.kind       AS run_kind,
+  r.job_id     AS run_job_id,
+  r.user_id    AS run_user_id,
+  r.broker     AS run_broker,
+  r.source     AS run_source,
+  r.started_at AS run_started_at,
+  r.outcome    AS run_outcome,
+  r.telemetry_incomplete AS run_telemetry_incomplete,
+  r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
+FROM telemetry.identifier_claim cl
+JOIN telemetry.identifier_plugin_call c ON c.id = cl.call_id
 JOIN telemetry.identification_attempt a ON a.id = c.identification_attempt_id
 JOIN telemetry.resolution_key k ON k.id = a.resolution_key_id
 JOIN telemetry.run r ON r.id = k.run_id;

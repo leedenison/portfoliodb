@@ -361,12 +361,19 @@ func (a Attempt) write(ctx context.Context, r db.TelemetryIdentificationAttempt)
 	return a.DB.WriteIdentificationAttempt(ctx, r)
 }
 
-// writeCall records one plugin invocation under an attempt.
-func (a Attempt) writeCall(ctx context.Context, attemptID, pluginID, outcome string, stats callStats) {
+// writeCall records one plugin invocation under an attempt, and the identifiers
+// that call claimed under it.
+//
+// Every call that identified something gets claim rows, whichever outcome the
+// orchestrator settled on: a result discarded as inconsistent still made a
+// claim, and it is exactly the discarded ones a contradiction is read from. A
+// call that got no answer claims nothing -- its filter matched nothing, so the
+// provider asserted nothing.
+func (a Attempt) writeCall(ctx context.Context, attemptID, pluginID, outcome string, stats callStats, r *pluginResult) {
 	if a.DB == nil || attemptID == "" {
 		return
 	}
-	a.DB.WriteIdentifierPluginCall(ctx, db.TelemetryIdentifierPluginCall{
+	callID := a.DB.WriteIdentifierPluginCall(ctx, db.TelemetryIdentifierPluginCall{
 		RunID:     a.RunID,
 		AttemptID: attemptID,
 		PluginID:  pluginID,
@@ -374,6 +381,19 @@ func (a Attempt) writeCall(ctx context.Context, attemptID, pluginID, outcome str
 		Retries:   stats.Retries,
 		Duration:  stats.Duration,
 	})
+	if callID == "" || r == nil || r.inst == nil {
+		return
+	}
+	for _, c := range claim(r).Identifiers {
+		a.DB.WriteIdentifierClaim(ctx, db.TelemetryIdentifierClaim{
+			RunID:  a.RunID,
+			CallID: callID,
+			Type:   c.Type,
+			Domain: c.Domain,
+			Value:  c.Value,
+			Role:   c.Role,
+		})
+	}
 }
 
 // underlying returns the scope an underlying resolution runs under: the same run
@@ -1004,7 +1024,7 @@ func ResolveWithPlugins(
 				// superseded and discarded are its words, and this is none of them.
 				o = string(identifier.OutcomeNotIdentified)
 			}
-			tel.writeCall(ctx, attemptID, inputs[i].config.PluginID, o, results[i].stats)
+			tel.writeCall(ctx, attemptID, inputs[i].config.PluginID, o, results[i].stats, &results[i])
 		}
 	}
 

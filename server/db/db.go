@@ -2227,6 +2227,25 @@ type TelemetryIdentifierPluginCall struct {
 	Duration  time.Duration
 }
 
+// TelemetryIdentifierClaim is one identifier an identifier plugin call returned
+// or was strictly filtered on. The rows sharing a CallID are what one plugin
+// said in one answer, and it is that grouping rather than the plugin's identity
+// that decides whether an association between two of them may be acted on:
+// identifiers arriving together are a claim somebody made, where the same
+// identifiers gathered from separate calls are a set the resolver assembled.
+//
+// The whole triple is recorded, because a ticker under two domains names two
+// listings. RunID is carried for the reason it is on the call: so a failed write
+// can mark the run.
+type TelemetryIdentifierClaim struct {
+	RunID  string
+	CallID string
+	Type   string
+	Domain string
+	Value  string
+	Role   string // ClaimRoleReturned or ClaimRoleFiltered
+}
+
 // TelemetryTokens is the token cost of one candidate plugin call. Nil on a call
 // to a plugin that costs no tokens, which is what keeps the columns null rather
 // than zero for it.
@@ -2362,7 +2381,12 @@ type TelemetryDB interface {
 	// WriteIdentificationAttempt records a finished attempt and returns its id,
 	// for the plugin calls written under it.
 	WriteIdentificationAttempt(ctx context.Context, a TelemetryIdentificationAttempt) string
-	WriteIdentifierPluginCall(ctx context.Context, c TelemetryIdentifierPluginCall)
+	// WriteIdentifierPluginCall records one plugin invocation and returns its
+	// id, which the identifiers that call claimed reference.
+	WriteIdentifierPluginCall(ctx context.Context, c TelemetryIdentifierPluginCall) string
+	// WriteIdentifierClaim records one identifier a call returned or was
+	// filtered on, against that call.
+	WriteIdentifierClaim(ctx context.Context, c TelemetryIdentifierClaim)
 	// WriteCandidatePluginCall records a finished call and returns its id, which
 	// the fields proposed by that call reference.
 	WriteCandidatePluginCall(ctx context.Context, c TelemetryCandidatePluginCall) string
@@ -2415,7 +2439,11 @@ func (NopTelemetry) WriteIdentificationAttempt(context.Context, TelemetryIdentif
 	return ""
 }
 
-func (NopTelemetry) WriteIdentifierPluginCall(context.Context, TelemetryIdentifierPluginCall) {}
+func (NopTelemetry) WriteIdentifierPluginCall(context.Context, TelemetryIdentifierPluginCall) string {
+	return ""
+}
+
+func (NopTelemetry) WriteIdentifierClaim(context.Context, TelemetryIdentifierClaim) {}
 
 func (NopTelemetry) WriteCandidatePluginCall(context.Context, TelemetryCandidatePluginCall) string {
 	return ""

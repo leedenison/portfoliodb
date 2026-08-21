@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: An invented identifier round-trips before it is trusted
 milestone: M17
 dependencies: [0131]

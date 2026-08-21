@@ -2,13 +2,13 @@ package inflationfetcher
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"github.com/shopspring/decimal"
 )
@@ -151,7 +151,7 @@ func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry,
 			return // no gaps
 		}
 
-		callCtx, callCancel := context.WithTimeout(ctx, timeoutFromConfig(pe.config))
+		callCtx, callCancel := context.WithTimeout(ctx, pluginutil.TimeoutFromConfig(pe.config, DefaultInflationPluginTimeout))
 		result, err := pe.plugin.FetchInflation(callCtx, pe.config, currency, gapFrom, gapTo)
 		callCancel()
 
@@ -244,35 +244,4 @@ func toDBIndices(currency, provider string, indices []MonthlyIndex) []db.Inflati
 		}
 	}
 	return out
-}
-
-type pluginConfigJSON struct {
-	TimeoutSeconds *int `json:"timeout_seconds"`
-}
-
-// timeoutFromConfig parses timeout_seconds from plugin config JSON; defaults to DefaultInflationPluginTimeout.
-func timeoutFromConfig(config []byte) time.Duration {
-	if len(config) == 0 {
-		return DefaultInflationPluginTimeout
-	}
-	var c pluginConfigJSON
-	if err := json.Unmarshal(config, &c); err != nil {
-		return DefaultInflationPluginTimeout
-	}
-	if c.TimeoutSeconds == nil || *c.TimeoutSeconds <= 0 {
-		return DefaultInflationPluginTimeout
-	}
-	return time.Duration(*c.TimeoutSeconds) * time.Second
-}
-
-// Trigger sends a non-blocking signal on an inflation trigger channel.
-// Safe to call with a nil channel.
-func Trigger(ch chan<- struct{}) {
-	if ch == nil {
-		return
-	}
-	select {
-	case ch <- struct{}{}:
-	default:
-	}
 }

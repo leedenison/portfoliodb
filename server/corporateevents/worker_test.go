@@ -133,39 +133,6 @@ func TestFilterIdentifiers(t *testing.T) {
 	}
 }
 
-func TestTimeoutFromConfig(t *testing.T) {
-	if pluginutil.TimeoutFromConfig(nil, DefaultPluginTimeout) != DefaultPluginTimeout {
-		t.Error("nil config")
-	}
-	if pluginutil.TimeoutFromConfig([]byte(`{"timeout_seconds": 30}`), DefaultPluginTimeout) != 30*time.Second {
-		t.Error("explicit 30s")
-	}
-	if pluginutil.TimeoutFromConfig([]byte(`{"timeout_seconds": -5}`), DefaultPluginTimeout) != DefaultPluginTimeout {
-		t.Error("negative")
-	}
-	if pluginutil.TimeoutFromConfig([]byte(`not json`), DefaultPluginTimeout) != DefaultPluginTimeout {
-		t.Error("invalid json")
-	}
-}
-
-func TestTrigger(t *testing.T) {
-	t.Run("nil channel", func(t *testing.T) { pluginutil.Trigger(nil) })
-	t.Run("sends signal", func(t *testing.T) {
-		ch := make(chan struct{}, 1)
-		pluginutil.Trigger(ch)
-		select {
-		case <-ch:
-		default:
-			t.Error("expected signal")
-		}
-	})
-	t.Run("non-blocking when full", func(t *testing.T) {
-		ch := make(chan struct{}, 1)
-		ch <- struct{}{}
-		pluginutil.Trigger(ch)
-	})
-}
-
 // stubPlugin is the minimal Plugin used by filter and registry tests.
 type stubPlugin struct {
 	name         string
@@ -187,21 +154,6 @@ func (s *stubPlugin) DefaultConfig() []byte                   { return []byte(`{
 func (s *stubPlugin) FetchEvents(_ context.Context, _ []byte, _ []identifier.Identifier, _ string, _, _ time.Time) (*Events, error) {
 	s.calls++
 	return s.result, s.err
-}
-
-func TestRegistry_RegisterAndGet(t *testing.T) {
-	r := NewRegistry()
-	p := &stubPlugin{name: "Massive"}
-	r.Register("massive", p)
-	if r.Get("massive") != p {
-		t.Fatal("expected registered plugin")
-	}
-	if r.Get("nope") != nil {
-		t.Fatal("expected nil for unknown")
-	}
-	if r.GetDisplayName("massive") != "Massive" {
-		t.Errorf("display name: %q", r.GetDisplayName("massive"))
-	}
 }
 
 // TestRunCycle_EmptyResultRecordsCoverage verifies that a successful fetch

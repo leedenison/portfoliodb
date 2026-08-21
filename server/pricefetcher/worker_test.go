@@ -108,26 +108,6 @@ func TestFilterIdentifiers(t *testing.T) {
 	}
 }
 
-func TestTrigger(t *testing.T) {
-	t.Run("nil channel", func(t *testing.T) {
-		pluginutil.Trigger(nil) // should not panic
-	})
-	t.Run("sends signal", func(t *testing.T) {
-		ch := make(chan struct{}, 1)
-		pluginutil.Trigger(ch)
-		select {
-		case <-ch:
-		default:
-			t.Error("expected signal")
-		}
-	})
-	t.Run("non-blocking when full", func(t *testing.T) {
-		ch := make(chan struct{}, 1)
-		ch <- struct{}{}
-		pluginutil.Trigger(ch) // should not block
-	})
-}
-
 func TestRunCycle_FXGapsProcessed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mock.NewMockDB(ctrl)

@@ -21,7 +21,7 @@ postings to resolve from scratch. This is working as intended: the normal
 identifier resolution path handles it and the result is correct, merely
 expensive. Restoring the system archive first is a **recommendation, not a
 constraint**, and it is exactly what tier 2 of
-adr/0032-archive-preserves-inputs-not-derived-state.md buys: resolution is the
+[0032](0032-archive-preserves-inputs-not-derived-state.md) buys: resolution is the
 cost being avoided, not a mechanism being depended on.
 
 Anything spanning the boundary needs an explicit translation rather than an id.

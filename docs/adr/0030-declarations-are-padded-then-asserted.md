@@ -32,9 +32,8 @@ instrument merge, an option split application and a `RecomputeSplitAdjustments`
 pass alike. There is no one place all of those funnel through, so a stored verdict
 would need invalidating from each and would be wrong the moment one was missed.
 
-Computed in the read query it is current by construction -- which is what
-0043's "re-verify after any ingestion or recompute" asks for, with no triggers at
-all -- and it closes on its own when the data comes back into agreement, which
+Computed in the read query it is current by construction, with no triggers at
+all, and it closes on its own when the data comes back into agreement, which
 none of the stored surfaces can do. The cost is recomputing a small aggregate per
 declaration on each read; declarations are a handful per user.
 
@@ -43,8 +42,8 @@ declaration on each read; declarations are a handful per user.
 The comparison crosses a rounding. Both sides are exact decimals, but converting a
 posting from its own `share_count_basis` into the declaration's divides by the
 cumulative split factor, and a reverse split in an awkward ratio has no finite
-decimal form (see 0028-cumulative-split-factor-is-an-exact-rational.md and
-0026-exact-decimals-bounded-by-closure.md).
+decimal form (see [0028](0028-cumulative-split-factor-is-an-exact-rational.md) and
+[0026](0026-exact-decimals-bounded-by-closure.md)).
 
 Postings are therefore grouped by basis and summed before conversion, so the
 division happens once per denomination rather than once per posting, and the
@@ -53,7 +52,8 @@ of the last place of the declared scale. That is a bound that can be stated,
 unlike a fixed epsilon, and it collapses to exactly zero when no split falls in
 the window -- which is the common case, so most assertions are checked exactly.
 
-An absolute constant was rejected for the reason 0026 gives: it is silently
+An absolute constant was rejected for the reason
+[0026](0026-exact-decimals-bounded-by-closure.md) gives: it is silently
 scale-dependent, too loose for a small holding and too tight for a large one.
 
 ## Why a pad reports no verdict

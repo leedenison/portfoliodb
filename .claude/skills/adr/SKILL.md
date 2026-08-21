@@ -34,9 +34,53 @@ An ADR can be a single paragraph. The value is recording *that* a decision was
 made and *why* -- not filling in sections. Add these only when they earn their
 place:
 
-- **Status** frontmatter (`proposed | accepted | deprecated | superseded by ADR-NNNN`) -- when a decision is revisited.
 - **Considered Options** -- when the rejected alternatives are worth remembering.
 - **Consequences** -- when non-obvious downstream effects need calling out.
+
+## Status
+
+An ADR has no frontmatter until another ADR replaces part or all of it. **The
+absence of a status means accepted**; never write `status: accepted`.
+
+When one arrives, the only field is `status`, and its value is one of:
+
+```yaml
+---
+status: superseded by ADR-NNNN
+---
+```
+
+- `superseded by ADR-NNNN` -- the whole decision is replaced.
+- `partly superseded by ADR-NNNN` -- part of it is replaced; the rest stands.
+- `deprecated` -- withdrawn with nothing replacing it.
+
+An ADR that merely *amends* another gets no status field. Record the
+relationship as a sentence at the top of the amended ADR's body instead
+(`Amended by [NNNN](NNNN-slug.md), which ...`), saying what changed and what
+stands.
+
+## Superseded ADRs are stubs
+
+Numbers are never reused, so a superseded ADR keeps its file, its number and its
+title -- the spec and the issues point at them. Cut the body to the status, a
+one-line pointer to the successor, and **only the reasoning the successor does
+not carry**. Do not leave the original argument standing beside the replacement:
+a reader who finds the same thing argued twice cannot tell which is current.
+
+## Compression
+
+An ADR records the decision that holds now and why. It is not a changelog.
+
+- Do not narrate how the decision was reached -- earlier drafts, what was tried
+  first, which release fixed it. If history taught something, state the lesson
+  in the present tense; if it was a plain mistake, delete it.
+- Do not restate another ADR at length after linking to it. Name what you are
+  relying on in a clause and link.
+- Fold an amendment into the body it amends rather than appending an
+  "Amendments" section. The body should read as one current decision.
+- Reference other ADRs as `[NNNN](NNNN-slug.md)` and issues as
+  `issue [NNNN](../issues/NNNN-slug.md)`. A bare `0053` is ambiguous -- ADR 0053
+  and issue 0053 both exist.
 
 ## When an ADR is warranted
 

@@ -5,51 +5,43 @@ status: partly superseded by ADR-0041
 # Converters own transaction grouping; the server never derives a leg
 
 Partly superseded by [0041](0041-server-owns-transaction-grouping.md), which moves the
-grouping decision to the server: a converter sees one file and cannot group across
-uploads, and the premise recorded at the foot of this ADR -- that the broker's reference
-numbers are gone by the time data reaches the standard format -- has not held since they
-were stored on the posting.
+grouping decision to the server. What survives is everything below about ledger
+content: the server still does not invent a leg, does not derive a cash side from
+`quantity * unit_price`, and does not fold a fee into a cash amount. Grouping decides
+which postings belong together, not what postings exist.
 
-What survives is everything below about ledger content. The server still does not invent
-a leg, does not derive a cash side from `quantity * unit_price`, and does not fold a fee
-into a cash amount; fees remain postings with `type=INVEXPENSE`. Grouping decides which
-postings belong together, not what postings exist.
+The server persists the postings it is given: it does not infer a missing leg, does not
+pair rows, and does not fold a fee into a cash amount.
 
-An upload is a list of postings, and the broker-specific converter decides which of
-them are legs of one economic event. The server persists what it is given: it does
-not infer a missing leg, does not pair rows, and does not fold a fee into a cash
-amount.
-
-The alternative was to derive the cash leg server-side as
-`-(quantity * unit_price)` from the security row. That double-counts for any broker
-that already reports its own cash leg, and Fidelity does: a `Sell` is accompanied by
-a `Cash In From Sell` row for the same money, and the two match exactly on
-`|Amount|` within an account and completion date across all 55 sells in the sample
-export. Deriving a second cash leg on top would post the proceeds twice. Pairing them
-after the fact is not possible either, because by the time the data reaches the
-standard format the broker's own reference numbers have been discarded -- only the
-converter still has them.
+The alternative was to derive the cash leg server-side as `-(quantity * unit_price)`
+from the security row. That double-counts for any broker that already reports its own
+cash leg, and Fidelity does: a `Sell` is accompanied by a `Cash In From Sell` row for
+the same money, and the two match exactly on `|Amount|` within an account and
+completion date across all 55 sells in the sample export. Deriving a second cash leg on
+top would post the proceeds twice.
 
 Fees are therefore postings, not columns. A dealing fee, PTM levy or stamp duty is a
-cash posting with `type=INVEXPENSE`, which is already how the Fidelity converter
-emits them and is the only representation that works when a broker charges them
-separately from the trade and on a different date. Adding `fees` and `net_amount`
-columns to the standard CSV was considered and rejected: it would express a
-Fidelity-shaped fee twice, and a broker that nets commission into a single total
-(IBKR reports `Amount` and no commission column) can be split by its own converter,
-which is the one place that knows the broker's conventions.
+cash posting with `type=INVEXPENSE`, which is the only representation that works when a
+broker charges them separately from the trade and on a different date. Adding `fees` and
+`net_amount` columns to the standard format was rejected: it would express a
+Fidelity-shaped fee twice, and a broker that nets commission into a single total (IBKR
+reports `Amount` and no commission column) can be split by its own converter, which is
+the one place that knows the broker's conventions.
 
 ## Consequences
 
 Every broker oddity lands in one converter rather than being spread between a
-converter, a CSV column and a server-side rule. The cost is that a converter which
-supplies neither a cash row nor a unit price produces an unbalanced group; that
-residual is routed to an explicit imbalance account rather than rejected, so
-coverage tightens per broker over time instead of in a single cut-over.
+converter, a format column and a server-side rule. The cost is that a converter which
+supplies neither a cash row nor a unit price produces an unbalanced group; that residual
+is routed to an explicit imbalance account rather than rejected, so coverage tightens
+per broker over time instead of in a single cut-over.
 
-The rule against pairing is about ledger content, not about pairing as such. The
-server pairs the two sides of a transfer after the fact, which creates no posting and
-no group and spans uploads no converter can see. The premise above -- that the
-broker's reference numbers are gone by the time data reaches the standard format --
-no longer holds either: they are stored on the posting. See
+The rule against pairing is about ledger content, not about pairing as such. The server
+pairs the two sides of a transfer after the fact, which creates no posting and no group
+and spans uploads no converter can see; see
 [0037](0037-transfer-matches-are-links-not-postings.md).
+
+The original argument for converter-owned pairing rested on a premise that no longer
+holds -- that the broker's reference numbers were discarded before the data reached the
+standard format. They are stored on the posting, which is what let 0041 move the
+decision.

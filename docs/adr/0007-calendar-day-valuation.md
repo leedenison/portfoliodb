@@ -17,4 +17,4 @@ project already runs, so this adds no new dependency.
 
 Date ranges throughout the cache are half-open with midnight-UTC values so range
 arithmetic composes cleanly with the database (see
-adr/0018-half-open-date-intervals.md).
+[0018](0018-half-open-date-intervals.md)).

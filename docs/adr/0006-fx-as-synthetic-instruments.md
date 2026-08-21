@@ -2,8 +2,8 @@
 
 Foreign-exchange rates are modelled as synthetic instruments (`asset_class =
 'FX'`, identifier type `FX_PAIR`) whose daily rates live in `eod_prices`. This
-lets the entire existing price-cache pipeline — gap detection, coverage tracking,
-gapfilling, plugin fetching, and the range utilities — work on FX data without
+lets the entire existing price-cache pipeline -- gap detection, coverage tracking,
+gapfilling, plugin fetching, and the range utilities -- work on FX data without
 modification: an FX pair is just another instrument with prices, and a price
 plugin like Massive gains FX support by adding `'FX'`/`'FX_PAIR'` to the asset
 classes and identifier types it accepts. The alternative, a bespoke FX rate table

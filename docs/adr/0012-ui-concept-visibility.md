@@ -2,7 +2,7 @@
 
 Several domain concepts are deliberately kept out of the user's way. The epoch
 start date, initialization transactions, and holdings checkpoints are surfaced
-only when absolutely necessary — they are bookkeeping mechanics a user should not
+only when absolutely necessary -- they are bookkeeping mechanics a user should not
 have to reason about to read their holdings. "All Holdings" is presented as a
 default portfolio that every user has and that cannot be renamed or deleted, so
 there is always a well-defined unfiltered view. Trade notifications (automated

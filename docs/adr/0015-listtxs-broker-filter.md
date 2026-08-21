@@ -3,7 +3,7 @@
 ListTxs accepts an optional `broker` filter and a `descending` sort direction,
 alongside the existing portfolio-based filtering. This is a deliberate exception to
 the rule that transaction filtering is expressed through portfolio views (see
-adr/0010-portfolios-as-views.md): a portfolio is a user-authored, user-visible
+[0010](0010-portfolios-as-views.md)): a portfolio is a user-authored, user-visible
 concept, and requiring a machine client to have one hand-configured before it can
 work makes the client's correctness depend on the user not deleting a view. The
 broker filter is not a second way to model a portfolio; it is a query parameter on

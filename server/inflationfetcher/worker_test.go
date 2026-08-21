@@ -1,9 +1,23 @@
 package inflationfetcher
 
 import (
+	"context"
 	"testing"
 	"time"
 )
+
+// stubPlugin is a minimal Plugin implementation for worker tests.
+type stubPlugin struct {
+	name       string
+	currencies []string
+}
+
+func (s *stubPlugin) DisplayName() string           { return s.name }
+func (s *stubPlugin) SupportedCurrencies() []string { return s.currencies }
+func (s *stubPlugin) DefaultConfig() []byte         { return []byte(`{}`) }
+func (s *stubPlugin) FetchInflation(_ context.Context, _ []byte, _ string, _, _ time.Time) (*FetchResult, error) {
+	return nil, ErrNoData
+}
 
 func TestPluginAcceptsCurrency(t *testing.T) {
 	p := &stubPlugin{currencies: []string{"GBP", "EUR"}}
@@ -58,39 +72,6 @@ func TestComputeGapRange_PartialCoverage(t *testing.T) {
 	if !to.Equal(end) {
 		t.Errorf("expected gap to=%v, got %v", end, to)
 	}
-}
-
-func TestTimeoutFromConfig(t *testing.T) {
-	if timeoutFromConfig(nil) != DefaultInflationPluginTimeout {
-		t.Error("nil config should return default")
-	}
-	if timeoutFromConfig([]byte(`{}`)) != DefaultInflationPluginTimeout {
-		t.Error("empty config should return default")
-	}
-	if timeoutFromConfig([]byte(`{"timeout_seconds": 30}`)) != 30*time.Second {
-		t.Error("expected 30s")
-	}
-	if timeoutFromConfig([]byte(`{"timeout_seconds": -1}`)) != DefaultInflationPluginTimeout {
-		t.Error("negative timeout should return default")
-	}
-}
-
-func TestTrigger(t *testing.T) {
-	ch := make(chan struct{}, 1)
-	Trigger(ch)
-	select {
-	case <-ch:
-	default:
-		t.Error("expected signal on channel")
-	}
-
-	// Second trigger should not block (debounce: buffer already full).
-	ch <- struct{}{} // fill buffer
-	Trigger(ch)      // should not panic or block
-}
-
-func TestTrigger_Nil(t *testing.T) {
-	Trigger(nil) // should not panic
 }
 
 func TestToDBIndices(t *testing.T) {

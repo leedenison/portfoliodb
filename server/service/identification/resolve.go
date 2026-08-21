@@ -2,7 +2,6 @@ package identification
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 )
 
 const (
@@ -913,7 +913,7 @@ func ResolveWithPlugins(
 		go func(idx int) {
 			defer wg.Done()
 			in := inputs[idx]
-			timeout := timeoutFromConfig(in.config.Config)
+			timeout := pluginutil.TimeoutFromConfig(in.config.Config, DefaultPluginTimeout)
 			res, stats, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, keyed, timeout, PluginRetryBackoff)
 			results[idx] = pluginResult{inst: res.Instrument, ids: res.Identifiers, filtered: res.Filtered, tel: res.Telemetry, stats: stats, err: err}
 		}(i)
@@ -1268,26 +1268,6 @@ func instrumentSummary(inst *identifier.Instrument) string {
 		return ""
 	}
 	return inst.Name + " (" + inst.AssetClass + "/" + inst.Venue.MIC + ")"
-}
-
-// pluginConfigJSON is the shape we read from identifier_plugin_config.config (JSONB).
-type pluginConfigJSON struct {
-	TimeoutSeconds *int `json:"timeout_seconds"`
-}
-
-// timeoutFromConfig parses config JSON and returns timeout; uses default if missing or invalid.
-func timeoutFromConfig(config []byte) time.Duration {
-	if len(config) == 0 {
-		return DefaultPluginTimeout
-	}
-	var c pluginConfigJSON
-	if err := json.Unmarshal(config, &c); err != nil {
-		return DefaultPluginTimeout
-	}
-	if c.TimeoutSeconds == nil || *c.TimeoutSeconds <= 0 {
-		return DefaultPluginTimeout
-	}
-	return time.Duration(*c.TimeoutSeconds) * time.Second
 }
 
 // callStats is what only the caller of a plugin knows about the invocation: the

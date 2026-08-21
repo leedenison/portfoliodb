@@ -251,7 +251,7 @@ func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hint
 	return ids, nil
 }
 
-// FilterIdentifierHints keeps only hints whose Type is in the controlled vocabulary (identifier.AllowedIdentifierTypes).
+// FilterIdentifierHints keeps only hints whose Type is in the controlled vocabulary (identifier.Known).
 // Invalid types are discarded and logged at debug.
 func FilterIdentifierHints(ctx context.Context, hints []identifier.Identifier, logger *slog.Logger) []identifier.Identifier {
 	if len(hints) == 0 {
@@ -264,7 +264,7 @@ func FilterIdentifierHints(ctx context.Context, hints []identifier.Identifier, l
 		if typ == "" {
 			continue
 		}
-		if identifier.AllowedIdentifierTypes[typ] {
+		if identifier.Known(typ) {
 			out = append(out, h)
 		} else {
 			l.DebugContext(ctx, "identifier hint discarded: type not in vocabulary", "type", typ, "value", h.Value)

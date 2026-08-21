@@ -40,7 +40,7 @@
 // plugin never writes telemetry itself and never depends on the telemetry
 // backend.
 //
-// Returned identifiers must have a Type from [identifier.AllowedIdentifierTypes];
+// Returned identifiers must have a Type in the controlled vocabulary ([identifier.Known]);
 // the caller filters out invalid types at debug log level.
 //
 // # Differences from identifier plugins

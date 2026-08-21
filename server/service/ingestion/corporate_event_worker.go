@@ -122,7 +122,7 @@ func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistr
 func resolveEventGroupInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, cache map[string]*resolveEntry, keys *resolutionKeys, g *archivev1.CorporateEventGroup, asOf *time.Time) (string, *apiv1.ValidationError) {
 	ref := g.GetInstrument()
 	idType := typev1.IdentifierType_name[int32(ref.GetType())]
-	if !identifier.AllowedIdentifierTypes[idType] {
+	if !identifier.Known(idType) {
 		return "", &apiv1.ValidationError{Field: "instrument.type", Message: fmt.Sprintf("unknown identifier type %q", idType)}
 	}
 	r := identifierRef{Type: idType, Domain: ref.GetDomain(), Value: ref.GetValue()}

@@ -106,7 +106,7 @@ func resolveGroupInstrument(ctx context.Context, database db.DB, pluginRegistry 
 	cache map[string]*resolveEntry, keys *resolutionKeys, g *archivev1.PriceGroup, asOf *time.Time) (string, error) {
 	ref := g.GetInstrument()
 	idType := ref.GetType().String()
-	if !identifier.AllowedIdentifierTypes[idType] {
+	if !identifier.Known(idType) {
 		return "", fmt.Errorf("unknown identifier_type %q", idType)
 	}
 

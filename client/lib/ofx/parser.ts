@@ -25,7 +25,17 @@ import { parseOfxSgml } from "./sgml";
 const ZERO = new Big(0);
 
 export interface OfxParseResult extends StandardParseResult {
-  secList: Map<string, SecInfo>;
+  /**
+   * The security each posting named, keyed by the posting itself.
+   *
+   * It is the SECID the record stated, so a broker-specific pass reads the
+   * identifier the source actually gave rather than re-deriving which security a
+   * posting belongs to by comparing descriptions. Entered for the leg
+   * transcribed from the record and not for the legs derived beside it, which
+   * were read out of the record's other fields and transact currency; a record
+   * naming no security is not entered at all.
+   */
+  securities: Map<Posting, SecRef>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -117,11 +127,32 @@ function pad2(n: number): string {
 
 // ── SECLIST lookup ───────────────────────────────────────────────────
 
+/**
+ * The terms an OPTINFO states, present only where it states all three.
+ *
+ * A partial set is no use: what they are for is constructing the contract's
+ * symbol and checking it against the one the file printed, and a construction
+ * missing a term cannot be compared with anything.
+ */
+export interface OptTerms {
+  putCall: "C" | "P";
+  strike: Big;
+  expiry: Date;
+}
+
 export interface SecInfo {
   secName: string;
   ticker: string;
   uniqueId: string;
   uniqueIdType: string;
+  opt?: OptTerms;
+}
+
+/** The security a posting stated, and the SECLIST record for it where the file has one. */
+export interface SecRef {
+  uniqueId: string;
+  uniqueIdType: string;
+  info?: SecInfo;
 }
 
 /** Build a map from UNIQUEID -> SecInfo from the SECLIST section. */
@@ -137,15 +168,36 @@ function buildSecList(body: Record<string, unknown>): Map<string, SecInfo> {
       if (!secId) continue;
       const uid = str(secId, "UNIQUEID");
       if (!uid) continue;
+      const opt = optTerms(entry);
       map.set(uid, {
         secName: str(info, "SECNAME"),
         ticker: str(info, "TICKER"),
         uniqueId: uid,
         uniqueIdType: str(secId, "UNIQUEIDTYPE"),
+        ...(opt ? { opt } : {}),
       });
     }
   }
   return map;
+}
+
+const OPT_TYPE_MAP: Record<string, "C" | "P"> = { CALL: "C", PUT: "P" };
+
+/**
+ * The option terms an OPTINFO states, or undefined where the record is not an
+ * option or does not state all of them.
+ *
+ * They sit on the OPTINFO element itself rather than inside its SECINFO, which
+ * is why this reads the entry and not the security record within it.
+ */
+function optTerms(entry: Record<string, unknown>): OptTerms | undefined {
+  const putCall = OPT_TYPE_MAP[str(entry, "OPTTYPE").toUpperCase()];
+  const strike = dec(entry, "STRIKEPRICE");
+  const expiry = parseOfxDate(str(entry, "DTEXPIRE"));
+  if (putCall === undefined || strike === undefined || expiry === null) {
+    return undefined;
+  }
+  return { putCall, strike, expiry };
 }
 
 // ── Identifier hint mapping ──────────────────────────────────────────
@@ -227,7 +279,7 @@ const TX_TYPES: Record<string, TxTypeDef> = {
 
 export function parseOfxStatement(text: string): OfxParseResult {
   const errors: ParseError[] = [];
-  const emptySecList = new Map<string, SecInfo>();
+  const securities = new Map<Posting, SecRef>();
   const { body } = parseOfxSgml(text);
 
   const stmtRs = one(
@@ -239,7 +291,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
       periodFrom: new Date(0),
       periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "No investment statement found in OFX file" }],
-      secList: emptySecList,
+      securities,
     };
   }
 
@@ -255,7 +307,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
       periodFrom: new Date(0),
       periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "No transaction list found in OFX file" }],
-      secList: emptySecList,
+      securities,
     };
   }
 
@@ -392,6 +444,19 @@ export function parseOfxStatement(text: string): OfxParseResult {
         ...(hintProtos.length > 0 ? { identifierHints: hintProtos } : {}),
       });
       legs.push(security);
+      // The security the record named, on the leg transcribed from it. An
+      // INCOME row names one too -- the security that paid -- so it is entered
+      // here as well even though its own quantity is money. The legs derived
+      // below are not: they were read out of the record's other fields and
+      // transact currency, and a pass reading this map is asking what the source
+      // said this posting was about.
+      if (uniqueId) {
+        securities.set(security, {
+          uniqueId,
+          uniqueIdType,
+          ...(secInfo ? { info: secInfo } : {}),
+        });
+      }
 
       // TOTAL verbatim, on the legs whose quantity is not already money. It is
       // the cash that actually settled, so it carries the COMMISSION and TAXES
@@ -487,7 +552,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
   const afterLast = last ? startOfNextDay(timestampDate(last)) : new Date(0);
   const periodBefore = afterLast > dtEnd ? afterLast : dtEnd;
 
-  return { postings, periodFrom, periodBefore, exportedAt, errors, secList };
+  return { postings, periodFrom, periodBefore, exportedAt, errors, securities };
 }
 
 /**

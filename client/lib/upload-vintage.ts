@@ -2,9 +2,10 @@
  * What an upload states as the vintage of its file's identifiers.
  *
  * A file names an option by the symbol current when it was written, so this is
- * the point an OCC hint is rebased forward from during resolution. Getting it
- * wrong in either direction restates a strike twice. See
- * docs/spec/bitemporality.md.
+ * what dates the names a resolution writes from the file's hints. Getting it
+ * wrong puts a name on the wrong side of a split's ex_date: dated too early it
+ * is restated by a split it already carries, dated too late it misses one it
+ * does not. See docs/spec/bitemporality.md.
  *
  * Kept out of the modal so the rule can be read and tested on its own.
  */

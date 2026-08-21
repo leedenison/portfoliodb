@@ -116,7 +116,8 @@ test.describe("archive ingestion flow", () => {
 });
 
 // A broker file that dates nothing still has to state a vintage, because the
-// identifiers in it are as of its export and an OCC hint is rebased from there.
+// identifiers in it are as of its export and that is what dates the names a
+// resolution writes from them.
 // The upload offers the last day the file covers -- the earliest date an export
 // could honestly claim -- and lets it be corrected. Nothing is uploaded here: the
 // question is what the modal proposes.

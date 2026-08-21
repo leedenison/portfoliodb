@@ -20,7 +20,7 @@
 import { expect } from "vitest";
 import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { Big } from "@/lib/decimal";
-import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { AccountType, AssetClass, TxType } from "@/gen/type/v1/type_pb";
 import { mustBe } from "@/lib/tx-type";
 
 /**
@@ -39,17 +39,17 @@ const TOLERANCE = new Big("0.005");
  * The OCC standard deliverable, matching optionContractSize in balance.go.
  *
  * balance.go reads the size off the resolved instrument's asset class; a
- * converter has resolved nothing yet, so an OCC hint stands in for one. The
- * symbology exists only for a standardised contract, so the hint and the asset
- * class agree. A contract_multiplier left behind by a corporate action does not,
- * but a converter cannot know one either.
+ * converter has resolved nothing yet, so the class the source stated stands in
+ * for it. Not an OCC hint, which used to: the symbology covers US-listed
+ * contracts and nothing else, so a Eurex option carries no OCC and is an option
+ * all the same. A contract_multiplier left behind by a corporate action is not
+ * modelled here, and a converter could not know one anyway.
  */
 const OPTION_CONTRACT_SIZE = new Big(100);
 
 /** What one unit of quantity delivers: 100 for an option contract, else 1. */
 function contractSize(tx: Posting): Big {
-  const isOption = tx.identifierHints.some((h) => h.type === IdentifierType.OCC);
-  return isOption ? OPTION_CONTRACT_SIZE : new Big(1);
+  return tx.assetClassHint === AssetClass.OPTION ? OPTION_CONTRACT_SIZE : new Big(1);
 }
 
 /** What a posting contributes to its group's balance, and in what commodity. */

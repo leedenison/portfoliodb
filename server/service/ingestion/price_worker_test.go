@@ -484,10 +484,9 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 
 // TestProcessPriceImport_OptionFallbackDatesFromExportedAt is the regression test
 // for the price-import half of issue 0055. The fallback stores the supplied OCC
-// verbatim -- ResolveWithPlugins split-adjusts its own hint list, not the value
-// this path closes over -- so the name became correct as of the request's
-// exported_at, and that is the date it must carry. The namesDated matcher above
-// is where the assertion lives.
+// verbatim -- nothing rebases a hint onto another vintage -- so the name became
+// correct as of the request's exported_at, and that is the date it must carry.
+// The namesDated matcher above is where the assertion lives.
 //
 // An undated name would tell the retroactive option-split pass that it predates
 // every split, and the pass would restate a symbol already carrying them,

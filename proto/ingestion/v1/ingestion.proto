@@ -38,8 +38,9 @@ message UpsertTxsRequest {
   // The point in market time this upload's identifiers are stated as of: a
   // broker names an option under the symbol current when it wrote the file, not
   // under the one the contract wore on the trade date. It is the identifier twin
-  // of the share count basis a posting carries by convention, and it is what an
-  // OCC hint is rebased from during resolution. See docs/spec/bitemporality.md.
+  // of the share count basis a posting carries by convention, and it is the
+  // valid_from stamped on the names a resolution writes from this upload's
+  // hints. See docs/spec/bitemporality.md.
   //
   // An archive document states its envelope's exported_at here. A broker file
   // states whatever it knows about its own export, and unset means the upload is

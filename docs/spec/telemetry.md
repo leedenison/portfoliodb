@@ -204,6 +204,28 @@ has returned: `superseded` lost to a better hint match despite higher precedence
 either, which is why the plugin returns its transport outcome and the orchestrator
 composes the row.
 
+### identifier_claim
+
+One identifier an identifier plugin call returned.
+
+| column | notes |
+| --- | --- |
+| `call_id` | the `identifier_plugin_call` it came back from |
+| `identifier_type`, `domain`, `value` | the whole triple, because a ticker under two domains names two listings |
+
+The rows under one `call_id` are what one identifier plugin said in one answer, and it
+is that grouping rather than the plugin's identity that decides whether an association between
+two of them may be acted on: identifiers arriving together are a claim somebody made,
+and the same identifiers gathered from separate calls are a set the resolver assembled.
+See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md.
+
+Recording it here closes an inversion. `candidate_field` carries the value, the field
+and the confidence for every field a candidate plugin proposed -- full detail on claims
+that are not evidence and can never merge -- while `identifier_plugin_call` carried a
+plugin id and an outcome and no identifiers at all, for the results that do. So "which
+plugin corroborated this association" was unanswerable for the one class of claim where
+it matters.
+
 ### candidate_plugin_call
 
 One plugin invocation over a batch.

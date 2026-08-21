@@ -2412,3 +2412,219 @@ func claimsFromResolve(t *testing.T, a, b identifier.Plugin, onStore ...func([]d
 	}
 	return got
 }
+
+// --- a domain scopes an identifier rather than decorating it (0144) ---
+
+// Two plugins naming one symbol on two venues have described two listings of a
+// security, not one instrument twice. Both instruments are venue-silent here, so
+// the venue comparison decides nothing and the identifiers have to.
+func TestConsistentWith_OneSymbolOnTwoVenuesIsNotAgreement(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{AssetClass: "STOCK"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{AssetClass: "STOCK"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "AAPL"}},
+	}
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+		t.Error("expected two listings of one symbol to be inconsistent")
+	}
+}
+
+// A segment MIC and the venue that operates it are one domain, per adr/0003, so
+// the two results are talking about the same listing and agree.
+func TestConsistentWith_ASegmentDomainAndItsOperatingMICAreOneSubject(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+		t.Error("expected a segment MIC and its operating MIC to be one subject")
+	}
+	o.ids = []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "MSFT"}}
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+		t.Error("expected two symbols on one listing to be inconsistent")
+	}
+}
+
+// A ticker naming no venue names no particular listing, so there is nothing to
+// compare it against a venued one on. The venue disagreement, where there is
+// one, is carried by the instruments rather than by the identifiers.
+func TestConsistentWith_AnUndomainedTickerIsNotComparedAgainstAVenuedOne(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "MSFT"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+		t.Error("expected a bare ticker not to be compared against a venued one")
+	}
+}
+
+// The two-listings rule is for types whose domain names a venue. A description's
+// domain names the source that wrote it, so two sources describing one security
+// are two names for it, however unalike the text.
+func TestConsistentWith_TwoSourcesDescribingOneSecurityAgree(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "ibkr", Value: "APPLE INC"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "schwab", Value: "APPLE COMPUTER INC"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+		t.Error("expected two sources' descriptions of one security to agree")
+	}
+}
+
+// A winner that named both listings has already said the security trades on
+// each, so a result naming one of them agrees with it. Reading only the
+// conflicting half would have the winner reject its own answer.
+func TestConsistentWith_AWinnerNamingTwoListingsAcceptsEither(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids: []identifier.Identifier{
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"},
+			{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"},
+		},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+		t.Error("expected a result naming one of the winner's two listings to agree")
+	}
+}
+
+// The venue is half of what the source stated. A result naming the symbol on
+// another venue has agreed with the other half and with nothing that was said.
+func TestConfirmedFields_AStatedTickerOnAnotherVenueIsNotConfirmed(t *testing.T) {
+	inst := &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}}
+	stated := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"}}
+	if got := confirmedFields(context.Background(), identifier.Hints{}, stated, inst, ids, testMICNormalizer()); len(got) != 0 {
+		t.Errorf("confirmed = %v, want nothing: the venue stated is not the venue resolved", got)
+	}
+}
+
+// A result that named no venue has not corroborated one, so a stated listing is
+// not confirmed by a bare symbol coming back.
+func TestConfirmedFields_AnUndomainedResolvedTickerDoesNotConfirmAStatedVenue(t *testing.T) {
+	inst := &identifier.Instrument{AssetClass: "STOCK"}
+	stated := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	if got := confirmedFields(context.Background(), identifier.Hints{}, stated, inst, ids, testMICNormalizer()); len(got) != 0 {
+		t.Errorf("confirmed = %v, want nothing: a bare ticker corroborates no listing", got)
+	}
+}
+
+// A source naming two listings is corroborated by the resolution landing on
+// either, so every stated listing is consulted and not just the first.
+func TestConfirmedFields_EveryStatedListingIsConsulted(t *testing.T) {
+	inst := &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}}
+	stated := []identifier.Identifier{
+		{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"},
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"},
+	}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"}}
+	got := confirmedFields(context.Background(), identifier.Hints{}, stated, inst, ids, testMICNormalizer())
+	if len(got) != 2 || got[0] != "Exchange" || got[1] != "MIC_TICKER" {
+		t.Errorf("confirmed = %v, want the venue and the ticker, each once", got)
+	}
+}
+
+// The wrong venue is reported once, as the exchange difference it is. Saying it
+// again as a MIC_TICKER row whose two values are the same string would be the
+// same fact rendered as noise.
+func TestCompareHints_ATickerOnAnotherVenueIsNotAValueDiff(t *testing.T) {
+	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"}}
+	inst := &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}}
+	resolvedIDs := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"}}
+
+	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, resolvedIDs, testMICNormalizer())
+	if len(diffs) != 1 {
+		t.Fatalf("expected 1 diff, got %d: %v", len(diffs), diffs)
+	}
+	if diffs[0].Field != "Exchange" {
+		t.Errorf("unexpected diff: %+v", diffs[0])
+	}
+}
+
+// A source that stated two listings is not contradicted by the resolution
+// choosing the second of them.
+func TestCompareHints_ASecondStatedListingMatches(t *testing.T) {
+	idnHints := []identifier.Identifier{
+		{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"},
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"},
+	}
+	inst := &identifier.Instrument{Venue: identifier.Venue{MIC: "XNAS"}}
+
+	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, nil, testMICNormalizer())
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs, got %v", diffs)
+	}
+}
+
+// Winning the stated tier means a hint was checked and held up. A ticker under
+// another domain was never compared, so there is nothing for the result to have
+// held up against.
+func TestResultMatchesHints_ATickerUnderAnotherDomainWasNotCompared(t *testing.T) {
+	r := &pluginResult{
+		inst: &identifier.Instrument{AssetClass: "STOCK"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+	}
+	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "AAPL"}}
+	if resultMatchesHints(context.Background(), identifier.Hints{}, idnHints, r, testMICNormalizer()) {
+		t.Error("expected no match: the ticker was never compared")
+	}
+}
+
+// The propagation 0144 is about. The loser identified the same security and its
+// name and CIK are facts about that security, so they fill the winner's blanks.
+// Its currency is not: it named no venue, so it has not said which line the GBP
+// belongs to, and the winner's line is on XNAS.
+func TestResolveWithPlugins_AVenueSilentResultDoesNotSupplyTheCurrency(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	registry.Register("venue", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Name: "Apple Inc"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+	})
+	registry.Register("security", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Currency: "GBP", CIK: "0000320193"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	})
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").Return("", "", "", "", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "venue", Precedence: 20}, {PluginID: "security", Precedence: 10}}, nil)
+	// The CIK arrives, the currency does not, and the ISIN is merged either way:
+	// the result was consistent, it just did not say where the GBP was measured.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "", "Apple Inc", "0000320193", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		Return("new-id", nil)
+
+	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
+		false, nil, Attempt{}, nil, 0, nil); err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}

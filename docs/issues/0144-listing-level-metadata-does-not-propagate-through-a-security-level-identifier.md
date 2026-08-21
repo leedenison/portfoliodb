@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Listing-level metadata does not propagate through a security-level identifier
 milestone: M24
 ---

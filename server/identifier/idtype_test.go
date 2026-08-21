@@ -37,11 +37,39 @@ func TestPropsCoversProtoVocabulary(t *testing.T) {
 		if p.Reassignment == ReassignUnknown {
 			t.Errorf("%s: reassignment not declared", name)
 		}
+		if p.Grain == GrainUnknown {
+			t.Errorf("%s: grain not declared", name)
+		}
 	}
 	for name := range idTypes {
 		if !seen[name] {
 			t.Errorf("%s: in idTypes but not in the proto vocabulary", name)
 		}
+	}
+}
+
+// A domain means something different either side of the grain: on a listing type
+// it says which venue, on every other type it says who is speaking. Only the
+// first makes two values under two domains into two things.
+func TestNamesAListing(t *testing.T) {
+	for _, tt := range []struct {
+		typ  string
+		want bool
+	}{
+		{"MIC_TICKER", true},
+		{"OPENFIGI_TICKER", true},
+		{"ISIN", false},
+		// A contract is its own security and its symbol carries no venue.
+		{"OCC", false},
+		// The domain is the source that wrote the description, not a venue.
+		{"BROKER_DESCRIPTION", false},
+		{"NOT_A_TYPE", false},
+	} {
+		t.Run(tt.typ, func(t *testing.T) {
+			if got := NamesAListing(tt.typ); got != tt.want {
+				t.Errorf("NamesAListing(%q) = %v, want %v", tt.typ, got, tt.want)
+			}
+		})
 	}
 }
 

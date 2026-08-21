@@ -53,10 +53,34 @@ const (
 	ReassignRoutine
 )
 
+// Grain says what a type's values name: the security, or one listing of it.
+//
+// An ISIN spans every listing of a security while a MIC_TICKER names one of
+// them, and its domain is which. So the grain decides what a domain does. Under
+// GrainListing a domain scopes the value, and two values of one type under two
+// named domains are about two listings; under GrainSecurity the domain names
+// something else entirely -- the source that wrote a description, the broker
+// that issued a contract number -- and two of them are two names for one thing.
+//
+// This is the axis docs/spec/identifiers.md draws when it says metadata is
+// security-level or listing-level and the two do not propagate alike.
+type Grain uint8
+
+const (
+	// GrainUnknown is the zero value and belongs to no type in the table, for
+	// the reason ScopeUnknown gives.
+	GrainUnknown Grain = iota
+	// GrainSecurity names the security itself, however many venues it trades on.
+	GrainSecurity
+	// GrainListing names one listing of a security, and the domain says which.
+	GrainListing
+)
+
 // TypeProps are the declared properties of one identifier type.
 type TypeProps struct {
 	Scope        Scope
 	Reassignment Reassignment
+	Grain        Grain
 }
 
 // idTypes is the controlled vocabulary for identifier types (proto
@@ -70,43 +94,56 @@ var idTypes = map[string]TypeProps{
 	// reissuing a retired value is rare enough that refusing to chain through
 	// these would fragment the master for the sake of an event that happens by
 	// exception. All five may mediate a transitive association.
-	"ISIN":       {ScopeGlobal, ReassignRare},
-	"CUSIP":      {ScopeGlobal, ReassignRare},
-	"SEDOL":      {ScopeGlobal, ReassignRare},
-	"CINS":       {ScopeGlobal, ReassignRare},
-	"WERTPAPIER": {ScopeGlobal, ReassignRare},
+	"ISIN":       {ScopeGlobal, ReassignRare, GrainSecurity},
+	"CUSIP":      {ScopeGlobal, ReassignRare, GrainSecurity},
+	"SEDOL":      {ScopeGlobal, ReassignRare, GrainSecurity},
+	"CINS":       {ScopeGlobal, ReassignRare, GrainSecurity},
+	"WERTPAPIER": {ScopeGlobal, ReassignRare, GrainSecurity},
 
 	// A FIGI is retired and never reassigned, so it is the one type that would
 	// clear a guaranteed-never bar. It sits with the exceptions rather than
 	// above them because adr/0061 declines to impose that bar: only a FIGI
 	// would pass it, and refusing to chain through ISINs to gain it trades a
 	// frequent, certain cost against a rare, correctable one.
-	"OPENFIGI_SHARE_CLASS": {ScopeGlobal, ReassignRare},
-	"OPENFIGI_COMPOSITE":   {ScopeGlobal, ReassignRare},
+	//
+	// Security-grain, which is the non-obvious one here: a composite names a
+	// security within a market rather than one venue's line of it, and adr/0061
+	// already lets it mediate an association between securities.
+	"OPENFIGI_SHARE_CLASS": {ScopeGlobal, ReassignRare, GrainSecurity},
+	"OPENFIGI_COMPOSITE":   {ScopeGlobal, ReassignRare, GrainSecurity},
 
 	// Tickers are reused constantly and across venues. EA passing from
 	// Electronic Arts to whatever holds the symbol now is a live example rather
 	// than a hypothetical, and it is global by namespace, which is why scope is
 	// the wrong axis for this question.
-	"MIC_TICKER":      {ScopeGlobal, ReassignRoutine},
-	"OPENFIGI_TICKER": {ScopeGlobal, ReassignRoutine},
+	//
+	// Both name a listing, and the domain is the venue that says which: AAPL on
+	// XNAS and AAPL on XLON are two things, not one written twice.
+	"MIC_TICKER":      {ScopeGlobal, ReassignRoutine, GrainListing},
+	"OPENFIGI_TICKER": {ScopeGlobal, ReassignRoutine, GrainListing},
 
 	// Contract symbols, from the other direction: a forward split hands one
 	// contract's old symbol to the strike below it, and adr/0055 records that
 	// this is reachable on most splits rather than on unusual ones.
-	"OCC":     {ScopeGlobal, ReassignRoutine},
-	"OPRA":    {ScopeGlobal, ReassignRoutine},
-	"FUT_OPT": {ScopeGlobal, ReassignRoutine},
+	//
+	// Security-grain even so. A contract is its own security -- one set of
+	// terms, cleared in one place -- however many venues its underlying trades
+	// on, and the symbol carries no venue for a domain to scope.
+	"OCC":     {ScopeGlobal, ReassignRoutine, GrainSecurity},
+	"OPRA":    {ScopeGlobal, ReassignRoutine, GrainSecurity},
+	"FUT_OPT": {ScopeGlobal, ReassignRoutine, GrainSecurity},
 
 	// A currency names what a security trades in, not which security it is, so
 	// it fails before reassignment is reached: every instrument denominated in
 	// USD would answer to one value. Same ground as BROKER_DESCRIPTION below,
 	// reached without the issuer reassigning anything.
-	"CURRENCY": {ScopeGlobal, ReassignRoutine},
-	"FX_PAIR":  {ScopeGlobal, ReassignRoutine},
+	"CURRENCY": {ScopeGlobal, ReassignRoutine, GrainSecurity},
+	"FX_PAIR":  {ScopeGlobal, ReassignRoutine, GrainSecurity},
 
-	// Not injective at all -- two securities can wear one description.
-	"BROKER_DESCRIPTION": {ScopeDescription, ReassignRoutine},
+	// Not injective at all -- two securities can wear one description. Its
+	// domain is the source that wrote the text rather than a venue, so two
+	// sources describing one security are two names for it and not two listings.
+	"BROKER_DESCRIPTION": {ScopeDescription, ReassignRoutine, GrainSecurity},
 
 	// ScopeBroker has no members yet. A broker's own contract identifier is the
 	// first, and it arrives with 0123.
@@ -125,6 +162,17 @@ func Props(t string) (TypeProps, bool) {
 func Known(t string) bool {
 	_, ok := idTypes[t]
 	return ok
+}
+
+// NamesAListing reports whether a type's values name one listing of a security,
+// so that a domain scopes the value rather than naming something beside it.
+//
+// False for a type outside the vocabulary: an unknown type's domain could be
+// anything, and reading it as a venue is the assumption that would have to be
+// justified.
+func NamesAListing(t string) bool {
+	p, ok := idTypes[t]
+	return ok && p.Grain == GrainListing
 }
 
 // MayMediate reports whether an association on this identifier type may mediate

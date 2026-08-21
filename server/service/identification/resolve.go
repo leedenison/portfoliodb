@@ -468,9 +468,15 @@ func normalizeMICValue(ctx context.Context, normalizeMIC MICNormalizer, mic stri
 }
 
 // consistentWith returns true if other's instrument metadata is consistent with
-// winner's. Checks Currency, Exchange, and overlapping identifier values.
-// Logs a warning and returns false on mismatch. Exchange comparison normalizes
-// both sides to operating MICs via normalizeMIC (if non-nil).
+// winner's. Checks Currency, Exchange, and the identifiers the two results
+// share a subject on. Logs a warning and returns false on mismatch. Exchange
+// comparison normalizes both sides to operating MICs via normalizeMIC (if
+// non-nil).
+//
+// This is merge admission, which is why it is contradicts and not sameSubject
+// that decides: two results naming one symbol on two venues have described two
+// listings, and merging them is how a London ticker comes to sit on a New York
+// instrument for a price plugin to fetch the wrong line's close against.
 func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer, countryOf MICCountry) bool {
 	l = resolveLogger(l)
 	if winner.inst.Currency != "" && other.inst.Currency != "" &&
@@ -488,15 +494,30 @@ func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlug
 			"field", "Venue", "winner_value", venueString(winnerVenue), "other_value", venueString(otherVenue))
 		return false
 	}
-	winnerIDs := make(map[string]string, len(winner.ids))
-	for _, id := range winner.ids {
-		winnerIDs[id.Type] = id.Value
-	}
-	for _, id := range other.ids {
-		if wv, ok := winnerIDs[id.Type]; ok && wv != id.Value {
+	// Every pair, rather than a map keyed on the type: a result may name one
+	// type twice -- a ticker on each of two venues -- and keying would keep
+	// whichever came last and compare the other against nothing.
+	//
+	// An identifier the winner also named is agreement, and agreement anywhere
+	// in the winner's answer settles it. Asking only whether something conflicts
+	// would have a winner that named two listings reject a result naming one of
+	// them, which is the winner disagreeing with itself.
+	for _, o := range other.ids {
+		var conflict identifier.Identifier
+		agreed, found := false, false
+		for _, w := range winner.ids {
+			if sameSubject(ctx, normalizeMIC, w, o) && w.Value == o.Value {
+				agreed = true
+				break
+			}
+			if !found && contradicts(ctx, normalizeMIC, w, o) {
+				conflict, found = w, true
+			}
+		}
+		if !agreed && found {
 			l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
 				"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
-				"field", "Identifier:"+id.Type, "winner_value", wv, "other_value", id.Value)
+				"field", "Identifier:"+o.Type, "winner_value", conflict.String(), "other_value", o.String())
 			return false
 		}
 	}
@@ -528,7 +549,17 @@ func fillBlanks(ctx context.Context, normalizeMIC MICNormalizer, countryOf MICCo
 	if dst.Venue.Country == "" {
 		dst.Venue.Country = src.Venue.Country
 	}
-	if dst.Currency == "" {
+	// A currency is a fact about a listing, so it travels only from a result
+	// that named the listing dst is about. One that named no venue, or only a
+	// market, has not said which line its currency belongs to, and taking it is
+	// how the London line's GBP comes to be asserted of the New York one. Where
+	// dst names no venue either there is no listing for it to contradict, and
+	// the currency arrives with whatever else that result supplied -- including,
+	// just above, the venue itself.
+	if dst.Currency == "" && src.Currency != "" &&
+		(dst.Venue.MIC == "" || strings.EqualFold(
+			normalizeMICValue(ctx, normalizeMIC, dst.Venue.MIC),
+			normalizeMICValue(ctx, normalizeMIC, src.Venue.MIC))) {
 		dst.Currency = src.Currency
 	}
 	if dst.Name == "" {
@@ -562,6 +593,54 @@ func venueString(v identifier.Venue) string {
 	}
 }
 
+// domainOf is an identifier's domain, at the grain comparison happens on.
+//
+// A MIC_TICKER's domain is a MIC and normalizes to its operating one, per
+// adr/0003, so a segment and the venue that operates it are one domain rather
+// than two. No other domain is a MIC -- an OPENFIGI_TICKER's is a composite
+// exchange code, a description's is the source that wrote it -- and normalizing
+// one would be a lookup that can only fail.
+func domainOf(ctx context.Context, normalizeMIC MICNormalizer, id identifier.Identifier) string {
+	if id.Type == "MIC_TICKER" {
+		return normalizeMICValue(ctx, normalizeMIC, id.Domain)
+	}
+	return id.Domain
+}
+
+// sameSubject reports whether two identifiers are about the same thing, so that
+// their values can be compared at all.
+//
+// The domain scopes the value rather than decorating it, so it is part of the
+// subject: MIC_TICKER/XNAS/AAPL and MIC_TICKER/XLON/AAPL name two listings and
+// have not agreed about anything by both saying AAPL. An identifier naming no
+// domain names no particular listing, which is not the same subject as one that
+// does -- comparing them would be reading a bare ticker as though it had said
+// which venue.
+func sameSubject(ctx context.Context, normalizeMIC MICNormalizer, a, b identifier.Identifier) bool {
+	return a.Type == b.Type &&
+		strings.EqualFold(domainOf(ctx, normalizeMIC, a), domainOf(ctx, normalizeMIC, b))
+}
+
+// contradicts reports whether two identifiers cannot both be true of one
+// instrument.
+//
+// Two ways they cannot. One subject named twice with different values is the
+// plain case. The other is two listings: where the type names a listing and
+// both sides named a venue, different venues are different lines of the
+// security, and one instrument is not both of them however equal the symbols
+// are. That second clause is why this is not merely sameSubject read
+// negatively.
+func contradicts(ctx context.Context, normalizeMIC MICNormalizer, a, b identifier.Identifier) bool {
+	if a.Type != b.Type {
+		return false
+	}
+	if identifier.NamesAListing(a.Type) && a.Domain != "" && b.Domain != "" &&
+		!strings.EqualFold(domainOf(ctx, normalizeMIC, a), domainOf(ctx, normalizeMIC, b)) {
+		return true
+	}
+	return sameSubject(ctx, normalizeMIC, a, b) && a.Value != b.Value
+}
+
 // CompareHints compares supplied hints and identifier hints against the
 // resolved instrument and its identifiers, returning any differences.
 // Fields are skipped when either side is empty or UNKNOWN. normalizeMIC
@@ -588,32 +667,51 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 
 	// Exchange: compare MIC_TICKER hint domain (the MIC code) against inst.Venue.MIC.
 	// Both sides are normalized to operating MICs before comparison.
+	//
+	// Every stated MIC_TICKER is consulted, not just the first. A source naming
+	// two listings has said the security trades on both, and the resolution
+	// landing on either one agrees with it; judging it on whichever hint came
+	// first would report a difference the source did not state.
 	if inst.Venue.MIC != "" {
 		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Venue.MIC)
-		for _, h := range identifierHints {
-			if h.Type == "MIC_TICKER" && h.Domain != "" {
-				hintExch := normalizeMICValue(ctx, normalizeMIC, h.Domain)
-				if !strings.EqualFold(hintExch, instExch) {
-					diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: h.Domain, ResolvedValue: inst.Venue.MIC})
-				}
+		var stated *identifier.Identifier
+		for i, h := range identifierHints {
+			if h.Type != "MIC_TICKER" || h.Domain == "" {
+				continue
+			}
+			if strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, h.Domain), instExch) {
+				stated = nil
 				break
 			}
+			if stated == nil {
+				stated = &identifierHints[i]
+			}
+		}
+		if stated != nil {
+			diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: stated.Domain, ResolvedValue: inst.Venue.MIC})
 		}
 	}
 
-	// Identifier values: compare client-supplied hints against resolved identifiers.
-	resolvedByType := make(map[string]string, len(resolvedIDs))
-	for _, id := range resolvedIDs {
-		if id.Value != "" {
-			resolvedByType[id.Type] = id.Value
-		}
-	}
+	// Identifier values: compare client-supplied hints against resolved
+	// identifiers, on the subject they share rather than on the type alone.
+	//
+	// sameSubject and not contradicts, which is the one place the two part
+	// company. A hint diff is read by a person, and a resolution that landed on
+	// another venue is already said readably above as an Exchange difference. A
+	// second row naming the ticker type, whose two values are the same string,
+	// would be that fact restated as noise.
 	for _, h := range identifierHints {
 		if h.Value == "" {
 			continue
 		}
-		if rv, ok := resolvedByType[h.Type]; ok && rv != h.Value {
-			diffs = append(diffs, identifier.HintDiff{Field: h.Type, HintValue: h.Value, ResolvedValue: rv})
+		for _, id := range resolvedIDs {
+			if id.Value == "" || !sameSubject(ctx, normalizeMIC, h, id) {
+				continue
+			}
+			if id.Value != h.Value {
+				diffs = append(diffs, identifier.HintDiff{Field: h.Type, HintValue: h.Value, ResolvedValue: id.Value})
+			}
+			break
 		}
 	}
 
@@ -646,15 +744,17 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 			}
 		}
 	}
-	resolvedByType := make(map[string]string, len(r.ids))
-	for _, id := range r.ids {
-		if id.Value != "" {
-			resolvedByType[id.Type] = id.Value
-		}
-	}
+	// Same subject test CompareHints used, because this asks whether that
+	// comparison happened at all. Read on the type alone it would answer yes for
+	// a stated ticker and a resolved one on another venue -- a comparison the
+	// rule above says was never made -- and a plugin would win the stated tier
+	// on it.
 	for _, h := range identifierHints {
-		if h.Value != "" {
-			if _, ok := resolvedByType[h.Type]; ok {
+		if h.Value == "" {
+			continue
+		}
+		for _, id := range r.ids {
+			if id.Value != "" && sameSubject(ctx, normalizeMIC, h, id) {
 				return true
 			}
 		}
@@ -701,29 +801,33 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 		strings.EqualFold(hints.SecurityTypeHint, inst.AssetClass) {
 		out = append(out, "SecurityType")
 	}
+	// Every stated MIC_TICKER, for the reason CompareHints gives: a source that
+	// named two listings corroborates the resolution by either of them, and
+	// stopping at the first would turn the order the hints arrived in into a
+	// verdict.
 	if inst.Venue.MIC != "" {
 		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Venue.MIC)
 		for _, h := range stated {
-			if h.Type == "MIC_TICKER" && h.Domain != "" {
-				if strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, h.Domain), instExch) {
-					out = append(out, "Exchange")
-				}
+			if h.Type == "MIC_TICKER" && h.Domain != "" &&
+				strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, h.Domain), instExch) {
+				out = append(out, "Exchange")
 				break
 			}
 		}
 	}
-	resolvedByType := make(map[string]string, len(resolvedIDs))
-	for _, id := range resolvedIDs {
-		if id.Value != "" {
-			resolvedByType[id.Type] = id.Value
-		}
-	}
+	// Corroboration is on the whole triple. A stated ticker is confirmed by a
+	// result naming that ticker on that venue, and not by one naming the symbol
+	// somewhere else: the venue is half of what was stated, so a result that
+	// agreed with the other half has agreed with a thing nobody said.
 	for _, h := range stated {
 		if h.Value == "" {
 			continue
 		}
-		if rv, ok := resolvedByType[h.Type]; ok && rv == h.Value {
-			out = append(out, h.Type)
+		for _, id := range resolvedIDs {
+			if id.Value == h.Value && sameSubject(ctx, normalizeMIC, h, id) {
+				out = append(out, h.Type)
+				break
+			}
 		}
 	}
 	return out

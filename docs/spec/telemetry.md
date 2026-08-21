@@ -206,12 +206,20 @@ composes the row.
 
 ### identifier_claim
 
-One identifier an identifier plugin call returned.
+One identifier an identifier plugin call returned, or was strictly filtered on.
 
 | column | notes |
 | --- | --- |
-| `call_id` | the `identifier_plugin_call` it came back from |
+| `call_id` | the `identifier_plugin_call` it belongs to |
 | `identifier_type`, `domain`, `value` | the whole triple, because a ticker under two domains names two listings |
+| `role` | `returned`, or `filtered` where the call constrained the provider to this value and a non-empty response therefore asserts it |
+
+A filtered row is graded with a returned one. A provider answering "no identifier found"
+when its filter matches nothing has asserted that the filtered value denotes the security
+it described, so the association holds whether or not the value came back in the payload
+-- which matters because the OpenFIGI plugin deliberately declines to echo a matched ISIN
+or CUSIP. A filter the provider silently relaxes is a hint and asserts nothing, so only a
+strict one is recorded this way.
 
 The rows under one `call_id` are what one identifier plugin said in one answer, and it
 is that grouping rather than the plugin's identity that decides whether an association between

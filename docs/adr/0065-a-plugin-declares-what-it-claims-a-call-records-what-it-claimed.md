@@ -4,8 +4,9 @@ Two surfaces, and the temptation is to build one. They answer different
 questions and only one of them can be trusted to gate anything.
 
 **A declaration** says which claims an identifier plugin makes: which identifier
-types it returns, and which of them it returns together. It is a static property
-of the plugin, alongside its precedence and config.
+types it returns, which of them it returns together, and **which it strictly
+filters on**. It is a static property of the plugin, alongside its precedence and
+config.
 
 **A record** says which claims one call actually made. It is what
 [0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md)
@@ -16,14 +17,38 @@ promise. Nothing checks that a plugin returns what it said it would, and a
 provider changing its response shape drifts the two apart silently. Gating a
 merge on a declaration means gating it on a comment.
 
+## A filter is a claim, so both surfaces have to carry it
+
+A provider that answers "no identifier found" when its filter matches nothing has
+asserted the filtered value denotes the security it described, whether or not
+that value comes back in the payload
+([0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md)).
+So *filtered on* is graded equally with *returned*, and a result that returned a
+FIGI while strictly filtered on an ISIN corroborates that pair.
+
+Both surfaces need it and for different reasons. The declaration needs it because
+"could anything have corroborated this?" is unanswerable otherwise: a plugin that
+never returns ISINs may still be the only thing in the system able to confirm
+one. The record needs it because whether a given call filtered on a given value
+is a fact about that call, and the merge rule acts on the call.
+
+The strictness is the whole of it. A filter a provider silently relaxes when it
+finds nothing is a hint, and a response to one confirms nothing -- it is exactly
+the echo a real filter resembles, and treating the two alike would let a guessed
+identifier confirm itself, which is the failure
+[0059](0059-an-invented-identifier-round-trips.md) exists to prevent. Since
+nothing can check a provider's strictness from outside, that declaration carries
+the same caveat as everything else static here: it is a claim about behaviour,
+useful for reasoning and not for gating on its own.
+
 ## What the record has to carry is less than it looks
 
 Not which plugin returned which identifier. For deciding whether an association
 may be admitted, plugin identity is irrelevant -- every identifier plugin is
 authoritative for global identifiers, so an ISIN from one is exactly as
 admissible as an ISIN from another. What matters is only which identifiers
-arrived **together**, because that is what makes the association a claim somebody
-made rather than a set the resolver assembled.
+arrived **together** -- returned or filtered on -- because that is what makes the
+association a claim somebody made rather than a set the resolver assembled.
 
 So the requirement is that results reach the merge site partitioned, not
 attributed. Plugin identity is worth recording, but for the other surface.
@@ -33,8 +58,9 @@ attributed. Plugin identity is worth recording, but for the other surface.
 Not gating. Answering questions about the system rather than about a row:
 
 - **Could anything have corroborated this?** If no enabled plugin declares that
-  it returns ISIN and CUSIP together, then every ISIN-to-CUSIP association in the
-  database arrived some other way, and that is answerable without auditing rows.
+  it returns ISIN and CUSIP together, or returns one while filtering on the
+  other, then every ISIN-to-CUSIP association in the database arrived some other
+  way, and that is answerable without auditing rows.
 - **Is a silence informative?** A plugin that declares it returns ISINs and
   returns none has said something about the security. A plugin that never returns
   ISINs has said nothing. Consistency checking currently cannot tell those apart,
@@ -50,8 +76,8 @@ and the outcome for every field a candidate plugin proposed -- full attribution
 for claims that are not evidence and can never merge
 ([0057](0057-a-proposed-identifier-is-not-evidence.md)).
 `telemetry.identifier_plugin_call` records the plugin, an outcome, retries and a
-duration, and no identifiers at all -- no attribution for the results that do
-merge.
+duration, and no identifiers at all -- neither what a result returned nor what it
+was filtered on, for the results that do merge.
 
 So "which plugin corroborated this association?" cannot be answered, for the one
 class of claim where it matters. The table needed already exists in the right

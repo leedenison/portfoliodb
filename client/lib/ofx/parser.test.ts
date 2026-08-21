@@ -173,12 +173,17 @@ function stockSecList(uniqueId: string, uniqueIdType: string, secName: string, t
   </SECINFO></STOCKINFO>`;
 }
 
-function optSecList(conId: string, secName: string, ticker: string): string {
+function optSecList(
+  conId: string,
+  secName: string,
+  ticker: string,
+  { optType = "PUT", strike = "470", expiry = "20260918" } = {},
+): string {
   return `<OPTINFO><SECINFO>
     <SECID><UNIQUEID>${conId}</UNIQUEID><UNIQUEIDTYPE>CONID</UNIQUEIDTYPE></SECID>
     <SECNAME>${secName}</SECNAME>
     <TICKER>${ticker}</TICKER>
-  </SECINFO><OPTTYPE>PUT</OPTTYPE><STRIKEPRICE>470</STRIKEPRICE></OPTINFO>`;
+  </SECINFO><OPTTYPE>${optType}</OPTTYPE><STRIKEPRICE>${strike}</STRIKEPRICE><DTEXPIRE>${expiry}</DTEXPIRE></OPTINFO>`;
 }
 
 describe("parseOfxStatement", () => {
@@ -332,15 +337,44 @@ describe("parseOfxStatement", () => {
     expect(cf.quantity).toBe("-4239");
   });
 
-  it("returns secList for broker-specific post-processing", () => {
+  it("names the security each posting stated, for broker-specific post-processing", () => {
+    const buyOpt = `<BUYOPT>
+      <INVBUY>
+        <INVTRAN><FITID>opt1</FITID><DTTRADE>20260303151000.000[-5:EST]</DTTRADE></INVTRAN>
+        <SECID><UNIQUEID>786977282</UNIQUEID><UNIQUEIDTYPE>CONID</UNIQUEIDTYPE></SECID>
+        <UNITS>3
+        <UNITPRICE>14.12
+        <TOTAL>-4239
+        <CURRENCY><CURRATE>0.75</CURRATE><CURSYM>USD</CURSYM></CURRENCY>
+      </INVBUY>
+      <OPTBUYTYPE>BUYTOOPEN
+    </BUYOPT>`;
     const ofx = buildOfx({
-      transactions: buyStockTx(),
-      secList: `<SECLISTMSGSRSV1><SECLIST>${stockSecList("023135106", "CUSIP", "AMZN AMAZON.COM INC", "AMZN")}${optSecList("786977282", "BRKB  260918P00470000 BRK B 18SEP26 470 P", "BRKB  260918P00470000")}</SECLIST></SECLISTMSGSRSV1>`,
+      transactions: buyStockTx() + buyOpt,
+      secList: `<SECLISTMSGSRSV1><SECLIST>${optSecList("786977282", "BRKB  260918P00470000 BRK B 18SEP26 470 P", "BRKB  260918P00470000")}</SECLIST></SECLISTMSGSRSV1>`,
     });
     const result = parseOfxStatement(ofx);
-    expect(result.secList.size).toBe(2);
-    expect(result.secList.get("023135106")?.ticker).toBe("AMZN");
-    expect(result.secList.get("786977282")?.uniqueIdType).toBe("CONID");
+
+    // The security legs only: the cash legs derived beside them transact
+    // currency, and are not what a pass reading this map is asking about.
+    expect(result.securities.size).toBe(2);
+
+    const opt = result.postings.find((t) => t.assetClassHint === AssetClass.OPTION)!;
+    const optRef = result.securities.get(opt)!;
+    expect(optRef.uniqueId).toBe("786977282");
+    expect(optRef.uniqueIdType).toBe("CONID");
+    expect(optRef.info?.ticker).toBe("BRKB  260918P00470000");
+    expect(optRef.info?.opt?.putCall).toBe("P");
+    expect(optRef.info?.opt?.strike.toString()).toBe("470");
+    expect(optRef.info?.opt?.expiry).toEqual(new Date(2026, 8, 18));
+
+    // The stock's SECID is stated all the same, though this SECLIST does not
+    // describe it: what the posting named is a fact about the posting.
+    const stock = result.postings.find((t) => t.assetClassHint === AssetClass.STOCK)!;
+    const stockRef = result.securities.get(stock)!;
+    expect(stockRef.uniqueId).toBe("023135106");
+    expect(stockRef.uniqueIdType).toBe("CUSIP");
+    expect(stockRef.info).toBeUndefined();
   });
 
   it("uses account currency when transaction has no CURRENCY element", () => {

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: The IBKR OFX converter states option identity correctly
 milestone: M16
 ---

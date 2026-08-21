@@ -11,6 +11,7 @@ import (
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // errUnknownPart is a part row naming something this build cannot apply, which
@@ -43,17 +44,21 @@ type systemImportResult struct {
 // archiveIdentifierRefs lists the instrument every price and corporate event group
 // names, in document order and with repeats, so a ledger built from it counts the
 // groups sharing each identifier.
-func archiveIdentifierRefs(a *archivev1.SystemArchive) []identifierRef {
-	var refs []identifierRef
+//
+// An identifier and nothing else is the grain these two parts resolve, cache and
+// write their resolution keys at, which is what they have instead of the broker
+// description the transaction path resolves from.
+func archiveIdentifierRefs(a *archivev1.SystemArchive) []identifier.Identifier {
+	var refs []identifier.Identifier
 	for _, g := range a.GetPrices().GetGroups() {
 		ref := g.GetInstrument()
-		refs = append(refs, identifierRef{
+		refs = append(refs, identifier.Identifier{
 			Type: ref.GetType().String(), Domain: ref.GetDomain(), Value: ref.GetValue(),
 		})
 	}
 	for _, g := range a.GetCorporateEvents().GetGroups() {
 		ref := g.GetInstrument()
-		refs = append(refs, identifierRef{
+		refs = append(refs, identifier.Identifier{
 			Type: ref.GetType().String(), Domain: ref.GetDomain(), Value: ref.GetValue(),
 		})
 	}

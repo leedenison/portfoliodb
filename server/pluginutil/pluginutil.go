@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // PluginAccepts checks whether an instrument matches the given asset class,
@@ -40,6 +41,21 @@ func FilterIdentifiers(supported []string, ids []db.IdentifierInput) []db.Identi
 		if set[id.Type] {
 			out = append(out, id)
 		}
+	}
+	return out
+}
+
+// ToIdentifiers narrows stored identifiers to the triple a plugin is given.
+//
+// The orchestrators carry [db.IdentifierInput] because that is what the store
+// hands back, and drop Canonical and the validity interval here, at the last
+// point before the call. Both are the store's business: a plugin asked to look
+// up a price has no use for whether we consider a name canonical, and a plugin
+// that could read it could act on it.
+func ToIdentifiers(ids []db.IdentifierInput) []identifier.Identifier {
+	out := make([]identifier.Identifier, len(ids))
+	for i, id := range ids {
+		out[i] = identifier.Identifier{Type: id.Type, Domain: id.Domain, Value: id.Value}
 	}
 	return out
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"github.com/shopspring/decimal"
@@ -182,7 +183,7 @@ func (s *filterStub) AcceptableAssetClasses() map[string]bool { return s.assetCl
 func (s *filterStub) AcceptableExchanges() map[string]bool    { return s.exchanges }
 func (s *filterStub) AcceptableCurrencies() map[string]bool   { return s.currencies }
 func (s *filterStub) DefaultConfig() []byte                   { return nil }
-func (s *filterStub) FetchPrices(_ context.Context, _ []byte, _ []Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
+func (s *filterStub) FetchPrices(_ context.Context, _ []byte, _ []identifier.Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
 	return nil, ErrNoData
 }
 
@@ -200,7 +201,7 @@ func d(year int, month time.Month, day int) time.Time {
 }
 
 func (s *fetchStub) SupportedIdentifierTypes() []string { return s.idTypes }
-func (s *fetchStub) FetchPrices(_ context.Context, _ []byte, _ []Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
+func (s *fetchStub) FetchPrices(_ context.Context, _ []byte, _ []identifier.Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
 	s.calls++
 	return s.result, s.err
 }

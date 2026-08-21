@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
@@ -68,7 +69,7 @@ func (p *Plugin) AcceptableExchanges() map[string]bool { return nil }
 
 func (p *Plugin) AcceptableCurrencies() map[string]bool { return nil }
 
-func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []pricefetcher.Identifier, assetClass string, from, before time.Time) (*pricefetcher.FetchResult, error) {
+func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []identifier.Identifier, assetClass string, from, before time.Time) (*pricefetcher.FetchResult, error) {
 	symbol, fxExp := p.symbolForAssetClass(identifiers, assetClass)
 	if symbol == "" {
 		return nil, pricefetcher.ErrNoData
@@ -150,7 +151,7 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 // symbolForAssetClass picks the EODHD API symbol from identifiers.
 // For FX pairs it also returns the power of ten to shift a derived pair's rates
 // by; otherwise 0.
-func (p *Plugin) symbolForAssetClass(ids []pricefetcher.Identifier, assetClass string) (string, int32) {
+func (p *Plugin) symbolForAssetClass(ids []identifier.Identifier, assetClass string) (string, int32) {
 	if assetClass == db.AssetClassFX {
 		for _, id := range ids {
 			if id.Type == "FX_PAIR" && id.Value != "" {

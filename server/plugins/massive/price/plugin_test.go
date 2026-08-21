@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 )
@@ -39,7 +40,7 @@ func TestFetchPrices_Stock(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC)
 
@@ -71,7 +72,7 @@ func TestFetchPrices_Option(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}
+	ids := []identifier.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -95,7 +96,7 @@ func TestFetchPrices_Option(t *testing.T) {
 
 func TestFetchPrices_NoMatchingIdentifier(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient)
-	ids := []pricefetcher.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+	ids := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -112,7 +113,7 @@ func TestFetchPrices_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "INVALID"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "INVALID"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -131,7 +132,7 @@ func TestFetchPrices_Forbidden(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -150,7 +151,7 @@ func TestFetchPrices_Unauthorized(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -168,7 +169,7 @@ func TestFetchPrices_RateLimit(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -194,7 +195,7 @@ func TestFetchPrices_FX(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}
+	ids := []identifier.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -247,7 +248,7 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}
+	ids := []identifier.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -289,7 +290,7 @@ func TestFetchPrices_EmptyBars_TickerNotFound_ReturnsPermanent(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "RHM"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "RHM"}}
 	from := time.Date(2025, 7, 6, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 1, 22, 0, 0, 0, 0, time.UTC)
 
@@ -320,7 +321,7 @@ func TestFetchPrices_EmptyBars_TickerExists_ReturnsNoData(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	ids := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2025, 7, 6, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 7, 8, 0, 0, 0, 0, time.UTC)
 
@@ -345,7 +346,7 @@ func TestFetchPrices_ChunksLargeRanges(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}
+	ids := []identifier.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}
 	// 400-day range should require at least 2 chunks (maxChunkDays=200).
 	from := time.Date(2023, 8, 8, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 9, 12, 0, 0, 0, 0, time.UTC) // exclusive
@@ -373,17 +374,17 @@ func TestFetchPrices_ChunksLargeRanges(t *testing.T) {
 func TestTickerForAssetClass(t *testing.T) {
 	tests := []struct {
 		name       string
-		ids        []pricefetcher.Identifier
+		ids        []identifier.Identifier
 		assetClass string
 		wantTicker string
 		wantExp    int32
 	}{
-		{"stock_ticker", []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, db.AssetClassStock, "AAPL", 0},
-		{"option_occ", []pricefetcher.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}, db.AssetClassOption, "O:AAPL250321C00150000", 0},
-		{"fx_pair", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassFX, "C:EURUSD", 0},
-		{"fx_gbxusd", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}, db.AssetClassFX, "C:GBPUSD", -2},
-		{"fx_no_match", []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "EURUSD"}}, db.AssetClassFX, "", 0},
-		{"stock_no_match", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassStock, "", 0},
+		{"stock_ticker", []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, db.AssetClassStock, "AAPL", 0},
+		{"option_occ", []identifier.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}, db.AssetClassOption, "O:AAPL250321C00150000", 0},
+		{"fx_pair", []identifier.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassFX, "C:EURUSD", 0},
+		{"fx_gbxusd", []identifier.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}, db.AssetClassFX, "C:GBPUSD", -2},
+		{"fx_no_match", []identifier.Identifier{{Type: "MIC_TICKER", Value: "EURUSD"}}, db.AssetClassFX, "", 0},
+		{"stock_no_match", []identifier.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassStock, "", 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

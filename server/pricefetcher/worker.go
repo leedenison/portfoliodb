@@ -230,7 +230,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				continue
 			}
 
-			pfIDs := toPricefetcherIDs(ids)
+			pfIDs := pluginutil.ToIdentifiers(ids)
 			allOK := true
 			for _, gap := range outstanding {
 				gap := gap // copy for truncation
@@ -362,14 +362,6 @@ func extractInstrumentIDs(gaps []db.InstrumentDateRanges) []string {
 	out := make([]string, len(gaps))
 	for i, g := range gaps {
 		out[i] = g.InstrumentID
-	}
-	return out
-}
-
-func toPricefetcherIDs(ids []db.IdentifierInput) []Identifier {
-	out := make([]Identifier, len(ids))
-	for i, id := range ids {
-		out[i] = Identifier{Type: id.Type, Domain: id.Domain, Value: id.Value}
 	}
 	return out
 }

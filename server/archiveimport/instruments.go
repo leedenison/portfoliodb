@@ -10,6 +10,7 @@ import (
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // InstrumentPart ensures the instruments of an archive's instrument part
@@ -30,7 +31,7 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 		return 0, nil
 	}
 
-	byRef := make(map[importInstKey]int, len(instruments))
+	byRef := make(map[identifier.Identifier]int, len(instruments))
 	for i, inst := range instruments {
 		for _, idf := range inst.GetIdentifiers() {
 			byRef[refKey(idf.GetType(), idf.GetValue(), idf.GetDomain())] = i
@@ -111,10 +112,6 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 	// are picked up by the daily corporate event fetch cycle.
 	return ensuredCount, nil
 }
-
-// importInstKey names an instrument the way a file names it, for matching an
-// underlying reference against the identifiers stated elsewhere in the part.
-type importInstKey struct{ typ, value, domain string }
 
 // ensureArchiveInstrument ensures one archive instrument, restoring the values
 // nothing recomputes: the option terms, the deliverable multiplier, the interval
@@ -260,8 +257,8 @@ func archiveDate(s *string) *time.Time {
 
 // refKey names an instrument the way a file names it, for matching an
 // underlying reference against the identifiers stated elsewhere in the part.
-func refKey(t typev1.IdentifierType, value, domain string) importInstKey {
-	return importInstKey{typ: typev1.IdentifierType_name[int32(t)], value: value, domain: domain}
+func refKey(t typev1.IdentifierType, value, domain string) identifier.Identifier {
+	return identifier.Identifier{Type: typev1.IdentifierType_name[int32(t)], Domain: domain, Value: value}
 }
 
 func isDerivative(ac typev1.AssetClass) bool {

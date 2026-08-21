@@ -17,6 +17,8 @@ package corporateevents
 import (
 	"context"
 	"time"
+
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // Plugin is the corporate event fetcher plugin interface. Implementations
@@ -52,19 +54,11 @@ type Plugin interface {
 	// answer: the orchestrator records coverage and stops trying lower-
 	// precedence plugins. Use ErrPermanent or ErrTransient to signal failures
 	// instead of returning an empty result for a real error.
-	FetchEvents(ctx context.Context, config []byte, identifiers []Identifier, assetClass string, from, before time.Time) (*Events, error)
+	FetchEvents(ctx context.Context, config []byte, identifiers []identifier.Identifier, assetClass string, from, before time.Time) (*Events, error)
 
 	// DefaultConfig returns the plugin's default config JSON. Inserted on
 	// startup when no row exists so the admin can edit via the UI.
 	DefaultConfig() []byte
-}
-
-// Identifier is a minimal (type, domain, value) tuple passed to plugins.
-// Defined here to avoid importing server/identifier.
-type Identifier struct {
-	Type   string
-	Domain string
-	Value  string
 }
 
 // Events groups the splits and cash dividends returned by a single

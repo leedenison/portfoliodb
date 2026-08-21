@@ -224,7 +224,7 @@ func TestIdentifierResolutionKeys(t *testing.T) {
 	tel := mock.NewMockTelemetryDB(ctrl)
 	spy := newKeySpy(t, tel)
 
-	refs := []identifierRef{
+	refs := []identifier.Identifier{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
 		{Type: "CUSIP", Value: "594918104"},

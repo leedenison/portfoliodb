@@ -125,14 +125,14 @@ func resolveEventGroupInstrument(ctx context.Context, database db.DB, pluginRegi
 	if !identifier.Known(idType) {
 		return "", &apiv1.ValidationError{Field: "instrument.type", Message: fmt.Sprintf("unknown identifier type %q", idType)}
 	}
-	r := identifierRef{Type: idType, Domain: ref.GetDomain(), Value: ref.GetValue()}
-	entry, ok := cache[r.cacheKey()]
+	r := identifier.Identifier{Type: idType, Domain: ref.GetDomain(), Value: ref.GetValue()}
+	entry, ok := cache[r.Key()]
 	if !ok {
 		acStr := db.AssetClassToStr(g.GetAssetClass())
 		result, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-			idType, ref.GetDomain(), ref.GetValue(), acStr, "", asOf, keys, r.cacheKey())
+			idType, ref.GetDomain(), ref.GetValue(), acStr, "", asOf, keys, r.Key())
 		entry = &resolveEntry{result: result, err: err}
-		cache[r.cacheKey()] = entry
+		cache[r.Key()] = entry
 	}
 	if entry.err != nil {
 		return "", &apiv1.ValidationError{Field: "instrument", Message: entry.err.Error()}

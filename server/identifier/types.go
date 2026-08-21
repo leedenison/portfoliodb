@@ -131,11 +131,41 @@ func (v Venue) Agrees(other Venue, countryOf func(string) string) bool {
 // Identifier is an opaque (type, domain, value) for an instrument (e.g. CUSIP, ISIN, MIC_TICKER+MIC, broker description).
 // Domain is optional. For MIC_TICKER, domain is an ISO 10383 MIC code (empty when unknown).
 // For OPENFIGI_TICKER, domain is a Bloomberg/OpenFIGI exchange code (e.g. "US").
-// Broker descriptions use Type = source, Domain = "", Value = full instrument_description.
+// Broker descriptions use Type = "BROKER_DESCRIPTION", Domain = source, Value = full instrument_description.
+//
+// This is the triple every plugin family speaks: identification plugins return
+// them, and the price and corporate event orchestrators narrow their stored
+// identifiers to these before a call. The narrowing is the point -- Canonical
+// and the validity interval that [db.IdentifierInput] carries are the store's
+// business, and a plugin that could read them could act on them.
+//
+// An absent domain and an empty one are the same thing, so the zero value of
+// Domain is the whole representation of "no domain" and nothing needs a pointer
+// to say it.
 type Identifier struct {
 	Type   string // e.g. "CUSIP", "ISIN", "MIC_TICKER", "OPENFIGI_TICKER"
 	Domain string // optional; MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER
 	Value  string
+}
+
+// Key is the identifier as a cache or ledger key.
+//
+// The separator is a byte no component can contain, which is what makes the
+// join injective: under a printable separator ("A", "", "B:C") and ("A", "B",
+// "C") would produce one key and two instruments would share a cache entry.
+//
+// Identifier is comparable, so code keying a Go map should use the struct
+// itself and not this. Key is for the places that must hold a string: the
+// per-archive resolve cache and the telemetry ledger, which key on the same
+// value so the two cannot disagree about what counts as the same instrument.
+func (i Identifier) Key() string {
+	return i.Type + "\x00" + i.Domain + "\x00" + i.Value
+}
+
+// String names the identifier for a human -- a log line, an error, a telemetry
+// description. It is not a key: the separator can occur in a value.
+func (i Identifier) String() string {
+	return i.Type + ":" + i.Domain + ":" + i.Value
 }
 
 // ProviderIdentifier is a provider-specific identifier returned by identifier

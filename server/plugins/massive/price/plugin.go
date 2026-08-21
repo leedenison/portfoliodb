@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/shopspring/decimal"
@@ -73,7 +74,7 @@ func (p *Plugin) AcceptableCurrencies() map[string]bool {
 // API caps daily bar responses at ~250 results; 200 keeps us safely under.
 const maxChunkDays = 200
 
-func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []pricefetcher.Identifier, assetClass string, from, before time.Time) (*pricefetcher.FetchResult, error) {
+func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []identifier.Identifier, assetClass string, from, before time.Time) (*pricefetcher.FetchResult, error) {
 	ticker, fxExp := tickerForAssetClass(identifiers, assetClass)
 	if ticker == "" {
 		return nil, pricefetcher.ErrNoData
@@ -163,7 +164,7 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 // tickerForAssetClass picks the appropriate ticker from identifiers.
 // For FX pairs it also returns the power of ten to shift a derived pair's rates
 // by (e.g. GBXUSD); for all other cases the exponent is 0.
-func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) (string, int32) {
+func tickerForAssetClass(ids []identifier.Identifier, assetClass string) (string, int32) {
 	if assetClass == db.AssetClassOption {
 		for _, id := range ids {
 			if id.Type == "OCC" && id.Value != "" {

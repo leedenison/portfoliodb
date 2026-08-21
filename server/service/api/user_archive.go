@@ -254,8 +254,8 @@ func declarationStatements(rows []db.ExportDeclaration) []*archivev1.Statement {
 			log.Printf("user archive export: skipping declaration (broker %q, account %q): not a known broker", r.Broker, r.Account)
 			continue
 		}
-		idType := identifierTypeFromString(r.IdentifierType)
-		if r.IdentifierValue == "" || idType == typev1.IdentifierType_IDENTIFIER_TYPE_UNSPECIFIED {
+		idType := identifierTypeFromString(r.Ref.Type)
+		if r.Ref.Value == "" || idType == typev1.IdentifierType_IDENTIFIER_TYPE_UNSPECIFIED {
 			log.Printf("user archive export: skipping declaration (broker %q, account %q, as of %s): its instrument has no identifier this build can name it by",
 				r.Broker, r.Account, r.AsOfDate.Format("2006-01-02"))
 			continue
@@ -270,11 +270,7 @@ func declarationStatements(rows []db.ExportDeclaration) []*archivev1.Statement {
 			curBroker, curAccount, curDate = r.Broker, r.Account, r.AsOfDate
 		}
 		d := &archivev1.Declaration{
-			Instrument: &archivev1.InstrumentRef{
-				Type:   idType,
-				Value:  r.IdentifierValue,
-				Domain: r.IdentifierDomain,
-			},
+			Instrument:  archiveRef(r.Ref),
 			DeclaredQty: r.DeclaredQty.String(),
 		}
 		// Written only where it differs from the statement's own date, which is

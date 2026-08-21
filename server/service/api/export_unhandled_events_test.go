@@ -13,14 +13,12 @@ import (
 
 func exportUnhandled(value, eventType string, resolved bool, exDate *time.Time) dbpkg.ExportUnhandledCorporateEvent {
 	return dbpkg.ExportUnhandledCorporateEvent{
-		IdentifierType:   "MIC_TICKER",
-		IdentifierValue:  value,
-		IdentifierDomain: "XNAS",
-		EventType:        eventType,
-		ExDate:           exDate,
-		Detail:           "1:10 reverse split affects 3 options",
-		Resolved:         resolved,
-		CreatedAt:        time.Date(2026, 4, 11, 8, 0, 0, 0, time.UTC),
+		Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: value, Domain: "XNAS"},
+		EventType: eventType,
+		ExDate:    exDate,
+		Detail:    "1:10 reverse split affects 3 options",
+		Resolved:  resolved,
+		CreatedAt: time.Date(2026, 4, 11, 8, 0, 0, 0, time.UTC),
 	}
 }
 

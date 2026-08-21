@@ -27,20 +27,16 @@ import (
 // carried: an import records every event and every span against the "import"
 // sentinel, so provenance cannot survive a round trip.
 func corporateEventGroups(splits []db.ExportStockSplit, dividends []db.ExportCashDividend, coverage []db.ExportCoverageRow) []*archivev1.CorporateEventGroup {
-	var order []instKey
-	groups := make(map[instKey]*archivev1.CorporateEventGroup)
+	var order []db.InstrumentRef
+	groups := make(map[db.InstrumentRef]*archivev1.CorporateEventGroup)
 
-	group := func(k instKey, assetClass string) *archivev1.CorporateEventGroup {
+	group := func(k db.InstrumentRef, assetClass string) *archivev1.CorporateEventGroup {
 		g, ok := groups[k]
 		if ok {
 			return g
 		}
 		g = &archivev1.CorporateEventGroup{
-			Instrument: &archivev1.InstrumentRef{
-				Type:   identifierTypeFromString(k.typ),
-				Value:  k.value,
-				Domain: k.domain,
-			},
+			Instrument: archiveRef(k),
 			AssetClass: db.StrToAssetClass(assetClass),
 		}
 		groups[k] = g
@@ -49,7 +45,7 @@ func corporateEventGroups(splits []db.ExportStockSplit, dividends []db.ExportCas
 	}
 
 	for _, c := range coverage {
-		k := instKey{c.IdentifierType, c.IdentifierValue, c.IdentifierDomain}
+		k := c.Ref
 		g := group(k, c.AssetClass)
 		g.Coverage = append(g.Coverage, &archivev1.DateInterval{
 			From:   c.From.Format("2006-01-02"),
@@ -57,7 +53,7 @@ func corporateEventGroups(splits []db.ExportStockSplit, dividends []db.ExportCas
 		})
 	}
 	for _, r := range splits {
-		k := instKey{r.IdentifierType, r.IdentifierValue, r.IdentifierDomain}
+		k := r.Ref
 		g := group(k, r.AssetClass)
 		g.Events = append(g.Events, &archivev1.CorporateEvent{
 			Event: &archivev1.CorporateEvent_Split{Split: &archivev1.Split{
@@ -69,7 +65,7 @@ func corporateEventGroups(splits []db.ExportStockSplit, dividends []db.ExportCas
 		})
 	}
 	for _, r := range dividends {
-		k := instKey{r.IdentifierType, r.IdentifierValue, r.IdentifierDomain}
+		k := r.Ref
 		g := group(k, r.AssetClass)
 		g.Events = append(g.Events, &archivev1.CorporateEvent{
 			Event: &archivev1.CorporateEvent_Dividend{Dividend: archiveDividend(r)},

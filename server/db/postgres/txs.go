@@ -463,20 +463,18 @@ func txPageLimit(pageSize int32) int32 {
 // exportPosting is a sqlx-scannable version of db.ExportPosting, less the
 // correlations, which are read in a second pass and attached by posting id.
 type exportPosting struct {
-	Broker             string           `db:"broker"`
-	ID                 string           `db:"id"`
-	GroupID            string           `db:"group_id"`
-	GroupTimestamp     time.Time        `db:"group_timestamp"`
-	OrderDate          time.Time        `db:"order_date"`
-	TradeDate          time.Time        `db:"trade_date"`
-	Account            string           `db:"account"`
-	AccountType        string           `db:"account_type"`
-	BrokerTxTypes      pq.StringArray   `db:"broker_tx_type"`
-	AssetClassHint     string           `db:"asset_class_hint"`
-	Description        string           `db:"instrument_description"`
-	IdentifierType     string           `db:"identifier_type"`
-	IdentifierValue    string           `db:"value"`
-	IdentifierDomain   string           `db:"domain"`
+	Broker         string         `db:"broker"`
+	ID             string         `db:"id"`
+	GroupID        string         `db:"group_id"`
+	GroupTimestamp time.Time      `db:"group_timestamp"`
+	OrderDate      time.Time      `db:"order_date"`
+	TradeDate      time.Time      `db:"trade_date"`
+	Account        string         `db:"account"`
+	AccountType    string         `db:"account_type"`
+	BrokerTxTypes  pq.StringArray `db:"broker_tx_type"`
+	AssetClassHint string         `db:"asset_class_hint"`
+	Description    string         `db:"instrument_description"`
+	db.InstrumentRef
 	Quantity           decimal.Decimal  `db:"quantity"`
 	UnitPrice          *decimal.Decimal `db:"unit_price"`
 	TradingCurrency    string           `db:"trading_currency"`
@@ -578,9 +576,7 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			BrokerTxTypes:      r.BrokerTxTypes,
 			AssetClassHint:     r.AssetClassHint,
 			Description:        r.Description,
-			IdentifierType:     r.IdentifierType,
-			IdentifierValue:    r.IdentifierValue,
-			IdentifierDomain:   r.IdentifierDomain,
+			Ref:                r.InstrumentRef,
 			Quantity:           r.Quantity,
 			UnitPrice:          r.UnitPrice,
 			TradingCurrency:    r.TradingCurrency,

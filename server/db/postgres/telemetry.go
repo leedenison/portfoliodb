@@ -206,7 +206,7 @@ func (t *Telemetry) WriteIdentifierClaim(ctx context.Context, c db.TelemetryIden
 		INSERT INTO telemetry.identifier_claim
 			(call_id, identifier_type, domain, value, role)
 		VALUES ($1, $2, $3, $4, $5)
-	`, callID, c.Type, nullStr(c.Domain), c.Value, c.Role); err != nil {
+	`, callID, c.Ref.Type, nullStr(c.Ref.Domain), c.Ref.Value, c.Role); err != nil {
 		t.fail(ctx, c.RunID, "write identifier claim", err)
 	}
 }

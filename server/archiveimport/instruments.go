@@ -272,7 +272,8 @@ func archiveClaim(idns []db.IdentifierInput) db.IdentityClaim {
 	c := db.IdentityClaim{Identifiers: make([]db.ClaimedIdentifier, 0, len(idns))}
 	for _, i := range idns {
 		c.Identifiers = append(c.Identifiers, db.ClaimedIdentifier{
-			Type: i.Type, Domain: i.Domain, Value: i.Value, Role: db.ClaimRoleReturned,
+			Ref:  db.InstrumentRef{Type: i.Type, Value: i.Value, Domain: i.Domain},
+			Role: db.ClaimRoleReturned,
 		})
 	}
 	return c

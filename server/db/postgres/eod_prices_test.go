@@ -197,11 +197,11 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 	// MIC_TICKER should win over ISIN (most plugin-compatible).
-	if rows[0].IdentifierType != "MIC_TICKER" {
-		t.Errorf("expected MIC_TICKER, got %s", rows[0].IdentifierType)
+	if rows[0].Ref.Type != "MIC_TICKER" {
+		t.Errorf("expected MIC_TICKER, got %s", rows[0].Ref.Type)
 	}
-	if rows[0].IdentifierValue != "AAPL" {
-		t.Errorf("expected AAPL, got %s", rows[0].IdentifierValue)
+	if rows[0].Ref.Value != "AAPL" {
+		t.Errorf("expected AAPL, got %s", rows[0].Ref.Value)
 	}
 	if rows[0].AssetClass != "STOCK" {
 		t.Errorf("expected asset_class=STOCK, got %s", rows[0].AssetClass)
@@ -336,7 +336,7 @@ func TestListPricesForExport_OrdersByDomain(t *testing.T) {
 	}
 	got := make([]string, len(rows))
 	for i, r := range rows {
-		got[i] = r.IdentifierDomain
+		got[i] = r.Ref.Domain
 	}
 	want := []string{"XLON", "XLON", "XNAS"}
 	if len(got) != len(want) {
@@ -457,8 +457,8 @@ func TestListPriceCoverageForExport_SpansDeclaredRange(t *testing.T) {
 		t.Errorf("expected [2024-01-15, 2024-01-19), got [%s, %s)",
 			cov[0].From.Format("2006-01-02"), cov[0].Before.Format("2006-01-02"))
 	}
-	if cov[0].IdentifierType != "MIC_TICKER" || cov[0].IdentifierValue != "AAPL" {
-		t.Errorf("got identifier %s %s", cov[0].IdentifierType, cov[0].IdentifierValue)
+	if cov[0].Ref.Type != "MIC_TICKER" || cov[0].Ref.Value != "AAPL" {
+		t.Errorf("got identifier %s %s", cov[0].Ref.Type, cov[0].Ref.Value)
 	}
 }
 

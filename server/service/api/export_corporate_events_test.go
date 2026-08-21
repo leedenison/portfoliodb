@@ -62,40 +62,34 @@ func TestExportSystemArchive_CorporateEvents_CarriesKnowledgeTimeAndDividendType
 	payDate := time.Date(2024, 2, 15, 0, 0, 0, 0, time.UTC)
 
 	db.EXPECT().ListCorporateEventCoverageForExport(gomock.Any()).Return([]dbpkg.ExportCoverageRow{{
-		IdentifierType:   "MIC_TICKER",
-		IdentifierValue:  "AAPL",
-		IdentifierDomain: "XNAS",
-		AssetClass:       "STOCK",
-		From:             time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
-		Before:           time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		Ref:        dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+		AssetClass: "STOCK",
+		From:       time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		Before:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}}, nil)
 	db.EXPECT().ListStockSplitsForExport(gomock.Any()).Return([]dbpkg.ExportStockSplit{
 		{
-			IdentifierType:   "MIC_TICKER",
-			IdentifierValue:  "AAPL",
-			IdentifierDomain: "XNAS",
-			AssetClass:       "STOCK",
-			DataProvider:     "massive",
-			ExDate:           time.Date(2020, 8, 31, 0, 0, 0, 0, time.UTC),
-			SplitFrom:        "1",
-			SplitTo:          "4",
-			FirstKnownAt:     splitKnownAt,
+			Ref:          dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+			AssetClass:   "STOCK",
+			DataProvider: "massive",
+			ExDate:       time.Date(2020, 8, 31, 0, 0, 0, 0, time.UTC),
+			SplitFrom:    "1",
+			SplitTo:      "4",
+			FirstKnownAt: splitKnownAt,
 		},
 	}, nil)
 	db.EXPECT().ListCashDividendsForExport(gomock.Any()).Return([]dbpkg.ExportCashDividend{
 		{
-			IdentifierType:   "MIC_TICKER",
-			IdentifierValue:  "AAPL",
-			IdentifierDomain: "XNAS",
-			AssetClass:       "STOCK",
-			DataProvider:     "massive",
-			ExDate:           time.Date(2024, 2, 9, 0, 0, 0, 0, time.UTC),
-			PayDate:          &payDate,
-			Amount:           "0.24",
-			Currency:         "USD",
-			Frequency:        "quarterly",
-			Type:             "SC",
-			FirstKnownAt:     divKnownAt,
+			Ref:          dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+			AssetClass:   "STOCK",
+			DataProvider: "massive",
+			ExDate:       time.Date(2024, 2, 9, 0, 0, 0, 0, time.UTC),
+			PayDate:      &payDate,
+			Amount:       "0.24",
+			Currency:     "USD",
+			Frequency:    "quarterly",
+			Type:         "SC",
+			FirstKnownAt: divKnownAt,
 		},
 	}, nil)
 
@@ -159,11 +153,10 @@ func TestExportSystemArchive_CorporateEvents_CarriesKnowledgeTimeAndDividendType
 func TestExportSystemArchive_CorporateEvents_CoveredInstrumentWithNoEvents(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().ListCorporateEventCoverageForExport(gomock.Any()).Return([]dbpkg.ExportCoverageRow{{
-		IdentifierType:  "ISIN",
-		IdentifierValue: "US0378331005",
-		AssetClass:      "ETF",
-		From:            time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
-		Before:          time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
+		Ref:        dbpkg.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+		AssetClass: "ETF",
+		From:       time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		Before:     time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
 	}}, nil)
 	db.EXPECT().ListStockSplitsForExport(gomock.Any()).Return(nil, nil)
 	db.EXPECT().ListCashDividendsForExport(gomock.Any()).Return(nil, nil)
@@ -188,9 +181,9 @@ func TestExportSystemArchive_CorporateEvents_SplitsGroupsOnDomain(t *testing.T) 
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().ListCorporateEventCoverageForExport(gomock.Any()).Return(nil, nil)
 	db.EXPECT().ListStockSplitsForExport(gomock.Any()).Return([]dbpkg.ExportStockSplit{
-		{IdentifierType: "MIC_TICKER", IdentifierValue: "VOD", IdentifierDomain: "XLON", AssetClass: "STOCK",
+		{Ref: dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XLON"}, AssetClass: "STOCK",
 			ExDate: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "2"},
-		{IdentifierType: "MIC_TICKER", IdentifierValue: "VOD", IdentifierDomain: "XNAS", AssetClass: "STOCK",
+		{Ref: dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XNAS"}, AssetClass: "STOCK",
 			ExDate: time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "3"},
 	}, nil)
 	db.EXPECT().ListCashDividendsForExport(gomock.Any()).Return(nil, nil)

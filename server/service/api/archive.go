@@ -24,6 +24,17 @@ import (
 // makes an import survive the admin closing the tab: the only thing the client
 // has to hold on to is the job id, and the per-part results are readable from
 // GetJob for as long as the job row lives.
+// archiveRef is one instrument as a file names it, converted from the way the
+// store names it. Every export part makes this conversion, and making it in one
+// place is what keeps them agreeing on the type they cannot map.
+func archiveRef(r db.InstrumentRef) *archivev1.InstrumentRef {
+	return &archivev1.InstrumentRef{
+		Type:   identifierTypeFromString(r.Type),
+		Value:  r.Value,
+		Domain: r.Domain,
+	}
+}
+
 func (s *Server) ImportSystemArchive(ctx context.Context, req *apiv1.ImportSystemArchiveRequest) (*apiv1.ImportSystemArchiveResponse, error) {
 	u, authErr := auth.RequireAdmin(ctx)
 	if authErr != nil {
@@ -350,18 +361,14 @@ func (s *Server) sendFetchBlockPart(ctx context.Context, stream apiv1.ApiService
 // table adds.
 func fetchBlockGroups(price, events []db.ExportFetchBlock) []*archivev1.FetchBlockGroup {
 	var out []*archivev1.FetchBlockGroup
-	byKey := make(map[instKey]*archivev1.FetchBlockGroup)
+	byKey := make(map[db.InstrumentRef]*archivev1.FetchBlockGroup)
 
 	add := func(b db.ExportFetchBlock, category typev1.PluginCategory) {
-		k := instKey{b.IdentifierType, b.IdentifierValue, b.IdentifierDomain}
+		k := b.Ref
 		g, ok := byKey[k]
 		if !ok {
 			g = &archivev1.FetchBlockGroup{
-				Instrument: &archivev1.InstrumentRef{
-					Type:   identifierTypeFromString(b.IdentifierType),
-					Value:  b.IdentifierValue,
-					Domain: b.IdentifierDomain,
-				},
+				Instrument: archiveRef(b.Ref),
 			}
 			byKey[k] = g
 			out = append(out, g)
@@ -409,16 +416,12 @@ func (s *Server) sendUnhandledEventPart(ctx context.Context, stream apiv1.ApiSer
 func unhandledEventGroups(rows []db.ExportUnhandledCorporateEvent) []*archivev1.UnhandledEventGroup {
 	var out []*archivev1.UnhandledEventGroup
 	var cur *archivev1.UnhandledEventGroup
-	var curKey instKey
+	var curKey db.InstrumentRef
 	for _, r := range rows {
-		k := instKey{r.IdentifierType, r.IdentifierValue, r.IdentifierDomain}
+		k := r.Ref
 		if cur == nil || k != curKey {
 			cur = &archivev1.UnhandledEventGroup{
-				Instrument: &archivev1.InstrumentRef{
-					Type:   identifierTypeFromString(r.IdentifierType),
-					Value:  r.IdentifierValue,
-					Domain: r.IdentifierDomain,
-				},
+				Instrument: archiveRef(r.Ref),
 			}
 			curKey = k
 			out = append(out, cur)

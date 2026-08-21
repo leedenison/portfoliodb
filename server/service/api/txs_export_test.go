@@ -27,18 +27,17 @@ func mustTime(t *testing.T, s string) time.Time {
 func exportPostingFixture(broker, groupID, ts string) dbpkg.ExportPosting {
 	at, _ := time.Parse(time.RFC3339, ts)
 	return dbpkg.ExportPosting{
-		Broker:          broker,
-		GroupID:         groupID,
-		GroupTimestamp:  at,
-		OrderDate:       at,
-		TradeDate:       at,
-		Account:         "acct",
-		AccountType:     "USER",
-		BrokerTxTypes:   []string{"TRADE_ASSET"},
-		Description:     "APPLE INC",
-		IdentifierType:  "MIC_TICKER",
-		IdentifierValue: "AAPL",
-		Quantity:        decimal.RequireFromString("10"),
+		Broker:         broker,
+		GroupID:        groupID,
+		GroupTimestamp: at,
+		OrderDate:      at,
+		TradeDate:      at,
+		Account:        "acct",
+		AccountType:    "USER",
+		BrokerTxTypes:  []string{"TRADE_ASSET"},
+		Description:    "APPLE INC",
+		Ref:            dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+		Quantity:       decimal.RequireFromString("10"),
 	}
 }
 
@@ -215,8 +214,8 @@ func TestPosting_ShareCountBasisOnlyWhenRestated(t *testing.T) {
 // than carrying an UNSPECIFIED type that would fail validation.
 func TestPosting_UnresolvedInstrumentCarriesNoHint(t *testing.T) {
 	r := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
-	r.IdentifierType = ""
-	r.IdentifierValue = ""
+	r.Ref.Type = ""
+	r.Ref.Value = ""
 	if hints := posting(r).GetIdentifierHints(); len(hints) != 0 {
 		t.Fatalf("identifier_hints = %v, want none", hints)
 	}
@@ -227,9 +226,9 @@ func TestPosting_UnresolvedInstrumentCarriesNoHint(t *testing.T) {
 // under.
 func TestPosting_CarriesTheBestIdentifier(t *testing.T) {
 	r := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
-	r.IdentifierType = "BROKER_DESCRIPTION"
-	r.IdentifierValue = "APPLE INC"
-	r.IdentifierDomain = "Fidelity:web:fidelity-csv"
+	r.Ref.Type = "BROKER_DESCRIPTION"
+	r.Ref.Value = "APPLE INC"
+	r.Ref.Domain = "Fidelity:web:fidelity-csv"
 	hints := posting(r).GetIdentifierHints()
 	if len(hints) != 1 {
 		t.Fatalf("identifier_hints = %v, want 1", hints)

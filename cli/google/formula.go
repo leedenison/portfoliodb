@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"time"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"time"
 )
 
 const maxChunkDays = 365

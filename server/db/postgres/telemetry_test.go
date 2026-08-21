@@ -136,11 +136,13 @@ func TestWriteNest(t *testing.T) {
 	// on and deliberately did not echo back.
 	tel.WriteIdentifierClaim(ctx, db.TelemetryIdentifierClaim{
 		RunID: runID, CallID: callID,
-		Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8", Role: db.ClaimRoleReturned,
+		Ref:  db.InstrumentRef{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"},
+		Role: db.ClaimRoleReturned,
 	})
 	tel.WriteIdentifierClaim(ctx, db.TelemetryIdentifierClaim{
 		RunID: runID, CallID: callID,
-		Type: "ISIN", Value: "US0378331005", Role: db.ClaimRoleFiltered,
+		Ref:  db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+		Role: db.ClaimRoleFiltered,
 	})
 	tel.EndResolutionKey(ctx, keyID, db.TelemetryResolutionKeyOutcome{
 		RunID:            runID,

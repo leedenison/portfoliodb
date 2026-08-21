@@ -888,8 +888,8 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 	if stock.ValidFrom == nil || !stock.ValidFrom.Equal(validFrom) {
 		t.Fatalf("valid_from not selected: %v", stock.ValidFrom)
 	}
-	if stock.UnderlyingIdentifierType != nil {
-		t.Fatalf("a non-derivative names no underlying, got %q", *stock.UnderlyingIdentifierType)
+	if stock.Underlying != nil {
+		t.Fatalf("a non-derivative names no underlying, got %+v", stock.Underlying)
 	}
 	if len(stock.ProviderIdentifiers) != 2 {
 		t.Fatalf("provider identifiers not loaded for export: %+v", stock.ProviderIdentifiers)
@@ -910,14 +910,9 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 	}
 	// The underlying is named by its highest-priority identifier, because a file
 	// cannot name it by UUID.
-	if opt.UnderlyingIdentifierType == nil || *opt.UnderlyingIdentifierType != "MIC_TICKER" {
-		t.Fatalf("underlying identifier type = %v", opt.UnderlyingIdentifierType)
-	}
-	if opt.UnderlyingIdentifierValue == nil || *opt.UnderlyingIdentifierValue != "AAPL" {
-		t.Fatalf("underlying identifier value = %v", opt.UnderlyingIdentifierValue)
-	}
-	if opt.UnderlyingIdentifierDomain == nil || *opt.UnderlyingIdentifierDomain != "XNAS" {
-		t.Fatalf("underlying identifier domain = %v", opt.UnderlyingIdentifierDomain)
+	wantUnderlying := db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"}
+	if opt.Underlying == nil || *opt.Underlying != wantUnderlying {
+		t.Fatalf("underlying = %+v, want %+v", opt.Underlying, wantUnderlying)
 	}
 }
 

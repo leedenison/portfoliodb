@@ -2309,10 +2309,10 @@ func TestResolveWithPlugins_DisjointResultsAreSeparateClaims(t *testing.T) {
 	if len(claims) != 2 {
 		t.Fatalf("claims = %d, want 2: %+v", len(claims), claims)
 	}
-	if got := claims[0].Identifiers; len(got) != 1 || got[0].Type != "ISIN" || got[0].Role != db.ClaimRoleReturned {
+	if got := claims[0].Identifiers; len(got) != 1 || got[0].Ref.Type != "ISIN" || got[0].Role != db.ClaimRoleReturned {
 		t.Errorf("claim 0 = %+v", got)
 	}
-	if got := claims[1].Identifiers; len(got) != 1 || got[0].Type != "CUSIP" || got[0].Role != db.ClaimRoleReturned {
+	if got := claims[1].Identifiers; len(got) != 1 || got[0].Ref.Type != "CUSIP" || got[0].Role != db.ClaimRoleReturned {
 		t.Errorf("claim 1 = %+v", got)
 	}
 }
@@ -2376,7 +2376,7 @@ func TestResolveWithPlugins_FilteredValueIsClaimedNotStored(t *testing.T) {
 	}
 	roles := map[string]string{}
 	for _, c := range claims[0].Identifiers {
-		roles[c.Type] = c.Role
+		roles[c.Ref.Type] = c.Role
 	}
 	if roles["OPENFIGI_SHARE_CLASS"] != db.ClaimRoleReturned || roles["ISIN"] != db.ClaimRoleFiltered {
 		t.Errorf("roles = %v", roles)

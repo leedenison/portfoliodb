@@ -28,13 +28,11 @@ func declDate(t *testing.T, s string) time.Time {
 func exportDecl(t *testing.T, broker, account, value, qty, asOf, basis string) dbpkg.ExportDeclaration {
 	t.Helper()
 	row := dbpkg.ExportDeclaration{
-		Broker:           broker,
-		Account:          account,
-		IdentifierType:   "MIC_TICKER",
-		IdentifierValue:  value,
-		IdentifierDomain: "XNAS",
-		DeclaredQty:      decimal.RequireFromString(qty),
-		AsOfDate:         declDate(t, asOf),
+		Broker:      broker,
+		Account:     account,
+		Ref:         dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: value, Domain: "XNAS"},
+		DeclaredQty: decimal.RequireFromString(qty),
+		AsOfDate:    declDate(t, asOf),
 	}
 	if basis != "" {
 		b := declDate(t, basis)
@@ -122,7 +120,7 @@ func TestExportUserArchive_WritesShareCountBasisOnlyWhenItDiffers(t *testing.T) 
 // statement left with nothing is not sent at all.
 func TestExportUserArchive_SkipsDeclarationsItCannotName(t *testing.T) {
 	noIdentifier := exportDecl(t, "FIDELITY", "Z1", "AAPL", "100", "2024-01-31", "")
-	noIdentifier.IdentifierType, noIdentifier.IdentifierValue, noIdentifier.IdentifierDomain = "", "", ""
+	noIdentifier.Ref.Type, noIdentifier.Ref.Value, noIdentifier.Ref.Domain = "", "", ""
 	unknownBroker := exportDecl(t, "NOT_A_BROKER", "Z9", "MSFT", "5", "2024-01-31", "")
 
 	stream := exportDeclarations(t, []dbpkg.ExportDeclaration{

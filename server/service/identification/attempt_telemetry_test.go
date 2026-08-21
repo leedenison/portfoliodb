@@ -459,7 +459,7 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 	}
 	roles := map[string]string{}
 	for _, c := range got {
-		roles[c.Type] = c.Role
+		roles[c.Ref.Type] = c.Role
 		if c.RunID != "run-1" || c.CallID != "call-high" {
 			t.Errorf("claim = %+v, want it under the call and the run", c)
 		}
@@ -468,7 +468,7 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 		t.Errorf("roles = %v", roles)
 	}
 
-	if len(spy.claims["odd"]) != 1 || spy.claims["odd"][0].Type != "CUSIP" {
+	if len(spy.claims["odd"]) != 1 || spy.claims["odd"][0].Ref.Type != "CUSIP" {
 		t.Errorf("odd claimed %+v; a discarded result still said something", spy.claims["odd"])
 	}
 	if len(spy.claims["quiet"]) != 0 {

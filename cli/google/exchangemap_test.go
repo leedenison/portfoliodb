@@ -1,9 +1,9 @@
 package main
 
 import (
-	"testing"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"testing"
 )
 
 func TestParseExchangeCSV(t *testing.T) {

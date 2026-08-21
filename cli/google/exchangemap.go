@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/csv"
 	_ "embed"
+	"encoding/csv"
 	"fmt"
-	"strings"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"strings"
 )
 
 //go:embed gf_exchanges.csv

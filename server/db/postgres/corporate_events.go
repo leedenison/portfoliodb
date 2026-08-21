@@ -469,7 +469,7 @@ func (p *Postgres) ListStockSplitsForExport(ctx context.Context) ([]db.ExportSto
 	var out []db.ExportStockSplit
 	for rows.Next() {
 		var r db.ExportStockSplit
-		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
+		if err := rows.Scan(&r.Ref.Type, &r.Ref.Value, &r.Ref.Domain,
 			&r.AssetClass, &r.DataProvider, &r.ExDate, &r.SplitFrom, &r.SplitTo,
 			&r.FirstKnownAt); err != nil {
 			return nil, fmt.Errorf("list stock splits for export scan: %w", err)
@@ -501,7 +501,7 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 		var r db.ExportCashDividend
 		var pay, rec, decl sql.NullTime
 		var freq sql.NullString
-		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
+		if err := rows.Scan(&r.Ref.Type, &r.Ref.Value, &r.Ref.Domain,
 			&r.AssetClass, &r.DataProvider, &r.ExDate, &pay, &rec, &decl,
 			&r.Amount, &r.Currency, &freq, &r.Type, &r.FirstKnownAt); err != nil {
 			return nil, fmt.Errorf("list cash dividends for export scan: %w", err)
@@ -969,24 +969,20 @@ func (p *Postgres) ResolveUnhandledCorporateEvent(ctx context.Context, id string
 
 // exportCoverageRow is a sqlx-scannable version of db.ExportCoverageRow.
 type exportCoverageRow struct {
-	IdentifierType   string    `db:"identifier_type"`
-	IdentifierValue  string    `db:"value"`
-	IdentifierDomain string    `db:"domain"`
-	AssetClass       string    `db:"asset_class"`
-	From             time.Time `db:"covered_from"`
-	Before           time.Time `db:"covered_before"`
+	db.InstrumentRef
+	AssetClass string    `db:"asset_class"`
+	From       time.Time `db:"covered_from"`
+	Before     time.Time `db:"covered_before"`
 }
 
 func toExportCoverageRows(rows []exportCoverageRow) []db.ExportCoverageRow {
 	out := make([]db.ExportCoverageRow, len(rows))
 	for i, r := range rows {
 		out[i] = db.ExportCoverageRow{
-			IdentifierType:   r.IdentifierType,
-			IdentifierValue:  r.IdentifierValue,
-			IdentifierDomain: r.IdentifierDomain,
-			AssetClass:       r.AssetClass,
-			From:             r.From,
-			Before:           r.Before,
+			Ref:        r.InstrumentRef,
+			AssetClass: r.AssetClass,
+			From:       r.From,
+			Before:     r.Before,
 		}
 	}
 	return out
@@ -1042,7 +1038,7 @@ func (p *Postgres) ListUnhandledCorporateEventsForExport(ctx context.Context) ([
 		var r db.ExportUnhandledCorporateEvent
 		var exDate sql.NullTime
 		var data []byte
-		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
+		if err := rows.Scan(&r.Ref.Type, &r.Ref.Value, &r.Ref.Domain,
 			&r.EventType, &exDate, &r.Detail, &data, &r.Resolved, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan unhandled corporate event for export: %w", err)
 		}

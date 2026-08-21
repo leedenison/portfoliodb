@@ -98,11 +98,11 @@ func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
 	if row.Currency != nil {
 		out.Currency = *row.Currency
 	}
-	if row.UnderlyingIdentifierType != nil {
+	if row.Underlying != nil {
 		out.Underlying = &archivev1.InstrumentRef{
-			Type:   identifierTypeFromString(*row.UnderlyingIdentifierType),
-			Value:  derefStr(row.UnderlyingIdentifierValue),
-			Domain: derefStr(row.UnderlyingIdentifierDomain),
+			Type:   identifierTypeFromString(row.Underlying.Type),
+			Value:  row.Underlying.Value,
+			Domain: row.Underlying.Domain,
 		}
 	}
 	// Absent means the column default of 1, so the ordinary instrument says

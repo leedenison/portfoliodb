@@ -63,10 +63,6 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 	}, nil
 }
 
-// instKey is an instrument named the way a file names it: the identifier triple
-// bestIdentifierJoin picked, and no server UUID.
-type instKey struct{ typ, value, domain string }
-
 // priceGroups turns the flat export rows and the per-instrument coverage spans
 // into archive groups, one per instrument.
 //
@@ -78,9 +74,9 @@ type instKey struct{ typ, value, domain string }
 // Both inputs arrive ordered by identifier, so the rows are grouped by a scan
 // and the output order follows the query's.
 func priceGroups(rows []db.ExportPriceRow, coverage []db.ExportPriceCoverageRow) []*archivev1.PriceGroup {
-	spans := make(map[instKey][]*archivev1.DateInterval, len(coverage))
+	spans := make(map[db.InstrumentRef][]*archivev1.DateInterval, len(coverage))
 	for _, c := range coverage {
-		k := instKey{c.IdentifierType, c.IdentifierValue, c.IdentifierDomain}
+		k := c.Ref
 		spans[k] = append(spans[k], &archivev1.DateInterval{
 			From:   c.From.Format("2006-01-02"),
 			Before: c.Before.Format("2006-01-02"),
@@ -89,16 +85,12 @@ func priceGroups(rows []db.ExportPriceRow, coverage []db.ExportPriceCoverageRow)
 
 	var out []*archivev1.PriceGroup
 	var cur *archivev1.PriceGroup
-	var curKey instKey
+	var curKey db.InstrumentRef
 	for _, r := range rows {
-		k := instKey{r.IdentifierType, r.IdentifierValue, r.IdentifierDomain}
+		k := r.Ref
 		if cur == nil || k != curKey {
 			cur = &archivev1.PriceGroup{
-				Instrument: &archivev1.InstrumentRef{
-					Type:   identifierTypeFromString(r.IdentifierType),
-					Value:  r.IdentifierValue,
-					Domain: r.IdentifierDomain,
-				},
+				Instrument: archiveRef(r.Ref),
 				AssetClass: db.StrToAssetClass(r.AssetClass),
 				Currency:   r.Currency,
 				Coverage:   spans[k],
@@ -112,18 +104,14 @@ func priceGroups(rows []db.ExportPriceRow, coverage []db.ExportPriceCoverageRow)
 
 	// Whatever coverage is left names an instrument with no rows at all.
 	for _, c := range coverage {
-		k := instKey{c.IdentifierType, c.IdentifierValue, c.IdentifierDomain}
+		k := c.Ref
 		cov, ok := spans[k]
 		if !ok {
 			continue
 		}
 		delete(spans, k)
 		out = append(out, &archivev1.PriceGroup{
-			Instrument: &archivev1.InstrumentRef{
-				Type:   identifierTypeFromString(c.IdentifierType),
-				Value:  c.IdentifierValue,
-				Domain: c.IdentifierDomain,
-			},
+			Instrument: archiveRef(c.Ref),
 			AssetClass: db.StrToAssetClass(c.AssetClass),
 			Currency:   c.Currency,
 			Coverage:   cov,

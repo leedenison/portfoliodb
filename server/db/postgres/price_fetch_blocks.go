@@ -114,7 +114,7 @@ func listFetchBlocksForExport(ctx context.Context, p *Postgres, table string) ([
 	var out []db.ExportFetchBlock
 	for rows.Next() {
 		var r db.ExportFetchBlock
-		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
+		if err := rows.Scan(&r.Ref.Type, &r.Ref.Value, &r.Ref.Domain,
 			&r.PluginID, &r.Reason, &r.FirstBlockedAt); err != nil {
 			return nil, fmt.Errorf("scan %s for export: %w", table, err)
 		}

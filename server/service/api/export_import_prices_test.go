@@ -28,37 +28,31 @@ func TestExportSystemArchive_Prices_Success(t *testing.T) {
 	basis := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
 	rows := []dbpkg.ExportPriceRow{
 		{
-			IdentifierType:   "MIC_TICKER",
-			IdentifierValue:  "AAPL",
-			IdentifierDomain: "US",
-			AssetClass:       "STOCK",
-			Currency:         "USD",
-			PriceDate:        time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
-			Open:             &open,
-			Close:            decimal.RequireFromString("185.90"),
-			Volume:           &vol,
+			Ref:        dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "US"},
+			AssetClass: "STOCK",
+			Currency:   "USD",
+			PriceDate:  time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Open:       &open,
+			Close:      decimal.RequireFromString("185.90"),
+			Volume:     &vol,
 		},
 		{
-			IdentifierType:   "MIC_TICKER",
-			IdentifierValue:  "AAPL",
-			IdentifierDomain: "US",
-			AssetClass:       "STOCK",
-			Currency:         "USD",
-			PriceDate:        time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC),
-			ShareCountBasis:  &basis,
-			Close:            decimal.RequireFromString("18.59"),
+			Ref:             dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "US"},
+			AssetClass:      "STOCK",
+			Currency:        "USD",
+			PriceDate:       time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC),
+			ShareCountBasis: &basis,
+			Close:           decimal.RequireFromString("18.59"),
 		},
 	}
 	db.EXPECT().
 		ListPriceCoverageForExport(gomock.Any()).
 		Return([]dbpkg.ExportPriceCoverageRow{{
-			IdentifierType:   "MIC_TICKER",
-			IdentifierValue:  "AAPL",
-			IdentifierDomain: "US",
-			AssetClass:       "STOCK",
-			Currency:         "USD",
-			From:             time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
-			Before:           time.Date(2024, 1, 17, 0, 0, 0, 0, time.UTC),
+			Ref:        dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "US"},
+			AssetClass: "STOCK",
+			Currency:   "USD",
+			From:       time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Before:     time.Date(2024, 1, 17, 0, 0, 0, 0, time.UTC),
 		}}, nil)
 	db.EXPECT().
 		ListPricesForExport(gomock.Any()).
@@ -125,10 +119,9 @@ func TestExportSystemArchive_Prices_SendsEnvelopeFirst(t *testing.T) {
 	db.EXPECT().
 		ListPricesForExport(gomock.Any()).
 		Return([]dbpkg.ExportPriceRow{{
-			IdentifierType:  "MIC_TICKER",
-			IdentifierValue: "AAPL",
-			PriceDate:       time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
-			Close:           decimal.RequireFromString("185.90"),
+			Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+			PriceDate: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Close:     decimal.RequireFromString("185.90"),
 		}}, nil)
 	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PRICES}}, stream); err != nil {
@@ -166,12 +159,11 @@ func TestExportSystemArchive_Prices_CoveredInstrumentWithNoRows(t *testing.T) {
 	db.EXPECT().
 		ListPriceCoverageForExport(gomock.Any()).
 		Return([]dbpkg.ExportPriceCoverageRow{{
-			IdentifierType:  "MIC_TICKER",
-			IdentifierValue: "DELISTED",
-			AssetClass:      "STOCK",
-			Currency:        "USD",
-			From:            time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
-			Before:          time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
+			Ref:        dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "DELISTED"},
+			AssetClass: "STOCK",
+			Currency:   "USD",
+			From:       time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Before:     time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
 		}}, nil)
 	db.EXPECT().
 		ListPricesForExport(gomock.Any()).
@@ -206,12 +198,12 @@ func TestExportSystemArchive_Prices_SplitsGroupsOnDomain(t *testing.T) {
 		ListPricesForExport(gomock.Any()).
 		Return([]dbpkg.ExportPriceRow{
 			{
-				IdentifierType: "MIC_TICKER", IdentifierValue: "VOD", IdentifierDomain: "XLON",
+				Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XLON"},
 				PriceDate: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
 				Close:     decimal.RequireFromString("70"),
 			},
 			{
-				IdentifierType: "MIC_TICKER", IdentifierValue: "VOD", IdentifierDomain: "XNAS",
+				Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XNAS"},
 				PriceDate: time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC),
 				Close:     decimal.RequireFromString("9"),
 			},

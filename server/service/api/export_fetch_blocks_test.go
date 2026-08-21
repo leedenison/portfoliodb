@@ -14,12 +14,10 @@ import (
 
 func exportBlock(value, plugin, reason string, blockedAt time.Time) dbpkg.ExportFetchBlock {
 	return dbpkg.ExportFetchBlock{
-		IdentifierType:   "MIC_TICKER",
-		IdentifierValue:  value,
-		IdentifierDomain: "XNAS",
-		PluginID:         plugin,
-		Reason:           reason,
-		FirstBlockedAt:   blockedAt,
+		Ref:            dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: value, Domain: "XNAS"},
+		PluginID:       plugin,
+		Reason:         reason,
+		FirstBlockedAt: blockedAt,
 	}
 }
 
@@ -89,7 +87,7 @@ func TestExportSystemArchive_FetchBlocks_SeparateInstrumentsSeparateGroups(t *te
 func TestExportSystemArchive_FetchBlocks_DomainSplitsGroups(t *testing.T) {
 	blocked := time.Date(2026, 3, 4, 9, 12, 0, 0, time.UTC)
 	other := exportBlock("BHP", "eodhd", "404", blocked)
-	other.IdentifierDomain = "XLON"
+	other.Ref.Domain = "XLON"
 	groups := exportFetchBlocks(t,
 		[]dbpkg.ExportFetchBlock{exportBlock("BHP", "eodhd", "404", blocked), other},
 		nil,

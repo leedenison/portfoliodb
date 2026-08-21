@@ -1543,9 +1543,9 @@ func TestListTxsForExport_UsesTheBestIdentifier(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
-	if rows[0].IdentifierType != "MIC_TICKER" || rows[0].IdentifierValue != "AAPL" || rows[0].IdentifierDomain != "XNAS" {
+	if rows[0].Ref.Type != "MIC_TICKER" || rows[0].Ref.Value != "AAPL" || rows[0].Ref.Domain != "XNAS" {
 		t.Fatalf("identifier = %s/%s/%s, want MIC_TICKER/AAPL/XNAS",
-			rows[0].IdentifierType, rows[0].IdentifierValue, rows[0].IdentifierDomain)
+			rows[0].Ref.Type, rows[0].Ref.Value, rows[0].Ref.Domain)
 	}
 	if rows[0].Broker != "FIDELITY" || rows[0].Account != "acct" || rows[0].AccountType != "USER" {
 		t.Fatalf("row = %+v", rows[0])

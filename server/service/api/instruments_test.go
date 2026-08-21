@@ -201,9 +201,7 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 				{Type: "OCC", Value: "AAPL260116C00301000", Canonical: true, ValidBefore: &namedFrom},
 				{Type: "OCC", Value: "AAPL260116C00150500", Canonical: true, ValidFrom: &namedFrom},
 			},
-			UnderlyingIdentifierType:   strPtr("MIC_TICKER"),
-			UnderlyingIdentifierValue:  strPtr("AAPL"),
-			UnderlyingIdentifierDomain: strPtr("XNAS"),
+			Underlying: &dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 		},
 	}
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)

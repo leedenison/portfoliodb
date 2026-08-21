@@ -294,16 +294,22 @@ type pluginResult struct {
 func claim(r *pluginResult) db.IdentityClaim {
 	c := db.IdentityClaim{Identifiers: make([]db.ClaimedIdentifier, 0, len(r.ids)+len(r.filtered))}
 	for _, idn := range r.ids {
-		c.Identifiers = append(c.Identifiers, db.ClaimedIdentifier{
-			Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Role: db.ClaimRoleReturned,
-		})
+		c.Identifiers = append(c.Identifiers, claimed(idn, db.ClaimRoleReturned))
 	}
 	for _, idn := range r.filtered {
-		c.Identifiers = append(c.Identifiers, db.ClaimedIdentifier{
-			Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Role: db.ClaimRoleFiltered,
-		})
+		c.Identifiers = append(c.Identifiers, claimed(idn, db.ClaimRoleFiltered))
 	}
 	return c
+}
+
+// claimed is the domain triple as the store names it. The two are separate types
+// because db cannot import the package holding identifier.Identifier without a
+// cycle, so the crossing is explicit and happens here.
+func claimed(idn identifier.Identifier, role string) db.ClaimedIdentifier {
+	return db.ClaimedIdentifier{
+		Ref:  db.InstrumentRef{Type: idn.Type, Value: idn.Value, Domain: idn.Domain},
+		Role: role,
+	}
 }
 
 // flattenClaims is the lossy step, kept to one place so that what it loses is
@@ -321,11 +327,11 @@ func flattenClaims(claims []db.IdentityClaim) []identifier.Identifier {
 	var out []identifier.Identifier
 	for _, c := range claims {
 		for _, idn := range c.Identifiers {
-			if idn.Role != db.ClaimRoleReturned || seenType[idn.Type] {
+			if idn.Role != db.ClaimRoleReturned || seenType[idn.Ref.Type] {
 				continue
 			}
-			seenType[idn.Type] = true
-			out = append(out, identifier.Identifier{Type: idn.Type, Domain: idn.Domain, Value: idn.Value})
+			seenType[idn.Ref.Type] = true
+			out = append(out, identifier.Identifier{Type: idn.Ref.Type, Domain: idn.Ref.Domain, Value: idn.Ref.Value})
 		}
 	}
 	return out
@@ -388,9 +394,7 @@ func (a Attempt) writeCall(ctx context.Context, attemptID, pluginID, outcome str
 		a.DB.WriteIdentifierClaim(ctx, db.TelemetryIdentifierClaim{
 			RunID:  a.RunID,
 			CallID: callID,
-			Type:   c.Type,
-			Domain: c.Domain,
-			Value:  c.Value,
+			Ref:    c.Ref,
 			Role:   c.Role,
 		})
 	}

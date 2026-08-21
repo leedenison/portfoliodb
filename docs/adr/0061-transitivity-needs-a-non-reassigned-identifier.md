@@ -1,10 +1,12 @@
-# Transitivity needs a non-reassigned identifier and overlapping intervals
+# What may mediate a transitive association
 
 An association can be corroborated without one source naming both ends. If an
 identifier plugin returns a CUSIP with an ISIN, and another returns a SEDOL with
 the same ISIN, the CUSIP and the SEDOL are linked through the ISIN and no third
-call is needed. Chaining is worth having; the question is what may be chained
-through.
+call is needed. Chaining is worth having -- without it a security master stays
+fragmented across providers that each know a different half of an identity, which
+is the convergence [0004](0004-instrument-resolution-and-merge.md) exists for.
+The question is only what may be chained through.
 
 The first answer tried was scope: chain through a global identifier, never
 through a broker-scoped one or a description. It is the wrong axis. `MIC_TICKER`
@@ -14,59 +16,99 @@ symbol now -- the failure
 [0122](../issues/0122-resolve-identity-as-of-a-date.md) exists for, arriving
 through the rule meant to prevent it.
 
-What matters is not who issued the identifier but whether the value can denote
-two things:
+What matters is whether the mediating value can quietly denote two things:
 
-> A chain is permitted only through an identifier whose type is guaranteed never
-> to be reassigned, and only where the two associations' validity intervals
-> overlap.
+> A chain is permitted through an association that is **system-owned**, whose
+> identifier type does not **routinely** reassign its values, and whose two
+> halves have **overlapping** validity intervals.
 
-## Why the interval condition is not a refinement
+Three conditions, and each catches something the others do not.
 
-Without it the rule needs an exception list, because "never reassigned" is a
-spectrum: a FIGI is retired and never reassigned, an ISIN is not to be re-used
-with documented national exceptions, a CUSIP is cancelled and reassigned after a
-delay. An exception list is a second thing to keep correct, and it says nothing
-about the case that is not reassignment at all -- a name legitimately given up.
+## What the interval catches, and what it does not
 
-Both are the same shape once validity is on the name
-([0055](0055-identifier-validity-is-an-interval.md)). A CUSIP reassigned in 2019
-is two associations over disjoint intervals. An option restated by a split is two
-OCC symbols over disjoint intervals. A security that changes ISIN on
-redomiciliation is two associations over disjoint intervals. In every case the
-chain is refused for the same reason and nothing has to know which case it was.
+The interval catches reassignment we know about. A CUSIP reassigned in 2019 is
+two associations over disjoint intervals; an option restated by a split is two
+OCC symbols over disjoint intervals; a security that changes ISIN on
+redomiciliation is two associations over disjoint intervals
+([0055](0055-identifier-validity-is-an-interval.md)). In each case the chain is
+refused without anything having to know which case it was, and legitimate
+restatement stays out of the error path.
 
-It also keeps legitimate restatement out of the error path.
-`CONID-X` to `ISIN-1` and `CONID-X` to `ISIN-2` is a contradiction only when the
-intervals overlap; disjoint, it is a corporate action doing what corporate
-actions do. `ProcessPendingOptionSplits` already mints the new name at the
-`ex_date` and closes the old, so where the event is known the intervals are
-disjoint and nothing fires.
+It does not catch reassignment we never learned about, and that is the case the
+type property is for. One plugin returns `{CUSIP-X, ISIN-1}` and another returns
+`{CUSIP-X, SEDOL-1}` at a later vintage. If `CUSIP-X` was reassigned in between
+and nobody told us, both associations are stored open-ended, both are true as of
+when they were made, their intervals overlap, and the chain merges two unrelated
+securities. No interval reasoning reaches that, because the bound that would have
+separated them was never recorded.
 
-## Non-reassignment is a declaration, not a fact
+So the type property is not made redundant by the interval. It is the estimate of
+how much unrecorded reassignment a type admits.
 
-Nothing can prove an identifier type is never reassigned. IBKR states that conids
-"are static for each and every contract and will never change", which is
-documentation rather than a formal commitment, and no volume of exports
-demonstrating stability is evidence of what has not happened yet.
+## Rarely is not never, and that is where the line falls
 
-So it is recorded as a property we declare of a type, on the best evidence
-available, alongside the evidence. That makes it revisable when a counterexample
-turns up, which a property inferred from the identifier's scope would not have
-been. It also makes the declaration the thing to argue with when a new identifier
-type is added, rather than the code.
+An earlier draft demanded the type be *guaranteed* never reassigned, which
+disqualifies almost everything worth chaining through: only a FIGI clears that
+bar, and refusing to chain through ISINs would leave the master permanently
+fragmented for the sake of an event that happens by documented national
+exception. That trades a frequent, certain cost against a rare, correctable one.
+
+The rare error is correctable. We already accept that a single identification
+pass cannot tell valid from correct, that a wrong merge therefore spreads, and
+that the repair is a person with a surface to work from
+([0064](0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md), and
+[0127](../issues/0127-correct-a-misidentified-instrument.md)). Refusing to chain
+buys nothing against that and gives up the convergence.
+
+So the line is between reassignment as an *exception* and reassignment as the
+*norm*:
+
+- **Chain.** FIGI, retired and never reassigned. ISIN, CUSIP, SEDOL, CINS and
+  WERTPAPIER, where reassignment is an exception rather than a practice.
+- **Never chain.** Tickers, `MIC_TICKER` and `OPENFIGI_TICKER`, where reuse is
+  routine and `EA` is a live example rather than a hypothetical. Contract
+  symbols, `OCC` and its kin, for the same reason from a different direction: a
+  forward split hands one contract's old symbol to the strike below it, and 0055
+  records that this is reachable on most splits rather than on unusual ones.
+  `BROKER_DESCRIPTION`, which is not injective at all -- two securities can wear
+  one description, so it fails before reassignment is reached.
+
+The distinction is a judgement about frequency, so it is recorded as a declared
+property of the type with the evidence beside it, revisable when the evidence
+changes, rather than derived from the identifier's scope or shape.
+
+## Ownership is a separate condition, and the easy thing to miss
+
+A broker's contract identifier passes the type test outright: IBKR states that
+conids are static per contract and never change. Reading only that, an
+implementor would chain through one -- and reintroduce exactly the blast radius
+[0062](0062-a-user-mediated-claim-is-a-lead-not-a-write.md) exists to stop,
+because the only way a conid ever reaches this system is inside a file a user
+uploaded.
+
+**A user-owned association mediates nothing.** Not even for its own user: the
+identifier rows are owner-scoped but instruments are not, so a chain drawn
+through one merges instance-global rows on the strength of one unauthenticated
+file. It becomes eligible only once the promotion sweep has made it system-owned
+([0063](0063-identity-claims-are-owned-until-users-corroborate-them.md)), which
+is other users agreeing that the channel was sound.
+
+Until then the derived claim is a hypothesis for an identifier plugin to settle
+rather than something refused outright: a
+broker's cross-domain claim is verified rather than trusted, which is its own
+issue under M24. Promotion and verification are two routes to the same place, and a conid is
+mediating a chain only when it has taken one of them.
 
 ## Consequences
 
-- The prohibition on chaining through a broker-scoped identifier is not a rule of
-  its own. It falls out for a broker's internal *symbol*, which carries no such
-  promise, and does not apply to a CONID, which does. What restricts a broker's
-  claims is the channel it arrives through
-  ([0062](0062-a-user-mediated-claim-is-a-lead-not-a-write.md)), not the
-  identifier's scope.
-- A broker description can never mediate a chain, and not because of
-  reassignment: it is not injective, so two securities can wear one description
-  and it fails before the question is reached.
-- The same check serves two call sites -- deciding whether two instruments may
-  merge, and deciding whether a newly learned name may be written onto an
-  instrument that already exists. One rule, asked twice.
+- The type property alone is never sufficient. Every use of it has to ask about
+  ownership in the same breath, and an implementation that reads the two from
+  different places will eventually read only one.
+- IBKR's wording is documentation rather than a formal commitment, and no volume
+  of exports demonstrating stability is evidence about what has not happened yet.
+  That is a further reason the ownership condition carries weight here: it is the
+  only part of the test that rests on something we observed rather than on
+  something a vendor wrote.
+- The same check serves two call sites -- whether two instruments may merge, and
+  whether a newly learned name may be written onto an instrument that already
+  exists. One rule, asked twice.

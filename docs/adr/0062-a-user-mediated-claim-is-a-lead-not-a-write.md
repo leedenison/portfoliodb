@@ -3,12 +3,15 @@
 [0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md)
 makes a broker the authority for claims about its own contract numbers, and
 [0061](0061-transitivity-needs-a-non-reassigned-identifier.md) permits chaining
-through an identifier its issuer does not reassign. Together they would let a
-broker file merge two instruments that each carry registered identifiers: IBKR
+through an identifier type its issuer does not reassign. On those two alone a
+broker file would merge two instruments that each carry registered identifiers:
+IBKR
 says `CONID-X` is `CUSIP-1` and later that `CONID-X` is `ISIN-2`, and if the
 conid is never reassigned then `CUSIP-1` is `ISIN-2`.
 
-It does not follow, because IBKR is not who we heard it from.
+It does not follow, because IBKR is not who we heard it from. This is the
+reasoning behind the ownership condition 0061 carries alongside the type
+property, and the reason neither is sufficient by itself.
 
 ## The channel, not the authority
 

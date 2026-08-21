@@ -388,14 +388,12 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 
 // ensureWithSuppliedIdentifier creates an instrument from a price import row
 // whose identifier no plugin resolved. The row's identifier is stored exactly as
-// supplied -- in particular an OCC symbol is NOT split-adjusted here, because the
-// adjustment ResolveWithPlugins performs applies to its own hint list, not to the
-// value this fallback closes over. The name therefore became correct at the
+// supplied: nothing rebases a hint onto another vintage, so an OCC symbol is
+// stored under the name the request spelled. That name became correct at the
 // request's declared exported_at, and the identifier's valid_from records that.
 // Leaving it NULL would tell the retroactive option-split pass that the name
 // predates every split, and it would restate a symbol already carrying them.
-// A request with no exported_at is being taken at face value as current (the
-// caller has already warned that OCC symbols will not be split-adjusted), so the
+// A request with no exported_at is being taken at face value as current, so the
 // vintage is now.
 func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClass, currency, idType, domain, value string, namedAt *time.Time) (string, error) {
 	slog.Debug("creating instrument from price import with supplied identifier only",

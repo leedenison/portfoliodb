@@ -118,7 +118,8 @@ func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistr
 // caching the result so a second group naming the same instrument -- or a
 // coverage span under it -- invokes the identifier plugins at most once. The
 // asset class passed to the resolver is the group's declared hint, as is asOf,
-// which split-adjusts OCC symbols to the file's declared knowledge time.
+// which dates the names the resolution writes to the file's declared knowledge
+// time.
 func resolveEventGroupInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, cache map[string]*resolveEntry, keys *resolutionKeys, g *archivev1.CorporateEventGroup, asOf *time.Time) (string, *apiv1.ValidationError) {
 	ref := g.GetInstrument()
 	idType := typev1.IdentifierType_name[int32(ref.GetType())]

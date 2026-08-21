@@ -41,8 +41,8 @@ describe("readTxDocument", () => {
 
   // The envelope says when the document's data was current, which is the point in
   // market time its identifiers are stated as of. Dropping it would leave the
-  // server taking the upload for the export and rebasing an OCC the document had
-  // already restated.
+  // server taking the upload for the export, and dating every name it writes to
+  // today rather than to the export the document actually came from.
   it("carries the envelope's exported_at out with the window", () => {
     const { exportedAt, errors } = readTxDocument(doc());
 

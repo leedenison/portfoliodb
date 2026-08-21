@@ -370,8 +370,8 @@ func TestImportTxPart_ResolvesAgainstTheEnvelopeVintage(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10}}, nil).AnyTimes()
 
 	var validFrom []*time.Time
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			for _, idn := range idns {
 				validFrom = append(validFrom, idn.ValidFrom)
 			}

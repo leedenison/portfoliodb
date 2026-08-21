@@ -427,9 +427,11 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 		now := time.Now()
 		validFrom = &now
 	}
+	// No claim: a price import states one identifier, so there is no
+	// association for it to have asserted.
 	id, err := database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
 		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true, ValidFrom: db.VintageDate(validFrom)}},
-		underlyingID, nil, nil, optFields)
+		nil, underlyingID, nil, nil, optFields)
 	if err != nil {
 		return "", err
 	}

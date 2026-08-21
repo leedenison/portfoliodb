@@ -31,6 +31,13 @@
 // whether to trust an identifier nobody stated. See adr/0059, which records what
 // each provider was measured doing.
 //
+// The same rule applies one grain down, to identifiers rather than to
+// instrument fields, and there it has somewhere to go: [Result.Filtered]. A
+// mapping call filtered on an ISIN and answering with a FIGI has asserted that
+// the two denote one security, and OpenFIGI deliberately does not echo the ISIN
+// back -- so a plugin that records only what it returned throws away the
+// association its own call proved. See adr/0060.
+//
 // # Plugin interface
 //
 // Implement [Plugin] (DisplayName, AcceptableSecurityTypes, Identify, DefaultConfig).
@@ -64,9 +71,18 @@
 // caller's. A plugin never writes telemetry itself and never depends on the
 // telemetry backend.
 //
-// When multiple plugins succeed, the caller merges identifiers: for each
-// identifier type the first occurrence (in precedence-descending order) wins.
-// The highest-precedence plugin's Instrument data is used.
+// When multiple plugins succeed, the caller keeps the results apart. What one
+// call returned and was filtered on is one claim, because identifiers arriving
+// together are an association somebody asserted where the same identifiers
+// gathered from separate calls are a set the resolver assembled. Which plugin
+// answered does not enter that: every identifier plugin is equally
+// authoritative for a global identifier, so the grouping is the whole
+// requirement (adr/0065).
+//
+// The identifiers stored on the instrument are still flattened out of those
+// claims -- for each identifier type the first occurrence, in
+// precedence-descending order, wins -- and the highest-precedence plugin's
+// Instrument data is used.
 //
 // # Identifier normalisation
 //

@@ -140,7 +140,7 @@ func TestSettle(t *testing.T) {
 	ctx := context.Background()
 	userID, usd := balanceSeed(t, p, "sub|settle")
 	aapl, err := p.EnsureInstrument(ctx, "STOCK", "", "AAPL", "USD", "", "",
-		[]db.IdentifierInput{{Type: "TICKER", Value: "AAPL", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "TICKER", Value: "AAPL", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure AAPL: %v", err)
 	}
@@ -407,7 +407,7 @@ func priceRoundingSeed(t *testing.T, sub, qty, price, cash string) string {
 	userID, usd := balanceSeed(t, p, sub)
 	ctx := context.Background()
 	inst, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "INRG", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "F", Value: "INRG", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "F", Value: "INRG", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

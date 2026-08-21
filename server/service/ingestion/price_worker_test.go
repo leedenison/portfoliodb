@@ -364,6 +364,7 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "FX", "", "EUR", "", "", "",
 			namesDated{want: []db.IdentifierInput{{Type: "FX_PAIR", Domain: "", Value: "EURGBP", Canonical: true}}},
+			gomock.Any(),
 			"", nil, nil, nil).
 		Return("inst-eurgbp", nil)
 	// No exported_at, so the vintage is now.
@@ -457,6 +458,7 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
 			namesDated{want: []db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}}},
+			gomock.Any(),
 			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
 		Return("inst-opt", nil)
 	// No exported_at on the request, so the supplied OCC is taken at face value
@@ -516,6 +518,7 @@ func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 				want: []db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}},
 				from: db.VintageDate(&exportedAt),
 			},
+			gomock.Any(),
 			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
 		Return("inst-opt", nil)
 

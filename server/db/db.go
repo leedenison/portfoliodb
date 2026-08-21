@@ -598,6 +598,47 @@ type IdentifierInput struct {
 	ValidBefore *time.Time
 }
 
+// Claim roles. A value the call was strictly filtered on is graded with one it
+// returned: a provider that answers "no identifier found" when its filter
+// matches nothing has asserted the filtered value denotes the security it
+// described, so the association holds whether or not the value came back in the
+// payload. The same two strings are the telemetry.identifier_claim vocabulary.
+const (
+	ClaimRoleReturned = "returned"
+	ClaimRoleFiltered = "filtered"
+)
+
+// ClaimedIdentifier is one identifier inside a claim, and what the result said
+// about it. The whole triple is carried because a ticker under two domains
+// names two listings.
+type ClaimedIdentifier struct {
+	Type   string
+	Domain string
+	Value  string
+	Role   string // ClaimRoleReturned or ClaimRoleFiltered
+}
+
+// IdentityClaim is what one identifier plugin result said in one answer: the
+// identifiers it named together, by returning them or by strictly filtering on
+// them.
+//
+// The grouping is the claim. Identifiers arriving together are an association
+// somebody asserted, where the same identifiers gathered from separate results
+// are a set the resolver assembled and nobody stated. Which plugin answered is
+// deliberately not here: every identifier plugin is equally authoritative for a
+// global identifier, so attribution decides nothing a merge needs and the
+// partition is the whole requirement.
+//
+// An archive states one claim holding its instrument's whole identifier block,
+// which is what an admin archive asserting instrument data amounts to. A caller
+// with a single identifier and no association to assert passes none.
+//
+// See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md
+// and adr/0065-a-plugin-declares-what-it-claims-a-call-records-what-it-claimed.md.
+type IdentityClaim struct {
+	Identifiers []ClaimedIdentifier
+}
+
 // VintageDate reduces a vintage to the date an identifier's validity is stated
 // in. The bounds are dates (see docs/adr/0018-half-open-date-intervals.md), and
 // what a vintage decides -- which side of an ex_date a name was stated on -- is
@@ -1267,7 +1308,12 @@ type HoldingDeclarationDB interface {
 // InstrumentDB provides instrument resolution and plugin config.
 type InstrumentDB interface {
 	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. exchangeMIC is the ISO 10383 MIC code (nullable). optionFields is non-nil only for OPTION instruments and supplies denormalized OCC components.
-	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, underlyingID string, validFrom, validBefore *time.Time, optionFields *OptionFields) (string, error)
+	//
+	// claims says which of those identifiers were named together, and by which
+	// answer. It is what separates an association somebody asserted from a set
+	// the caller assembled, and the merge below does not read it yet: the rule
+	// that does is 0140.
+	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *OptionFields) (string, error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
 	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but also returns asset_class, exchange_mic (ISO 10383 MIC code), and currency from the instruments table in one query.

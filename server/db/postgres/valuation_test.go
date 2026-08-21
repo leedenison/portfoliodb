@@ -22,7 +22,7 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 	// Create instrument with price data.
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL Corp", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestGetPortfolioValuation_DifferentDescriptionsNetToZero(t *testing.T) {
 
 	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "ABNB", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	transferDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	sellDate := time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC)
@@ -202,7 +202,7 @@ func TestGetPortfolioValuation_UnpricedDeduplication(t *testing.T) {
 	// Create an instrument with a canonical name (from MIC_TICKER) but no prices.
 	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "ABNB", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 
@@ -250,10 +250,10 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 	// Two identified instruments.
 	instA, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL multi", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	instB, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "GOOG", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG multi", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -300,7 +300,7 @@ func TestGetUserValuation_Basic(t *testing.T) {
 	// Create instrument with price data.
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL UserVal", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -381,7 +381,7 @@ func TestGetPortfolioValuation_ExcludesDateBefore(t *testing.T) {
 
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL Corp", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestGetPortfolioValuation_FromEqualsBeforeReturnsNothing(t *testing.T) {
 
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL Corp", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 	// Create a EUR-denominated instrument.
 	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SAP FX", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -534,7 +534,7 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 	// Create a GBP-denominated instrument.
 	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "HSBC", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "HSBC FX", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -589,7 +589,7 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 	// Create a EUR-denominated instrument (no FX rate will be inserted).
 	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP-NR", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SAP NR", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -642,7 +642,7 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 	// USD-denominated instrument displayed in EUR.
 	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL-FXD", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL FXD", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -696,7 +696,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 	// The base rate (GBPUSD) is needed for the cross-rate but absent.
 	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "HSBC-MBR", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "HSBC MBR", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -808,7 +808,7 @@ func TestGetUserValuation_CashInForeignCurrency(t *testing.T) {
 	// Create GBPUSD FX pair instrument and price.
 	fxInstID, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "FX_PAIR", Domain: "", Value: "GBPUSD", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	fxPrices := []db.EODPrice{
 		{InstrumentID: fxInstID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
 	}
@@ -908,10 +908,10 @@ func TestGetUserValuation_CashForeignCurrency_NonUSDDisplay(t *testing.T) {
 	// Create EURUSD and GBPUSD FX pair instruments and prices.
 	eurFxID, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "FX_PAIR", Domain: "", Value: "EURUSD", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	gbpFxID, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "FX_PAIR", Domain: "", Value: "GBPUSD", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	fxPrices := []db.EODPrice{
 		{InstrumentID: eurFxID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
 		{InstrumentID: gbpFxID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
@@ -967,7 +967,7 @@ func TestGetUserValuation_ContinuousAcrossSplit(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|split1", "U", "u@split.com")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL Split", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1035,7 +1035,7 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|fxsplit", "U", "u@fxsplit.com")
 	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SAP FXSplit", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 
 	buyDate := time.Date(2020, 8, 3, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -1086,7 +1086,7 @@ func setupHeldInstrument(t *testing.T, p *Postgres, sub, desc string, qty string
 	userID, _ := p.GetOrCreateUser(ctx, sub, "U", sub+"@locf.com")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", desc, "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: desc, Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1244,7 +1244,7 @@ func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|nullqty", "U", "u@nullqty.com")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "NULLQ", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "NULLQ", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1306,7 +1306,7 @@ func TestGetUserValuation_ExcludesDatesAfterCloseAcrossInexactSplit(t *testing.T
 	userID, _ := p.GetOrCreateUser(ctx, "sub|closedsplit", "U", "u@closedsplit.com")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "REVQ", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "REVQ", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1638,7 +1638,7 @@ func TestGetPortfolioValuation_SecurityTransferValuedInTransit(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-sec", "U", "u@flight-sec.com")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "FIDELITY", Value: "AAPL Corp", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1760,7 +1760,7 @@ func TestGetUserValuation_MatchInAnotherCommodityIsNotAdmitted(t *testing.T) {
 
 	secID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "FIDELITY", Value: "AAPL Corp", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

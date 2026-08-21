@@ -278,11 +278,57 @@ func FilterIdentifierHints(ctx context.Context, hints []identifier.Identifier, l
 // superseded or discarded as inconsistent -- is decided by winner selection
 // below, once every plugin has returned.
 type pluginResult struct {
-	inst  *identifier.Instrument
-	ids   []identifier.Identifier
-	tel   identifier.Telemetry
-	stats callStats
-	err   error
+	inst *identifier.Instrument
+	ids  []identifier.Identifier
+	// filtered is what the call constrained the provider to. It is graded with
+	// ids when deciding what the result claimed, and is never stored: the value
+	// was corroborated, not returned. See adr/0060.
+	filtered []identifier.Identifier
+	tel      identifier.Telemetry
+	stats    callStats
+	err      error
+}
+
+// claim is what one result asserted: the identifiers it named together, either
+// by returning them or by strictly filtering on them.
+func claim(r *pluginResult) db.IdentityClaim {
+	c := db.IdentityClaim{Identifiers: make([]db.ClaimedIdentifier, 0, len(r.ids)+len(r.filtered))}
+	for _, idn := range r.ids {
+		c.Identifiers = append(c.Identifiers, db.ClaimedIdentifier{
+			Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Role: db.ClaimRoleReturned,
+		})
+	}
+	for _, idn := range r.filtered {
+		c.Identifiers = append(c.Identifiers, db.ClaimedIdentifier{
+			Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Role: db.ClaimRoleFiltered,
+		})
+	}
+	return c
+}
+
+// flattenClaims is the lossy step, kept to one place so that what it loses is
+// visible. For each identifier type it takes the value from the first claim
+// carrying it -- the claims arrive in precedence-descending order -- and drops
+// which result said what, which is exactly the distinction that makes an
+// association a claim rather than a set. It is what the instrument is stored
+// with, and 0140 is what stops the merge being decided on it.
+//
+// Only returned identifiers are flattened. A filtered value was corroborated
+// rather than supplied, and writing it is a decision about what an admitted
+// claim licenses, which is 0140's.
+func flattenClaims(claims []db.IdentityClaim) []identifier.Identifier {
+	seenType := make(map[string]bool)
+	var out []identifier.Identifier
+	for _, c := range claims {
+		for _, idn := range c.Identifiers {
+			if idn.Role != db.ClaimRoleReturned || seenType[idn.Type] {
+				continue
+			}
+			seenType[idn.Type] = true
+			out = append(out, identifier.Identifier{Type: idn.Type, Domain: idn.Domain, Value: idn.Value})
+		}
+	}
+	return out
 }
 
 // Attempt is where one ResolveWithPlugins call records itself: the run it belongs
@@ -845,7 +891,7 @@ func ResolveWithPlugins(
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
 			res, stats, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, keyed, timeout, PluginRetryBackoff)
-			results[idx] = pluginResult{inst: res.Instrument, ids: res.Identifiers, tel: res.Telemetry, stats: stats, err: err}
+			results[idx] = pluginResult{inst: res.Instrument, ids: res.Identifiers, filtered: res.Filtered, tel: res.Telemetry, stats: stats, err: err}
 		}(i)
 	}
 	wg.Wait()
@@ -964,8 +1010,11 @@ func ResolveWithPlugins(
 
 	if winner != nil {
 		l.DebugContext(ctx, "identifier plugin chosen", "plugin_id", inputs[winnerIdx].config.PluginID, "instrument_description", instrumentDescription, "instrument_name", winner.inst.Name)
-		seenType := make(map[string]bool)
-		var mergedIds []identifier.Identifier
+		// One entry per result that contributed, in precedence-descending
+		// order. Kept apart because what makes an association a claim is that
+		// the identifiers arrived together in one answer: the same identifiers
+		// gathered from two results are a set nobody asserted. See adr/0060.
+		var claims []db.IdentityClaim
 		var providerIDs []db.ProviderIdentifierInput
 		// Consistent results that did not win, in precedence order. Collected
 		// rather than applied in the loop because consistentWith compares
@@ -990,12 +1039,7 @@ func ResolveWithPlugins(
 				// a better hint match put another plugin ahead.
 				callOutcomes[i] = db.TelemetryPluginCallSuperseded
 			}
-			for _, idn := range r.ids {
-				if !seenType[idn.Type] {
-					seenType[idn.Type] = true
-					mergedIds = append(mergedIds, idn)
-				}
-			}
+			claims = append(claims, claim(r))
 			for _, pi := range r.inst.ProviderIdentifiers {
 				providerIDs = append(providerIDs, db.ProviderIdentifierInput{
 					Provider: pi.Provider, Type: pi.Type, Domain: pi.Domain, Value: pi.Value,
@@ -1020,6 +1064,7 @@ func ResolveWithPlugins(
 		// field being filled here was never checked against the winner; it is
 		// adopted because that plugin agreed on everything it could be checked
 		// on, which is the same basis its identifiers are merged on.
+		mergedIds := flattenClaims(claims)
 		merged := *winner.inst
 		for _, src := range fills {
 			fillBlanks(ctx, normMIC, countryOf, &merged, src)
@@ -1121,7 +1166,7 @@ func ResolveWithPlugins(
 			return ResolveResult{InstrumentID: fb, Unconfirmed: true, HintDiffs: diffs,
 				ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, inst, mergedIds, normMIC)}, nil
 		}
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Venue.MIC, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validBefore, optFields)
+		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Venue.MIC, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingID, validFrom, validBefore, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}

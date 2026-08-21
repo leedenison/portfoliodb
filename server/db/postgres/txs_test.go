@@ -31,7 +31,7 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 		{OrderDate: ts2,
 			TradeDate: ts2, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-3", Account: ""},
 	}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestReplaceTxsInPeriod_PeriodBeforeIsExclusive(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|replace-bound", "U", "u@bound.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BND", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BND", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 	// Synthetic INITIALIZE tx timestamp falls inside [from, to]
 	initTs := now.Add(-90 * time.Minute)
 
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "MSFT", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "MSFT", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestCreateTx_CreatesGroup(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-create", "U", "u@grp.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "NVDA", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "NVDA", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|routed-del", "U", "u@routed.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "IMB", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "IMB", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-per-tx", "U", "u@grp2.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSLA", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSLA", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -551,7 +551,7 @@ func TestReplaceTxsInPeriod_DeletesWholeGroups(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-whole", "U", "u@whole.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GSK", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GSK", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestReplaceTxsInPeriod_DeletesGroupsInPeriod(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-replace", "U", "u@grp3.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AMD", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AMD", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -630,7 +630,7 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 		TradeDate: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""}
 	tx2 := &apiv1.Tx{OrderDate: ts,
 		TradeDate: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|order", "U", "u@u.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "ORD", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "ORD", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -733,7 +733,7 @@ func TestListTxs_PeriodBeforeIsExclusive(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|period", "U", "u@period.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "PER", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "PER", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -867,7 +867,7 @@ func TestListTxsByPortfolio_ShowsOnlyTheMatchedLegs(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := balanceSeed(t, p, "sub|matched-legs")
 	aapl, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -926,7 +926,7 @@ func TestListTxs_TiedTimestampsPageBoundary(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|ties", "U", "u@u.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TIE", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TIE", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1016,7 +1016,7 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 		{OrderDate: ts2,
 			TradeDate: ts2, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-3", Account: ""},
 	}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1068,7 +1068,7 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 		t.Fatalf("set filters: %v", err)
 	}
 	ts := timestamppb.New(time.Now().Add(-1 * time.Hour))
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "X", Canonical: false}}, "", nil, nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "X", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1118,7 +1118,7 @@ func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|acct-type", "U", "u@acct.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "USD", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "USD", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1175,7 +1175,7 @@ func TestReplaceTxsInPeriod_RoundTripsCorrelations(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|corr", "U", "u@corr.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "Fidelity", Value: "GBP", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "Fidelity", Value: "GBP", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1280,7 +1280,7 @@ func TestReplaceTxsInPeriod_DeletesCorrelationsWithTheirPosting(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|corr-del", "U", "u@corr-del.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "Fidelity", Value: "GBP", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "Fidelity", Value: "GBP", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1314,7 +1314,7 @@ func TestTxCorrelations_VocabularyCheckConstraints(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|corr-check", "U", "u@corr-check.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "CHK", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "CHK", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1379,7 +1379,7 @@ func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|zero-price", "U", "u@zero.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "OPT", Canonical: false}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "OPT", Canonical: false}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1440,7 +1440,7 @@ func TestReplaceTxsInPeriod_StoresWeight(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|weight", "U", "u@w.com")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "",
-		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1484,7 +1484,7 @@ func TestReplaceTxsInPeriod_DefaultsWeightWhenAbsent(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|weight-default", "U", "u@wd.com")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "",
-		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "MSFT", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "MSFT", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1525,7 +1525,7 @@ func TestListTxsForExport_UsesTheBestIdentifier(t *testing.T) {
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "Fidelity:web:fidelity-csv", Value: "APPLE INC", Canonical: false},
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1565,7 +1565,7 @@ func TestListTxsForExport_ExcludesSyntheticGroups(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-syn", "U", "u@exp-syn.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SYN", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1600,7 +1600,7 @@ func TestListTxsForExport_ShareCountBasisOnlyWhenRestated(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-scb", "U", "u@exp-scb.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SCB", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1644,7 +1644,7 @@ func TestListTxsForExport_CarriesTheSourcesCashTotal(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-amt", "U", "u@exp-amt.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AMT", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1689,7 +1689,7 @@ func TestListTxsForExport_OrderedForGrouping(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-ord", "U", "u@exp-ord.com")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "ORDX", Canonical: false},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -2205,7 +2205,7 @@ func TestReplaceTxsInPeriod_KeepsSplitAdjustmentOnASurvivor(t *testing.T) {
 	ctx := context.Background()
 	userID, usd := balanceSeed(t, p, "sub|straddle-split")
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "",
-		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "SPLT", Canonical: true}}, "", nil, nil, nil)
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "SPLT", Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

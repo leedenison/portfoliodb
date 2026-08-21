@@ -182,7 +182,7 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Apple", "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -313,13 +313,13 @@ func TestListPricesForExport_OrdersByDomain(t *testing.T) {
 
 	xlon, err := p.EnsureInstrument(ctx, "STOCK", "XLON", "GBP", "VOD", "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XLON instrument: %v", err)
 	}
 	xnas, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "VOD", "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD", Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNAS instrument: %v", err)
 	}
@@ -417,7 +417,7 @@ func setupTickerInstrument(t *testing.T, p *Postgres, ticker string) string {
 	t.Helper()
 	id, err := p.EnsureInstrument(context.Background(), "STOCK", "XNAS", "USD", ticker, "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: ticker, Canonical: true},
-	}, "", nil, nil, nil)
+	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument %s: %v", ticker, err)
 	}

@@ -389,7 +389,9 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// Identifier plugins are never called in this path, so no identification
 		// attempt is opened and OpenFIGI is never reached.
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
-		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil, nil)
+		// No claim: one description associates nothing with anything, and
+		// nobody asserted an identity for it.
+		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, nil, "", nil, nil, nil)
 		if ensureErr != nil {
 			return resolveResult{}, ensureErr
 		}
@@ -479,7 +481,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
 			[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}},
-			"", nil, nil, nil)
+			nil, "", nil, nil, nil)
 	}
 
 	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, ident, storeSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)

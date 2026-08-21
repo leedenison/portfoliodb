@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
 )
 
@@ -66,8 +67,8 @@ func TestIntegration_Massive_Identify(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "massive/identifier")
 
 			p := NewPlugin(nil, httpClient, fixedTimer(refNow))
-			cfg, err := json.Marshal(configJSON{
-				MassiveAPIKey: apiKey,
+			cfg, err := json.Marshal(client.Config{
+				APIKey: apiKey,
 			})
 			if err != nil {
 				t.Fatalf("marshal config: %v", err)

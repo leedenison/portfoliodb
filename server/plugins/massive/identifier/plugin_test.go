@@ -37,7 +37,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, http.DefaultClient, nil)
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
@@ -94,7 +94,7 @@ func TestPlugin_Identify_Stock_SplitTickerNormalized(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewPlugin(nil, http.DefaultClient, nil)
-			cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+			cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 			hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 			idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}}
 
@@ -125,7 +125,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, http.DefaultClient, nil)
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SPX"}}
 
@@ -151,7 +151,7 @@ func TestPlugin_Identify_NoHints(t *testing.T) {
 
 func TestPlugin_Identify_NoTickerHint(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
+	cfg := mustMarshal(t, client.Config{BaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 
@@ -190,7 +190,7 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
@@ -237,7 +237,7 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	// Pass OCC with space-padding (21-char format).
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00230000"}}
@@ -272,7 +272,7 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
@@ -287,7 +287,7 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 
 func TestPlugin_Identify_Option_NoOCC(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
+	cfg := mustMarshal(t, client.Config{BaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
@@ -307,7 +307,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, http.DefaultClient, nil)
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
@@ -327,12 +327,12 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 func TestPlugin_DefaultConfig(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := p.DefaultConfig()
-	var parsed configJSON
+	var parsed client.Config
 	if err := json.Unmarshal(cfg, &parsed); err != nil {
 		t.Fatalf("invalid default config JSON: %v", err)
 	}
-	if parsed.MassiveAPIKey != "" {
-		t.Errorf("default API key should be empty, got %q", parsed.MassiveAPIKey)
+	if parsed.APIKey != "" {
+		t.Errorf("default API key should be empty, got %q", parsed.APIKey)
 	}
 }
 
@@ -388,7 +388,7 @@ func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
 	occ := makeOCC("AAPL", expiry, "C", 230)
 
 	p := NewPlugin(slog.Default(), http.DefaultClient, fixedTimer(refNow))
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
@@ -430,7 +430,7 @@ func TestPlugin_Identify_Option_ExpiredWithinHorizon(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
@@ -457,8 +457,8 @@ func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
 	horizon := 30
 
 	p := NewPlugin(slog.Default(), http.DefaultClient, fixedTimer(refNow))
-	cfg := mustMarshal(t, configJSON{
-		MassiveBaseURL:           srv.URL,
+	cfg := mustMarshal(t, client.Config{
+		BaseURL:                  srv.URL,
 		ExpiredDerivativeHorizon: &horizon,
 	})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
@@ -502,7 +502,7 @@ func TestPlugin_Identify_Option_FutureExpiry(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	cfg := mustMarshal(t, client.Config{BaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
@@ -518,7 +518,7 @@ func TestPlugin_Identify_Option_FutureExpiry(t *testing.T) {
 func TestPlugin_DefaultConfig_IncludesHorizon(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := p.DefaultConfig()
-	var parsed configJSON
+	var parsed client.Config
 	if err := json.Unmarshal(cfg, &parsed); err != nil {
 		t.Fatalf("invalid default config JSON: %v", err)
 	}

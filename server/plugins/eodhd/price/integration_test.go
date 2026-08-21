@@ -11,6 +11,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
 )
@@ -44,7 +45,7 @@ func TestIntegration_EODHD_FetchPrices(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "eodhd/price")
 
 			p := NewPlugin(nil, httpClient, nil)
-			cfg, err := json.Marshal(configJSON{EODHDAPIKey: apiKey})
+			cfg, err := json.Marshal(client.Config{APIKey: apiKey})
 			if err != nil {
 				t.Fatalf("marshal config: %v", err)
 			}

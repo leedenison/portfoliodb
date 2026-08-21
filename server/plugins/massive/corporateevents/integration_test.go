@@ -10,6 +10,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
 )
 
@@ -100,9 +101,9 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "massive/corporateevents")
 
 			p := NewPlugin(nil, httpClient)
-			cfg, err := json.Marshal(configJSON{
-				MassiveAPIKey: apiKey,
-				CallsPerMin:   massiveCallsPerMin,
+			cfg, err := json.Marshal(client.Config{
+				APIKey:      apiKey,
+				CallsPerMin: massiveCallsPerMin,
 			})
 			if err != nil {
 				t.Fatalf("marshal config: %v", err)

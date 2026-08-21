@@ -26,7 +26,7 @@ func barsServer(t *testing.T, bars []client.AggBar) *httptest.Server {
 }
 
 func configWithURL(url string) []byte {
-	cfg := configJSON{MassiveBaseURL: url}
+	cfg := client.Config{BaseURL: url}
 	b, _ := json.Marshal(cfg)
 	return b
 }

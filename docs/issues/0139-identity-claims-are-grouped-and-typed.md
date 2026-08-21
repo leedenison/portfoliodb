@@ -17,6 +17,15 @@ identifier. What carries the claim is that the identifiers arrived together, so
 the partition is the whole requirement and it is cheaper than recording
 provenance per value.
 
+A partition holds more than the payload. A value the call **strictly filtered**
+on belongs in it too: a provider answering "no identifier found" when its filter
+matches nothing has asserted that value denotes the security it described, so the
+association holds without the value coming back. This is not hypothetical -- the
+OpenFIGI plugin deliberately declines to echo a matched ISIN or CUSIP, so today
+the association it proves is discarded on the way to the merge site. Each entry
+therefore says whether it was returned or filtered on, and the two are graded
+alike.
+
 Identifier types also gain the two properties the rules key off -- scope, and
 whether the issuer reassigns a value *routinely* or only by exception. Neither is
 recorded anywhere; `identifier_priority.go` is the only per-type table and it

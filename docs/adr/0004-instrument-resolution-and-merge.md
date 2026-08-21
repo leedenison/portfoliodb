@@ -8,8 +8,11 @@ Amended by [0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-sc
 which requires a merge to act on an association a single plugin result stated
 rather than on the identifier set the resolver assembled, and by
 [0064](0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md), which says what
-happens when a merge cannot complete. The resolution order and the batch cache
-stand.
+happens when a merge cannot complete, and by
+[0067](0067-an-instrument-with-no-identity-is-completed-in-place.md), which
+completes an instrument holding no canonical identifier rather than leaving it
+as found -- there being no stored value there for this to protect. The
+resolution order and the batch cache stand.
 
 Instrument resolution is ordered to minimize calls to expensive, quota-managed
 identifier plugins: (1) DB lookup by `(source, description)` or existing

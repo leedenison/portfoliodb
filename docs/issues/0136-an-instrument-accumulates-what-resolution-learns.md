@@ -36,6 +36,13 @@ tying it to a name on the row is not something this instrument learned, and
 writing it would assert an association nobody made. Columns are unaffected: they
 are metadata, and metadata has never merged anything.
 
+The description-only case is not this one and is settled by 0135. An instrument
+holding no name has nothing for a new one to be corroborated with, so the test
+above can never admit anything on to it, and `EnsureInstrument` already completes
+one outright -- there being no identity there to associate with and no stored
+value to protect. See adr/0067-an-instrument-with-no-identity-is-completed-in-place.md.
+What remains here is the instrument that already holds a name.
+
 The current behaviour has a reason attached and it needs respecting rather than
 reverting. The comment ties writing no identifier to leaving each name's
 `valid_from` where it was, because moving them used to disarm the retroactive

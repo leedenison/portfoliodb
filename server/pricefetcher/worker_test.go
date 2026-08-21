@@ -90,16 +90,21 @@ func TestPluginAccepts(t *testing.T) {
 
 func TestFilterIdentifiers(t *testing.T) {
 	ids := []db.IdentifierInput{
-		{Type: "MIC_TICKER", Value: "AAPL"},
-		{Type: "ISIN", Value: "US0378331005"},
-		{Type: "OCC", Value: "AAPL250321C00150000"},
-	}
+		{
+			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+		},
+		{
+			Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+		},
+		{
+			Ref: db.InstrumentRef{Type: "OCC", Value: "AAPL250321C00150000"},
+		}}
 	got := pluginutil.FilterIdentifiers([]string{"MIC_TICKER", "OCC"}, ids)
 	if len(got) != 2 {
 		t.Fatalf("expected 2, got %d", len(got))
 	}
-	if got[0].Type != "MIC_TICKER" || got[1].Type != "OCC" {
-		t.Errorf("unexpected types: %s, %s", got[0].Type, got[1].Type)
+	if got[0].Ref.Type != "MIC_TICKER" || got[1].Ref.Type != "OCC" {
+		t.Errorf("unexpected types: %s, %s", got[0].Ref.Type, got[1].Ref.Type)
 	}
 }
 
@@ -157,8 +162,9 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 			AssetClass: strPtr("FX"),
 			Currency:   strPtr("USD"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "FX_PAIR", Value: "EURUSD"},
-			},
+				{
+					Ref: db.InstrumentRef{Type: "FX_PAIR", Value: "EURUSD"},
+				}},
 		},
 	}, nil)
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to, gomock.Any()).Return(nil)
@@ -240,8 +246,9 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 			ID:         instID,
 			AssetClass: strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "MIC_TICKER", Value: "AAPL"},
-			},
+				{
+					Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+				}},
 		},
 	}, nil)
 
@@ -284,8 +291,9 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 			ID:         instID,
 			AssetClass: strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "MIC_TICKER", Value: "AAPL"},
-			},
+				{
+					Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+				}},
 		},
 	}, nil)
 	mockDB.EXPECT().CreatePriceFetchBlock(gomock.Any(), instID, pluginID, "ticker not found").Return(nil)
@@ -334,8 +342,9 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 			ID:         instID,
 			AssetClass: strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "MIC_TICKER", Value: "AAPL"},
-			},
+				{
+					Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+				}},
 		},
 	}, nil)
 	cutoff := now.AddDate(0, 0, -maxDays)
@@ -386,8 +395,9 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 			ID:         instID,
 			AssetClass: strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "MIC_TICKER", Value: "AAPL"},
-			},
+				{
+					Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+				}},
 		},
 	}, nil)
 	// Wholly out of reach for this plugin, so it is recorded as covered by it
@@ -426,7 +436,9 @@ func TestRunCycle_NoDataRecordsCoverage(t *testing.T) {
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
-		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
+		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{
+			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+		}}},
 	}, nil)
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
 
@@ -463,7 +475,9 @@ func TestRunCycle_CoveredRangeNotRefetched(t *testing.T) {
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(
 		map[string]map[string][]db.DateRange{instID: {pluginID: {{From: from, Before: to}}}}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
-		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
+		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{
+			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+		}}},
 	}, nil)
 
 	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
@@ -503,7 +517,9 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(
 		map[string]map[string][]db.DateRange{instID: {coveredID: {{From: from, Before: to}}}}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
-		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
+		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{
+			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+		}}},
 	}, nil)
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, freshID, gomock.Any(), from, to, gomock.Any()).Return(nil)
 

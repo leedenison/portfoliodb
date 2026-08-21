@@ -139,8 +139,10 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 		}
 		seenKeys[key] = struct{}{}
 		idns = append(idns, db.IdentifierInput{
-			Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical(),
-			ValidFrom: archiveDate(idf.ValidFrom), ValidBefore: archiveDate(idf.ValidBefore),
+			Ref:         db.InstrumentRef{Type: typeStr, Value: idf.GetValue(), Domain: idf.GetDomain()},
+			Canonical:   idf.GetCanonical(),
+			ValidFrom:   archiveDate(idf.ValidFrom),
+			ValidBefore: archiveDate(idf.ValidBefore),
 		})
 	}
 	opts, err := archiveOptionFields(inst)
@@ -272,7 +274,7 @@ func archiveClaim(idns []db.IdentifierInput) db.IdentityClaim {
 	c := db.IdentityClaim{Identifiers: make([]db.ClaimedIdentifier, 0, len(idns))}
 	for _, i := range idns {
 		c.Identifiers = append(c.Identifiers, db.ClaimedIdentifier{
-			Ref:  db.InstrumentRef{Type: i.Type, Value: i.Value, Domain: i.Domain},
+			Ref:  i.Ref,
 			Role: db.ClaimRoleReturned,
 		})
 	}

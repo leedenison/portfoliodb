@@ -56,9 +56,9 @@ func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
 	identifiers := make([]*archivev1.Identifier, 0, len(row.Identifiers))
 	for _, idn := range row.Identifiers {
 		identifiers = append(identifiers, &archivev1.Identifier{
-			Type:      identifierTypeFromString(idn.Type),
-			Value:     idn.Value,
-			Domain:    idn.Domain,
+			Type:      identifierTypeFromString(idn.Ref.Type),
+			Value:     idn.Ref.Value,
+			Domain:    idn.Ref.Domain,
 			Canonical: idn.Canonical,
 			ValidFrom: optDate(idn.ValidFrom),
 			// A name the instrument has given up travels too. Dropping it would

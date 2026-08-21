@@ -89,21 +89,28 @@ func TestPluginAccepts(t *testing.T) {
 
 func TestFilterIdentifiers(t *testing.T) {
 	ids := []db.IdentifierInput{
-		{Type: "MIC_TICKER", Value: "AAPL"},
-		{Type: "ISIN", Value: "US0378331005"},
-		{Type: "OCC", Value: "AAPL250321C00150000"},
-	}
+		{
+			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+		},
+		{
+			Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+		},
+		{
+			Ref: db.InstrumentRef{Type: "OCC", Value: "AAPL250321C00150000"},
+		}}
 	got := FilterIdentifiers([]string{"MIC_TICKER", "OCC"}, ids)
 	if len(got) != 2 {
 		t.Fatalf("expected 2, got %d", len(got))
 	}
-	if got[0].Type != "MIC_TICKER" || got[1].Type != "OCC" {
-		t.Errorf("unexpected types: %s, %s", got[0].Type, got[1].Type)
+	if got[0].Ref.Type != "MIC_TICKER" || got[1].Ref.Type != "OCC" {
+		t.Errorf("unexpected types: %s, %s", got[0].Ref.Type, got[1].Ref.Type)
 	}
 }
 
 func TestFilterIdentifiers_NoMatch(t *testing.T) {
-	ids := []db.IdentifierInput{{Type: "ISIN", Value: "US0378331005"}}
+	ids := []db.IdentifierInput{{
+		Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+	}}
 	got := FilterIdentifiers([]string{"MIC_TICKER"}, ids)
 	if len(got) != 0 {
 		t.Fatalf("expected 0, got %d", len(got))

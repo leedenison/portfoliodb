@@ -363,7 +363,10 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 	// The key assertion: EnsureInstrument must receive "FX" and "EUR".
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "FX", "", "EUR", "", "", "",
-			namesDated{want: []db.IdentifierInput{{Type: "FX_PAIR", Domain: "", Value: "EURGBP", Canonical: true}}},
+			namesDated{want: []db.IdentifierInput{{
+				Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "EURGBP", Domain: ""},
+				Canonical: true,
+			}}},
 			gomock.Any(),
 			"", nil, nil, nil).
 		Return("inst-eurgbp", nil)
@@ -405,7 +408,7 @@ func (m namesDated) Matches(x any) bool {
 	}
 	for i, w := range m.want {
 		w.ValidFrom = from
-		if got[i].Type != w.Type || got[i].Domain != w.Domain || got[i].Value != w.Value ||
+		if got[i].Ref.Type != w.Ref.Type || got[i].Ref.Domain != w.Ref.Domain || got[i].Ref.Value != w.Ref.Value ||
 			got[i].Canonical != w.Canonical || got[i].ValidBefore != nil ||
 			got[i].ValidFrom == nil || !got[i].ValidFrom.Equal(*w.ValidFrom) {
 			return false
@@ -457,7 +460,10 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	// EnsureInstrument must receive the underlying ID and option fields.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
-			namesDated{want: []db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}}},
+			namesDated{want: []db.IdentifierInput{{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: "NVDA240315P00510000", Domain: ""},
+				Canonical: true,
+			}}},
 			gomock.Any(),
 			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
 		Return("inst-opt", nil)
@@ -515,7 +521,10 @@ func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
 			namesDated{
-				want: []db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}},
+				want: []db.IdentifierInput{{
+					Ref:       db.InstrumentRef{Type: "OCC", Value: "NVDA240315P00510000", Domain: ""},
+					Canonical: true,
+				}},
 				from: db.VintageDate(&exportedAt),
 			},
 			gomock.Any(),

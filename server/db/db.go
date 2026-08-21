@@ -577,9 +577,11 @@ type JobDB interface {
 	ListJobs(ctx context.Context, userID, jobType string, pageSize int32, pageToken string) ([]JobRow, int32, string, error)
 }
 
-// IdentifierInput is a single (type, domain, value) for EnsureInstrument.
-// Domain is empty or nil for broker-description and for identifiers that have no domain (e.g. ISIN, CUSIP).
-// Canonical is false only for broker-description identifiers; true for standard identifiers (ISIN, CUSIP, etc.).
+// IdentifierInput is one identifier as EnsureInstrument stores it: the name
+// itself, and the two things only the store has an opinion about.
+//
+// Canonical is false only for broker-description identifiers; true for standard
+// identifiers (ISIN, CUSIP, etc.).
 //
 // ValidFrom and ValidBefore are the half-open interval in market time the name
 // was correct for the instrument: ValidFrom is the vintage of the source that
@@ -587,10 +589,12 @@ type JobDB interface {
 // means it is the name the instrument wears now. Both are dates; a caller
 // holding a timestamp truncates it. See
 // docs/adr/0055-identifier-validity-is-an-interval.md.
+//
+// Those two fields are the whole difference between this and [InstrumentRef],
+// and they are why what a plugin is handed is a separate type: a plugin must not
+// be able to read them, let alone act on them.
 type IdentifierInput struct {
-	Type        string
-	Domain      string // empty or NULL for no domain
-	Value       string
+	Ref         InstrumentRef
 	Canonical   bool // default true when not set for backward compat
 	ValidFrom   *time.Time
 	ValidBefore *time.Time

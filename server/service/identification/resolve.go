@@ -1115,13 +1115,21 @@ func ResolveWithPlugins(
 		identifiers := make([]db.IdentifierInput, 0, len(mergedIds)+1)
 		hasSource := false
 		for _, idn := range mergedIds {
-			identifiers = append(identifiers, db.IdentifierInput{Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Canonical: true, ValidFrom: nameFrom})
+			identifiers = append(identifiers, db.IdentifierInput{
+				Ref:       db.InstrumentRef{Type: idn.Type, Value: idn.Value, Domain: idn.Domain},
+				Canonical: true,
+				ValidFrom: nameFrom,
+			})
 			if idn.Type == "BROKER_DESCRIPTION" && idn.Domain == source && idn.Value == instrumentDescription {
 				hasSource = true
 			}
 		}
 		if storeSourceDescription && !hasSource {
-			identifiers = append(identifiers, db.IdentifierInput{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false, ValidFrom: nameFrom})
+			identifiers = append(identifiers, db.IdentifierInput{
+				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
+				Canonical: false,
+				ValidFrom: nameFrom,
+			})
 		}
 		inst := &merged
 		var underlyingID string

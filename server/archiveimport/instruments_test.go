@@ -270,7 +270,7 @@ func TestInstrumentPart_MergesWhatTheFileCarries(t *testing.T) {
 			if in.ValidFrom == nil || !in.ValidFrom.Equal(time.Date(1999, 1, 4, 0, 0, 0, 0, time.UTC)) {
 				t.Errorf("valid_from = %v", in.ValidFrom)
 			}
-			if len(in.Identifiers) != 1 || in.Identifiers[0].Value != "EURUSD" {
+			if len(in.Identifiers) != 1 || in.Identifiers[0].Ref.Value != "EURUSD" {
 				t.Errorf("identifiers = %+v", in.Identifiers)
 			}
 			return nil

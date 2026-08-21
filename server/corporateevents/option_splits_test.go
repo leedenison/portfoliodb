@@ -43,8 +43,10 @@ func makeOptionUnidentified(id, occ string, strike float64) *db.InstrumentRow {
 		Expiry:  &expiry,
 		PutCall: &putCall,
 		Identifiers: []db.IdentifierInput{
-			{Type: "OCC", Value: occ, Canonical: true},
-		},
+			{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: occ},
+				Canonical: true,
+			}},
 	}
 }
 
@@ -88,8 +90,8 @@ func TestProcessPendingOptionSplits_SingleSplit(t *testing.T) {
 			if len(p.Mints) != 1 {
 				t.Fatalf("mints = %d, want 1", len(p.Mints))
 			}
-			if p.Mints[0].OCC.Value != "AAPL250117C00100000" {
-				t.Errorf("minted OCC = %q, want AAPL250117C00100000", p.Mints[0].OCC.Value)
+			if p.Mints[0].OCC.Ref.Value != "AAPL250117C00100000" {
+				t.Errorf("minted OCC = %q, want AAPL250117C00100000", p.Mints[0].OCC.Ref.Value)
 			}
 			if p.Mints[0].Strike.String() != "100" {
 				t.Errorf("minted strike = %v, want 100", p.Mints[0].Strike)
@@ -147,8 +149,8 @@ func TestProcessPendingOptionSplits_CompoundsMultipleSplits(t *testing.T) {
 				if !p.Mints[i].ExDate.Equal(w.exDate) {
 					t.Errorf("mint %d ex_date = %v, want %v", i, p.Mints[i].ExDate, w.exDate)
 				}
-				if p.Mints[i].OCC.Value != w.occ {
-					t.Errorf("mint %d OCC = %q, want %q", i, p.Mints[i].OCC.Value, w.occ)
+				if p.Mints[i].OCC.Ref.Value != w.occ {
+					t.Errorf("mint %d OCC = %q, want %q", i, p.Mints[i].OCC.Ref.Value, w.occ)
 				}
 				if p.Mints[i].Strike.String() != w.strike {
 					t.Errorf("mint %d strike = %v, want %v", i, p.Mints[i].Strike, w.strike)
@@ -180,7 +182,8 @@ func TestProcessPendingOptionSplits_RestatesFromTheNameInForce(t *testing.T) {
 	// point that order is not what decides it.
 	opt := makeOption("opt-history", "AAPL250117C00200000", 200.0, date(2024, 6, 1))
 	opt.Identifiers = append([]db.IdentifierInput{{
-		Type: "OCC", Value: "AAPL250117C00400000", Canonical: true,
+		Ref:         db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00400000"},
+		Canonical:   true,
 		ValidBefore: timePtr(date(2024, 6, 1)),
 	}}, opt.Identifiers...)
 
@@ -195,7 +198,7 @@ func TestProcessPendingOptionSplits_RestatesFromTheNameInForce(t *testing.T) {
 			if p.OldOCCValue != "AAPL250117C00200000" {
 				t.Errorf("old OCC = %q, want the one in force", p.OldOCCValue)
 			}
-			if len(p.Mints) != 1 || p.Mints[0].OCC.Value != "AAPL250117C00100000" {
+			if len(p.Mints) != 1 || p.Mints[0].OCC.Ref.Value != "AAPL250117C00100000" {
 				t.Errorf("mints = %+v, want just AAPL250117C00100000", p.Mints)
 			}
 			return nil
@@ -342,7 +345,10 @@ func TestProcessPendingOptionSplits_NoOCC(t *testing.T) {
 	ctx := context.Background()
 
 	opt := makeOption("opt-noocc", "", 200.0, date(2025, 1, 1))
-	opt.Identifiers = []db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}
+	opt.Identifiers = []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+		Canonical: true,
+	}}
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
 		[]db.PendingOptionSplits{{
 			Option: opt,

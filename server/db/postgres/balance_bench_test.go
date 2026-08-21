@@ -27,12 +27,18 @@ func seedBalancedGroups(t testing.TB, p *Postgres, groups int) (string, string) 
 		t.Fatalf("create user: %v", err)
 	}
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "BENCH", "", "",
-		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "BENCH", Canonical: true}}, nil, "", nil, nil, nil)
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "BENCH", Domain: "XNAS"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	usd, err := p.EnsureInstrument(ctx, "CASH", "", "USD", "USD", "", "",
-		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, nil, "", nil, nil, nil)
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "CURRENCY", Value: "USD"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure USD: %v", err)
 	}
@@ -77,12 +83,18 @@ func seedPairedJournals(t testing.TB, p *Postgres, groups int) (string, string, 
 		t.Fatalf("create user: %v", err)
 	}
 	mergedAway, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "MRGA", "", "",
-		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "MRGA", Canonical: true}}, nil, "", nil, nil, nil)
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "MRGA", Domain: "XNAS"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
 	survivor, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "MRGB", "", "",
-		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "MRGB", Canonical: true}}, nil, "", nil, nil, nil)
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "MRGB", Domain: "XNAS"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}

@@ -72,11 +72,11 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 		var idn db.IdentifierInput
 		var domain sql.NullString
 		var validFrom, validBefore sql.NullTime
-		if err := rows.Scan(&idn.Type, &domain, &idn.Value, &idn.Canonical, &validFrom, &validBefore); err != nil {
+		if err := rows.Scan(&idn.Ref.Type, &domain, &idn.Ref.Value, &idn.Canonical, &validFrom, &validBefore); err != nil {
 			return err
 		}
 		if domain.Valid {
-			idn.Domain = domain.String
+			idn.Ref.Domain = domain.String
 		}
 		if validFrom.Valid {
 			idn.ValidFrom = &validFrom.Time
@@ -95,7 +95,7 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	for _, idn := range toInsert {
 		_, err := exec.ExecContext(ctx, `
 			INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, survivor, idn.Type, nullStr(idn.Domain), idn.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+		`, survivor, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 		if err != nil {
 			if isIdentifierConflict(err) {
 				continue
@@ -516,8 +516,8 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	// Normalize MIC_TICKER domains and exchangeMIC to operating MICs.
 	exchangeMIC = p.normalizeToOperatingMIC(ctx, exchangeMIC)
 	for i := range identifiers {
-		if identifiers[i].Type == "MIC_TICKER" && identifiers[i].Domain != "" {
-			identifiers[i].Domain = p.normalizeToOperatingMIC(ctx, identifiers[i].Domain)
+		if identifiers[i].Ref.Type == "MIC_TICKER" && identifiers[i].Ref.Domain != "" {
+			identifiers[i].Ref.Domain = p.normalizeToOperatingMIC(ctx, identifiers[i].Ref.Domain)
 		}
 	}
 	var underlyingUUID *uuid.UUID
@@ -532,7 +532,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	seen := make(map[uuid.UUID]struct{})
 	var distinctIDs []uuid.UUID
 	for _, idn := range identifiers {
-		existingID, err := p.FindInstrumentByIdentifier(ctx, idn.Type, idn.Domain, idn.Value)
+		existingID, err := p.FindInstrumentByIdentifier(ctx, idn.Ref.Type, idn.Ref.Domain, idn.Ref.Value)
 		if err != nil {
 			return "", fmt.Errorf("lookup instrument: %w", err)
 		}
@@ -595,7 +595,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		for _, idn := range identifiers {
 			canonical := idn.Canonical
 			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				newID, idn.Type, nullStr(idn.Domain), idn.Value, canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+				newID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 			if err != nil {
 				if isIdentifierConflict(err) {
 					return errIdentifierExists // rollback tx; caller will look up existing id
@@ -608,7 +608,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	if err != nil {
 		if errors.Is(err, errIdentifierExists) {
 			for _, idn := range identifiers {
-				existingID, rowErr := p.FindInstrumentByIdentifier(ctx, idn.Type, idn.Domain, idn.Value)
+				existingID, rowErr := p.FindInstrumentByIdentifier(ctx, idn.Ref.Type, idn.Ref.Domain, idn.Ref.Value)
 				if rowErr == nil && existingID != "" {
 					return existingID, nil
 				}
@@ -753,13 +753,13 @@ func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID 
 	if err != nil {
 		return fmt.Errorf("insert instrument identifier: invalid id: %w", err)
 	}
-	if input.Type == "MIC_TICKER" && input.Domain != "" {
-		input.Domain = p.normalizeToOperatingMIC(ctx, input.Domain)
+	if input.Ref.Type == "MIC_TICKER" && input.Ref.Domain != "" {
+		input.Ref.Domain = p.normalizeToOperatingMIC(ctx, input.Ref.Domain)
 	}
 	_, err = p.q.ExecContext(ctx, `
 		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, uid, input.Type, nullStr(input.Domain), input.Value, input.Canonical, nullTime(input.ValidFrom), nullTime(input.ValidBefore))
+	`, uid, input.Ref.Type, nullStr(input.Ref.Domain), input.Ref.Value, input.Canonical, nullTime(input.ValidFrom), nullTime(input.ValidBefore))
 	if err != nil {
 		return fmt.Errorf("insert instrument identifier: %w", err)
 	}
@@ -789,8 +789,8 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 	idns := make([]db.IdentifierInput, len(in.Identifiers))
 	copy(idns, in.Identifiers)
 	for i := range idns {
-		if idns[i].Type == "MIC_TICKER" && idns[i].Domain != "" {
-			idns[i].Domain = p.normalizeToOperatingMIC(ctx, idns[i].Domain)
+		if idns[i].Ref.Type == "MIC_TICKER" && idns[i].Ref.Domain != "" {
+			idns[i].Ref.Domain = p.normalizeToOperatingMIC(ctx, idns[i].Ref.Domain)
 		}
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
@@ -802,9 +802,9 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 				INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
 				VALUES ($1, $2, $3, $4, $5, $6, $7)
 				ON CONFLICT DO NOTHING
-			`, uid, idn.Type, nullStr(idn.Domain), idn.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+			`, uid, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 			if err != nil {
-				return fmt.Errorf("merge identifier (%s/%s): %w", idn.Type, idn.Value, err)
+				return fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
 			}
 		}
 		// The WHERE guard leaves a row that needs nothing unwritten, which keeps

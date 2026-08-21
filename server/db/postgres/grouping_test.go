@@ -28,8 +28,10 @@ func newGroupingFixture(t *testing.T, sub string) *groupingFixture {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|"+sub, "U", sub+"@grouping.test")
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
-		{Type: "BROKER_DESCRIPTION", Domain: "FIDELITY", Value: "GRP-" + sub, Canonical: false},
-	}, nil, "", nil, nil, nil)
+		{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GRP-" + sub, Domain: "FIDELITY"},
+			Canonical: false,
+		}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

@@ -25,7 +25,7 @@ legs have to add back up to, and a recomputed consideration would drift from the
 statement by the rounding in a quoted unit price.
 
 A converter with no commission to read cannot split anything, and its trades keep
-a residual in `IMBALANCE` (see adr/0021-converters-own-transaction-grouping.md).
+a residual in `IMBALANCE` (see [0021](0021-converters-own-transaction-grouping.md)).
 Deriving the fee as `|amount| - quantity * unit_price` was rejected for those:
 it is only the commission when the price and the cash total are already in the
 same currency and the price is exact, and where either fails the number is

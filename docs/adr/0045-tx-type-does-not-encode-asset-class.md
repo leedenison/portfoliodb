@@ -35,13 +35,8 @@ build to delete by asset class. `IsAssetClassCompatible` survives unchanged in
 substance but compares a stated hint against the resolved class rather than an
 inferred one, which is what 0013 wanted of it.
 
-0013 is amended rather than superseded. Its decision -- that the routing hint and
-the canonical asset class are separate layers, and that the coarse guess must not
-be mistaken for confirmed identity data -- is exactly right and is why the hint
-survives at all. What changes is where the guess comes from.
-
-`exchangeTypes` in the ingest balancer shrinks from fourteen hand-listed values to
-a single predicate. It is the clearest illustration of the problem: it documents
-itself as "the tx types whose counter-leg is money rather than the commodity the
-posting is in", which is a statement about one factor, enumerated across every
-combination of the other two, with nothing to catch a value someone forgets to add.
+`exchangeTypes` in the ingest balancer shrinks from fourteen hand-listed values to a
+single predicate, and is the clearest illustration of the problem: it documents itself
+as "the tx types whose counter-leg is money rather than the commodity the posting is
+in", which is a statement about one factor, enumerated across every combination of the
+other two, with nothing to catch a value someone forgets to add.

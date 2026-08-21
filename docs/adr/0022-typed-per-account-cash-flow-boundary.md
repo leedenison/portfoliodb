@@ -1,20 +1,26 @@
 # The cash-flow boundary is typed and classified per account
 
-Supersedes [0020](0020-double-entry-postings.md). The posting and group model it
-established is unchanged and carried forward: a `txs` row is a **posting**, the
-postings of one economic event belong to a **tx group** required to sum to zero,
-and the invariant is enforced by a deferred constraint trigger rather than at load
-time as beancount does, because a database constraint has no equivalent of an
-unchecked writer. What changes is how the non-asset side of an event is
-identified and how the portfolio cash-flow boundary is derived from it.
+Supersedes [0020](0020-double-entry-postings.md), carrying forward its posting and
+group model: a `txs` row is a **posting** whose amount is a signed `quantity` with
+no type-based sign flip, the postings of one economic event belong to a **tx group**
+required to sum to zero, and the invariant is enforced by
+a deferred constraint trigger rather than at load time as beancount does, because
+a database constraint has no equivalent of an unchecked writer. What changes is
+how the non-asset side of an event is identified and how the cash-flow boundary
+is derived from it.
+
+The boundary is what makes this worth structuring at all. Money-weighted return
+needs to know which flows crossed it and which were internal, and time-weighted
+return needs the same boundary to sub-period correctly. With single-legged
+transactions that is a classification problem over the OFX transaction types, per
+broker, with nothing that fails loudly when a mapping is wrong.
 
 ## The non-asset side is a type, not an account name
 
-0020 called for "a small non-asset account vocabulary", first designed as reserved
-name prefixes on `txs.account` after beancount's account roots. Postings instead
-carry an `account_type` -- `USER`, `EQUITY`, `INCOME`, `EXPENSE`, `IMBALANCE`,
-`TRANSFER_CLEARING` -- while keeping the `broker` and `account` of the event they
-belong to.
+Postings carry an `account_type` -- `USER`, `EQUITY`, `INCOME`, `EXPENSE`,
+`IMBALANCE`, `TRANSFER_CLEARING` -- while keeping the `broker` and `account` of
+the event they belong to. 0020 called instead for reserved name prefixes on
+`txs.account`, after beancount's account roots.
 
 `account` is user-supplied free text, so a name convention is unenforceable: a
 broker account named `Imbalance.USD` collides with the machinery, and every read
@@ -28,15 +34,15 @@ foreign-keyed column in a string the two can disagree with.
 
 0020 said a flow is external iff it crosses out of the asset accounts. That is
 wrong. A dividend crosses from `INCOME` into cash and a commission crosses from
-cash into `EXPENSE`; both leave the asset accounts and neither is an external
-flow. Classing them as external would strip dividends out of the return and
-report it gross of fees.
+cash into `EXPENSE`; both leave the asset accounts and neither is external.
+Classing them so would strip dividends out of the return and report it gross of
+fees.
 
 Only `EQUITY` and a crossing to another account are external. `INCOME`, `EXPENSE`
 and `IMBALANCE` are internal, being return and cost rather than contribution.
 `IMBALANCE` is internal because a residual is usually a missing fee or a missing
-cash leg, both of which are internal, and because classing it external would
-launder bad data out of the return instead of leaving it visible.
+cash leg, both internal, and because classing it external would launder bad data
+out of the return instead of leaving it visible.
 
 ## Classification is per account and fixed at ingest
 
@@ -48,10 +54,9 @@ Classifying flows relative to the portfolio being measured was rejected as both
 unimplementable and unstable. Unimplementable because when a transfer's first side
 is posted we may not know whether the other side is an account we hold, or whether
 it exists in our data at all -- that is the whole reason `TRANSFER_CLEARING`
-exists, and a rule needing an answer we do not have cannot be applied. Unstable
-because portfolios are views over editable `portfolio_filters`
-(see [0010](0010-portfolios-as-views.md)), so adding an account to a portfolio
-would silently reclassify historical flows and move every past return figure.
+exists. Unstable because portfolios are views over editable `portfolio_filters`
+([0010](0010-portfolios-as-views.md)), so adding an account to a portfolio would
+silently reclassify historical flows and move every past return figure.
 
 For the same reason there is no per-portfolio user override of internal versus
 external. Membership already expresses the intent, and a toggle would be a second
@@ -60,46 +65,36 @@ place to say the same thing that can disagree with the first.
 ## Consequences
 
 Matching the two sides of a transfer becomes a correctness requirement rather than
-housekeeping. Until a pair is matched, a transfer between two accounts of one
-portfolio reads as a withdrawal and an unrelated deposit, so money-weighted return
-is wrong for any multi-account portfolio. A match is recorded as a link between the
-two tx groups, which is what supplies the account identity the membership test above
-asks for; see [0037](0037-transfer-matches-are-links-not-postings.md).
+housekeeping: until a pair is matched, a transfer within one portfolio reads as a
+withdrawal and an unrelated deposit. A match is recorded as a link between the two
+tx groups, which supplies the account identity the membership test asks for; see
+[0037](0037-transfer-matches-are-links-not-postings.md).
 
 Converters, not the server, emit income and expense legs
-(see [0021](0021-converters-own-transaction-grouping.md)). The server cannot
+([0021](0021-converters-own-transaction-grouping.md)). The server cannot
 distinguish an uncategorised dividend from a genuinely incomplete trade, so every
 unbalanced residual routes to `IMBALANCE` and early imbalance figures are
-dominated by uncategorised income rather than by the missing fees the mechanism
-is aimed at.
+dominated by uncategorised income rather than by the missing fees the mechanism is
+aimed at.
 
-0020 held that the read path was unaffected. Grouping alone left it unaffected;
-typing does not. Holdings and portfolio views must filter to `account_type =
-'USER'` so that no residual or in-flight balance appears as a position. Valuation
-is a separate question from holdings: excluding `TRANSFER_CLEARING` makes a
-holding vanish for the days between the two sides of a matched transfer, so
-in-flight value is included in valuation for matched pairs whose accounts are
-both portfolio members, and excluded otherwise.
+Typing the accounts changes the read path, where grouping alone did not. Holdings
+and portfolio views filter to `account_type = 'USER'` so no residual or in-flight
+balance appears as a position. Valuation is a separate question: excluding
+`TRANSFER_CLEARING` makes a holding vanish for the days between the two sides of a
+matched transfer, so in-flight value is included for matched pairs whose accounts
+are both portfolio members, and excluded otherwise. Valuation and the flow query
+read one view, `portfolio_in_flight_txs`, so they cannot disagree about what nets
+-- a disagreement would be a value series and a return series computed over
+different perimeters.
 
-Both consumers have since landed ([0090](../issues/0090-net-and-value-matched-transfers.md)).
-The pairs a portfolio values are `portfolio_in_flight_txs`, a view beside
-`portfolio_matched_txs` because it asks the same question about membership -- of the
-counterpart's own clearing leg, which is the test that reads identically from either
-side of a pair. The flow query nets a matched pair by reading the same view, so the two
-cannot disagree about what nets -- a disagreement would be a value series and a return
-series computed over different perimeters. One consequence is worth stating plainly
-rather than discovering. This
-ADR rejected portfolio-relative *classification* partly because adding an account to a
-portfolio would move every past return figure; netting was always going to be read at
-query time, and now valuation is too, so a historical value series moves when membership
-changes or when the matcher runs. That is the price of not storing a decision that
-depends on data which has not arrived, and it is the price this ADR already accepted for
-netting.
+**A historical value series moves when membership changes or when the matcher
+runs.** This ADR rejects portfolio-relative *classification* partly because adding
+an account would move every past return figure, then accepts exactly that for
+netting and valuation, which are read at query time. It is the price of not
+storing a decision that depends on data which has not arrived.
 
-0020's remaining consequences stand. An INITIALIZE row (see
-[0011](0011-synthetic-initialize-transactions.md)) is a pad with no counterparty
+0020's remaining consequences stand. An INITIALIZE row
+([0011](0011-synthetic-initialize-transactions.md)) is a pad with no counterparty
 and needs an `EQUITY` posting to satisfy the invariant, and the invariant is
-awkward to state while `quantity` and `unit_price` are `DOUBLE PRECISION`, because
-summing float buys and sells does not land on exactly zero and the tolerance that
-covers it has to be justified per call site (see
-[0026](0026-exact-decimals-bounded-by-closure.md)).
+awkward to state while `quantity` and `unit_price` are `DOUBLE PRECISION`
+([0026](0026-exact-decimals-bounded-by-closure.md)).

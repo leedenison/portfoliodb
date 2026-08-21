@@ -29,6 +29,6 @@ completion date once it settles; resuming after the last known transaction would
 leave the earlier copy outside the replace window, where it survives the delete and
 becomes a duplicate. The overlap exists to prevent that duplication, and is free
 because ingestion is idempotent by replacement (see
-adr/0002-transaction-ingestion-model.md). The consequence is that the lookback is
+[0002](0002-transaction-ingestion-model.md)). The consequence is that the lookback is
 not an arbitrary safety margin: it must exceed the broker's longest order-to-
 completion lag, or duplicates reappear.

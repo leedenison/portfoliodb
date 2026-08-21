@@ -10,7 +10,7 @@ balance means the opening balance can be recalculated correctly when the portfol
 start date moves or intervening transactions change.
 
 INITIALIZE transactions are system-managed and not directly editable through the
-normal transaction UI — users change them indirectly by editing the declaration.
+normal transaction UI -- users change them indirectly by editing the declaration.
 Making derived data user-editable would let the declaration and its INITIALIZE
 diverge. Each carries a `synthetic_purpose` field (`NULL` for real transactions,
 `'INITIALIZE'` here) chosen so future synthetic kinds such as TRUE_UP fit the same

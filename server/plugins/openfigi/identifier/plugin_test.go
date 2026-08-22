@@ -53,7 +53,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 	if res.Instrument == nil {
 		t.Fatal("expected instrument")
 	}
-	if res.Instrument.AssetClass != "STOCK" || res.Instrument.Name != "INTL BUSINESS MACHINES CORP" || res.Instrument.Venue.MIC != "" {
+	if res.Instrument.AssetClass != "STOCK" || res.Instrument.Name != "INTL BUSINESS MACHINES CORP" || res.Instrument.Listing.Venue.MIC != "" {
 		t.Errorf("instrument = %+v", res.Instrument)
 	}
 	hasOpenFIGITicker, hasMICTicker := false, false
@@ -908,8 +908,8 @@ func TestResolveResults_ExchangeHintOutranksSecurityType(t *testing.T) {
 	if inst.Name != "WISE PLC" {
 		t.Errorf("Name = %q, want %q", inst.Name, "WISE PLC")
 	}
-	if inst.Venue.MIC != "XLON" {
-		t.Errorf("Exchange = %q, want XLON", inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "XLON" {
+		t.Errorf("Exchange = %q, want XLON", inst.Listing.Venue.MIC)
 	}
 }
 
@@ -926,8 +926,8 @@ func TestResolveResults_ExchangeHintPreferredOverTypeMatch(t *testing.T) {
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
-	if inst.Venue.MIC != "XLON" {
-		t.Errorf("Exchange = %q, want XLON", inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "XLON" {
+		t.Errorf("Exchange = %q, want XLON", inst.Listing.Venue.MIC)
 	}
 	// The asset class still comes from the selected result, not the hint.
 	if inst.AssetClass != "STOCK" {
@@ -976,8 +976,8 @@ func TestResolveResults_CompositeCoveringHintedVenueOutranksAForeignListing(t *t
 	}
 	// The composite says the listing is somewhere in that group, not that it is
 	// on XNYS, so nothing is asserted about the venue.
-	if inst.Venue.MIC != "" {
-		t.Errorf("Exchange = %q, want empty: a composite names no single venue", inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "" {
+		t.Errorf("Exchange = %q, want empty: a composite names no single venue", inst.Listing.Venue.MIC)
 	}
 }
 
@@ -994,8 +994,8 @@ func TestResolveResults_NamedVenueOutranksCompositeThatCoversIt(t *testing.T) {
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
-	if inst.Venue.MIC != "XNYS" {
-		t.Errorf("Exchange = %q, want XNYS: naming the venue beats spanning it", inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "XNYS" {
+		t.Errorf("Exchange = %q, want XNYS: naming the venue beats spanning it", inst.Listing.Venue.MIC)
 	}
 }
 
@@ -1013,8 +1013,8 @@ func TestResolveResults_UnrankedPrefersTheCompositeOverAnArbitraryVenue(t *testi
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
-	if inst.Venue.MIC != "" {
-		t.Errorf("Exchange = %q, want empty", inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "" {
+		t.Errorf("Exchange = %q, want empty", inst.Listing.Venue.MIC)
 	}
 	var domain string
 	for _, id := range ids {
@@ -1060,12 +1060,12 @@ func TestPlugin_Identify_MICTickerDomainDroppedOnExchangeMismatch(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	if res.Instrument.Venue.MIC != "XSTO" {
-		t.Fatalf("Exchange = %q, want XSTO", res.Instrument.Venue.MIC)
+	if res.Instrument.Listing.Venue.MIC != "XSTO" {
+		t.Fatalf("Exchange = %q, want XSTO", res.Instrument.Listing.Venue.MIC)
 	}
 	for _, id := range res.Identifiers {
 		if id.Type == "MIC_TICKER" {
-			t.Errorf("MIC_TICKER %+v asserted against an instrument on %s", id, res.Instrument.Venue.MIC)
+			t.Errorf("MIC_TICKER %+v asserted against an instrument on %s", id, res.Instrument.Listing.Venue.MIC)
 		}
 	}
 }

@@ -14,9 +14,12 @@ import (
 type Instrument struct {
 	ID         string // UUID; may be empty when creating new
 	AssetClass string // one of STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN
-	Venue      Venue  // where the provider said the instrument trades
-	Currency   string
-	Name       string // optional display name
+	// The line this answer is about. A provider answers about one listing of a
+	// security -- a quote has a currency and comes from somewhere -- so the
+	// result carries a security and one of its lines rather than a flat set of
+	// fields at two grains.
+	Listing Listing
+	Name    string // optional display name
 
 	CIK     string // SEC Central Index Key (optional)
 	SICCode string // SIC industry classification code (optional)
@@ -33,6 +36,21 @@ type Instrument struct {
 	// was available to trade on the exchange in. No plugin supplies these yet.
 	ValidFrom   *time.Time
 	ValidBefore *time.Time
+}
+
+// Listing is what a plugin said about one currency line of the security it
+// resolved: what the line is quoted in, and where it trades.
+//
+// The two are not peers. The currency is what identifies the line -- two
+// currencies differ by an FX rate and make two non-fungible holdings -- while
+// the venue is an attribute of it, because two venues quoting one currency
+// differ by a spread. So a result that named a currency has named a line, and
+// one that named only a venue may not have.
+//
+// See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+type Listing struct {
+	Venue    Venue  // where the provider said the line trades
+	Currency string // the code the line is quoted in
 }
 
 // Identity is what is known about an instrument at one point in resolution,

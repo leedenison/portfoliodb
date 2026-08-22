@@ -25,11 +25,11 @@ func TestStockFromSearch(t *testing.T) {
 	if inst.AssetClass != "STOCK" {
 		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
 	}
-	if inst.Venue.MIC != "" {
-		t.Errorf("Exchange = %q, want empty (no exchMap)", inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "" {
+		t.Errorf("Exchange = %q, want empty (no exchMap)", inst.Listing.Venue.MIC)
 	}
-	if inst.Currency != "USD" {
-		t.Errorf("Currency = %q, want USD", inst.Currency)
+	if inst.Listing.Currency != "USD" {
+		t.Errorf("Currency = %q, want USD", inst.Listing.Currency)
 	}
 	if inst.Name != "Apple Inc" {
 		t.Errorf("Name = %q, want Apple Inc", inst.Name)
@@ -154,8 +154,8 @@ func TestStockFromSearch_CompositeExchangeIsNotResolvedToAVenue(t *testing.T) {
 	if inst == nil {
 		t.Fatal("expected instrument")
 	}
-	if inst.Venue.MIC != "" {
-		t.Errorf("Exchange = %q, want empty: US covers XNAS, XNYS and OTCM and the result names none of them", inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "" {
+		t.Errorf("Exchange = %q, want empty: US covers XNAS, XNYS and OTCM and the result names none of them", inst.Listing.Venue.MIC)
 	}
 	for _, id := range ids {
 		if id.Type == "MIC_TICKER" && id.Domain != "" {
@@ -189,8 +189,8 @@ func TestStockFromSearch_SingleMICExchangeResolves(t *testing.T) {
 	if inst == nil {
 		t.Fatal("expected instrument")
 	}
-	if inst.Venue.MIC != "XLON" {
-		t.Errorf("Exchange = %q, want XLON", inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "XLON" {
+		t.Errorf("Exchange = %q, want XLON", inst.Listing.Venue.MIC)
 	}
 	for _, id := range ids {
 		if id.Type == "MIC_TICKER" && id.Domain != "XLON" {

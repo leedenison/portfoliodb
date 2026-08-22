@@ -220,7 +220,7 @@ func TestResolve_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T) {
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple Inc.", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "AAPL"}, {Type: "ISIN", Value: "US0378331005"}},
 		err:  nil,
 	})
@@ -271,7 +271,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 	desc := "APPLE INC COM"
 	// Plugin returns only canonical ids; does not include (source, desc).
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple Inc.", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 		err:  nil,
 	})
@@ -328,7 +328,7 @@ func pathATestDB(t *testing.T, ctrl *gomock.Controller) (*mock.MockDB, *identifi
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10}}, nil)
 	registry := identifier.NewRegistry()
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple Inc.", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
 	})
 	return database, registry
@@ -422,9 +422,11 @@ func TestResolve_PluginReturnsUnderlying_ResolvesUnderlyingThenDerivative(t *tes
 	registry.Register("local", &fakePlugin{
 		inst: &identifier.Instrument{
 			AssetClass: "OPTION",
-			Venue:      identifier.Venue{MIC: "SMART"},
-			Currency:   "USD",
 			Name:       "AAPL Call 20250117 200 C",
+			Listing: identifier.Listing{
+				Venue:    identifier.Venue{MIC: "SMART"},
+				Currency: "USD",
+			},
 			UnderlyingIdentifiers: []identifier.Identifier{
 				{Type: "MIC_TICKER", Value: "AAPL"},
 			},
@@ -1149,7 +1151,7 @@ func TestResolve_PathAPassesProposalsApartFromWhatTheSourceStated(t *testing.T) 
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	plugin := &capturingPlugin{fakePlugin: fakePlugin{
-		inst: &identifier.Instrument{AssetClass: db.AssetClassStock, Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"},
+		inst: &identifier.Instrument{AssetClass: db.AssetClassStock, Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
 	}}
 	registry := identifier.NewRegistry()

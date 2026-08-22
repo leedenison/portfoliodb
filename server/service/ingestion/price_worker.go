@@ -367,8 +367,10 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 	if len(resolved) == 1 {
 		inst := &identifier.Instrument{
 			AssetClass: resolved[0].AssetClass,
-			Venue:      identifier.Venue{MIC: resolved[0].Exchange},
-			Currency:   resolved[0].Currency,
+			Listing: identifier.Listing{
+				Venue:    identifier.Venue{MIC: resolved[0].Exchange},
+				Currency: resolved[0].Currency,
+			},
 		}
 		normMIC := identification.NewDBMICNormalizer(database)
 		diffs := identification.CompareHints(ctx, hints, []identifier.Identifier{hint}, inst, nil, normMIC)

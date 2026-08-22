@@ -189,17 +189,17 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 	// contradicts the winner's currency and is dropped from the merge.
 	registry := identifier.NewRegistry()
 	registry.Register("high", &telPlugin{
-		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Currency: "USD"},
+		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "USD"}},
 		ids:     []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 		outcome: identifier.OutcomeIdentified,
 	})
 	registry.Register("mid", &telPlugin{
-		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Currency: "USD"},
+		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "USD"}},
 		ids:     []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 		outcome: identifier.OutcomeIdentified,
 	})
 	registry.Register("odd", &telPlugin{
-		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Currency: "EUR"},
+		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "EUR"}},
 		outcome: identifier.OutcomeIdentified,
 	})
 
@@ -416,14 +416,14 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 	registry := identifier.NewRegistry()
 	// Returns a FIGI while strictly filtered on an ISIN it does not echo back.
 	registry.Register("high", &telPlugin{
-		inst:     &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Currency: "USD"},
+		inst:     &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "USD"}},
 		ids:      []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 		filtered: []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 		outcome:  identifier.OutcomeIdentified,
 	})
 	// Contradicts the winner's currency, so it is discarded from the merge.
 	registry.Register("odd", &telPlugin{
-		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Currency: "EUR"},
+		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "EUR"}},
 		ids:     []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}},
 		outcome: identifier.OutcomeIdentified,
 	})

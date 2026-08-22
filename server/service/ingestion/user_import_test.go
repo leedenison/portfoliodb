@@ -347,7 +347,7 @@ func TestProcessUserImport_TxPartResolvesAgainstTheEnvelopeVintage(t *testing.T)
 
 	registry := identifier.NewRegistry()
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "OPTION", Currency: "USD"},
+		inst: &identifier.Instrument{AssetClass: "OPTION", Listing: identifier.Listing{Currency: "USD"}},
 		ids:  []identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}},
 	})
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).

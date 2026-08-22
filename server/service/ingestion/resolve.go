@@ -61,7 +61,10 @@ const (
 
 // resolveResult holds the outcome of resolving one (source, instrument_description).
 type resolveResult struct {
-	InstrumentID  string
+	InstrumentID string
+	// The currency line the resolution landed on, empty where nothing named one.
+	// Carried so that a posting can name it; the write that does is 0149.
+	ListingID     string
 	IdErr         *db.IdentificationError
 	FirstRowIndex int32
 	// Which lookup answered, when the pre-pass answered from the database. A
@@ -539,7 +542,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		keys.fields(key, result.ProposalOutcomes)
 	}
 
-	r := resolveResult{InstrumentID: result.InstrumentID, FirstRowIndex: rowIndex}
+	r := resolveResult{InstrumentID: result.InstrumentID, ListingID: result.ListingID, FirstRowIndex: rowIndex}
 	if !result.Identified {
 		msg := MsgBrokerDescriptionOnly
 		switch {

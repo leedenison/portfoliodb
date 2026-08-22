@@ -214,9 +214,11 @@ func openFIGIResultToInstrument(r *OpenFIGIResult, exchMap *exchangemap.Exchange
 	}
 	inst := &identifier.Instrument{
 		AssetClass: assetClass,
-		Venue:      resolveVenue(r.ExchCode, exchMap),
-		Currency:   "", // OpenFIGI does not return currency; caller sets from hints
-		Name:       name,
+		Listing: identifier.Listing{
+			Currency: "", // OpenFIGI does not return currency; caller sets from hints
+			Venue:    resolveVenue(r.ExchCode, exchMap),
+		},
+		Name: name,
 	}
 	if r.FIGI != "" {
 		inst.ProviderIdentifiers = append(inst.ProviderIdentifiers,

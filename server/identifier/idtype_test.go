@@ -8,8 +8,8 @@ import (
 
 // notCanonical are members of the proto enum that are not identifier types.
 // UNSPECIFIED is the zero member every proto3 enum carries, and OPENFIGI_GLOBAL
-// named the venue-specific FIGI before it moved to
-// provider_instrument_identifiers.
+// named the venue-specific FIGI before it moved to the provider identifiers,
+// where providerIDTypes carries it as FIGI.
 var notCanonical = map[string]bool{
 	"IDENTIFIER_TYPE_UNSPECIFIED": true,
 	"OPENFIGI_GLOBAL":             true,
@@ -48,9 +48,8 @@ func TestPropsCoversProtoVocabulary(t *testing.T) {
 	}
 }
 
-// A domain means something different either side of the grain: on a listing type
-// it says which venue, on every other type it says who is speaking. Only the
-// first makes two values under two domains into two things.
+// What a value names, which decides both where its row is stored and whether two
+// values under two domains are two things.
 func TestNamesAListing(t *testing.T) {
 	for _, tt := range []struct {
 		typ  string
@@ -58,7 +57,15 @@ func TestNamesAListing(t *testing.T) {
 	}{
 		{"MIC_TICKER", true},
 		{"OPENFIGI_TICKER", true},
+		// Listing-grain with no domain to say so. Both are issued per market,
+		// and a market's venues share a currency, so each names a line on its
+		// own -- which is the case a rule reading grain off the domain gets
+		// backwards.
+		{"SEDOL", true},
+		{"OPENFIGI_COMPOSITE", true},
 		{"ISIN", false},
+		// The class the lines belong to, not one of them.
+		{"OPENFIGI_SHARE_CLASS", false},
 		// A contract is its own security and its symbol carries no venue.
 		{"OCC", false},
 		// The domain is the source that wrote the description, not a venue.
@@ -68,6 +75,31 @@ func TestNamesAListing(t *testing.T) {
 		t.Run(tt.typ, func(t *testing.T) {
 			if got := NamesAListing(tt.typ); got != tt.want {
 				t.Errorf("NamesAListing(%q) = %v, want %v", tt.typ, got, tt.want)
+			}
+		})
+	}
+}
+
+// A provider type is a free-form string rather than a vocabulary member, so an
+// undeclared one has to fail closed onto the security rather than read as the
+// zero value of Grain and land on a listing nothing picked.
+func TestProviderNamesAListing(t *testing.T) {
+	for _, tt := range []struct {
+		typ  string
+		want bool
+	}{
+		{"SEGMENT_MIC_TICKER", true},
+		{"EODHD_EXCH_CODE", true},
+		{"FIGI", true},
+		{"NOT_A_PROVIDER_TYPE", false},
+		{"", false},
+		// A canonical type is not a provider type, and asking the wrong table
+		// must not answer for it.
+		{"MIC_TICKER", false},
+	} {
+		t.Run(tt.typ, func(t *testing.T) {
+			if got := ProviderNamesAListing(tt.typ); got != tt.want {
+				t.Errorf("ProviderNamesAListing(%q) = %v, want %v", tt.typ, got, tt.want)
 			}
 		})
 	}
@@ -108,6 +140,11 @@ func TestMayMediate(t *testing.T) {
 		// property would miss, and an ISIN is exactly where it would be missed.
 		{"user-owned ISIN does not", "ISIN", false, false},
 		{"user-owned FIGI does not", "OPENFIGI_COMPOSITE", false, false},
+		// Listing grain is not the question MayMediate asks. Both of these name
+		// a line and both are still rarely reassigned, which is the only
+		// property that decides this.
+		{"listing-grain composite mediates", "OPENFIGI_COMPOSITE", true, true},
+		{"listing-grain SEDOL mediates", "SEDOL", true, true},
 		// A type outside the vocabulary fails closed rather than reading as the
 		// zero value of Reassignment.
 		{"unknown type does not", "CONID", true, false},

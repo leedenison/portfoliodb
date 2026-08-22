@@ -53,26 +53,36 @@ const (
 	ReassignRoutine
 )
 
-// Grain says what a type's values name: the security, or one listing of it.
+// Grain says what a type's values name: the security, or one listing of it --
+// which is to say one currency the security trades in.
 //
 // An ISIN spans every listing of a security while a MIC_TICKER names one of
-// them, and its domain is which. So the grain decides what a domain does. Under
-// GrainListing a domain scopes the value, and two values of one type under two
-// named domains are about two listings; under GrainSecurity the domain names
-// something else entirely -- the source that wrote a description, the broker
-// that issued a contract number -- and two of them are two names for one thing.
+// them. Two listing-grain values are two listings; two security-grain values are
+// two names for one thing.
 //
-// This is the axis docs/spec/identifiers.md draws when it says metadata is
-// security-level or listing-level and the two do not propagate alike.
+// Grain does not imply a domain. A ticker needs one to say which listing it
+// names; a SEDOL and a composite FIGI are globally unique without one, as an
+// ISIN is at the level above. Where a listing-grain type carries a domain, that
+// domain scopes the value, and two values under two named domains are about two
+// listings; a security-grain type's domain -- the source that wrote a
+// description, the broker that issued a contract number -- names something
+// beside the value instead.
+//
+// Grain also decides where a row is stored: security-grain identifiers against
+// the instrument, listing-grain against the listing. It is the axis
+// docs/spec/identifiers.md draws when it says metadata is security-level or
+// listing-level and the two do not propagate alike.
 type Grain uint8
 
 const (
 	// GrainUnknown is the zero value and belongs to no type in the table, for
 	// the reason ScopeUnknown gives.
 	GrainUnknown Grain = iota
-	// GrainSecurity names the security itself, however many venues it trades on.
+	// GrainSecurity names the security itself, however many currencies it
+	// trades in.
 	GrainSecurity
-	// GrainListing names one listing of a security, and the domain says which.
+	// GrainListing names one listing of a security: one currency it trades in.
+	// Where the type carries a domain, that domain says which.
 	GrainListing
 )
 
@@ -87,16 +97,16 @@ type TypeProps struct {
 // IdentifierType names) and their declared properties.
 //
 // OPENFIGI_GLOBAL is deliberately absent. The venue-specific FIGI it named moved
-// to provider_instrument_identifiers, so it is no longer a canonical identifier
-// however long the proto enum keeps the member.
+// to the provider identifiers, where providerIDTypes below carries it as FIGI, so
+// it is no longer a canonical identifier however long the proto enum keeps the
+// member.
 var idTypes = map[string]TypeProps{
 	// Reassigned only by documented national exception -- a numbering agency
 	// reissuing a retired value is rare enough that refusing to chain through
 	// these would fragment the master for the sake of an event that happens by
-	// exception. All five may mediate a transitive association.
+	// exception. All four may mediate a transitive association.
 	"ISIN":       {ScopeGlobal, ReassignRare, GrainSecurity},
 	"CUSIP":      {ScopeGlobal, ReassignRare, GrainSecurity},
-	"SEDOL":      {ScopeGlobal, ReassignRare, GrainSecurity},
 	"CINS":       {ScopeGlobal, ReassignRare, GrainSecurity},
 	"WERTPAPIER": {ScopeGlobal, ReassignRare, GrainSecurity},
 
@@ -106,11 +116,23 @@ var idTypes = map[string]TypeProps{
 	// would pass it, and refusing to chain through ISINs to gain it trades a
 	// frequent, certain cost against a rare, correctable one.
 	//
-	// Security-grain, which is the non-obvious one here: a composite names a
-	// security within a market rather than one venue's line of it, and adr/0061
-	// already lets it mediate an association between securities.
+	// A share class FIGI is the level above a listing by construction: it is
+	// what OpenFIGI issues for the class the individual lines belong to.
 	"OPENFIGI_SHARE_CLASS": {ScopeGlobal, ReassignRare, GrainSecurity},
-	"OPENFIGI_COMPOSITE":   {ScopeGlobal, ReassignRare, GrainSecurity},
+
+	// Rarely reassigned and listing-grain, which is an uncommon pair. Both still
+	// mediate a transitive association, because MayMediate reads reassignment
+	// alone and neither of these is reassigned any more freely for naming a line
+	// rather than a security.
+	//
+	// A composite FIGI names a security within a market, and a market's venues
+	// share a currency, so what it picks out is the currency line rather than the
+	// security above it. A SEDOL is assigned per market and per line, so it lands
+	// in the same place by the same argument. Neither carries a domain: both are
+	// globally unique without one, which is why grain here says nothing about
+	// having one. See adr/0068-a-listing-is-a-currency-of-a-security.md.
+	"SEDOL":              {ScopeGlobal, ReassignRare, GrainListing},
+	"OPENFIGI_COMPOSITE": {ScopeGlobal, ReassignRare, GrainListing},
 
 	// Tickers are reused constantly and across venues. EA passing from
 	// Electronic Arts to whatever holds the symbol now is a live example rather
@@ -173,6 +195,37 @@ func Known(t string) bool {
 func NamesAListing(t string) bool {
 	p, ok := idTypes[t]
 	return ok && p.Grain == GrainListing
+}
+
+// providerIDTypes is the grain of each provider-specific identifier type.
+//
+// A provider type is a free-form string a plugin invents rather than a member of
+// a controlled vocabulary, so this is a table of the ones that exist rather than
+// of the ones that are permitted, and it declares grain alone. Scope and
+// reassignment are not asked of a provider identifier: it never mediates an
+// association and is never admitted as an identity claim, so neither property
+// decides anything and declaring them would be inventing answers.
+//
+// All three name a listing. A segment MIC and a ticker name one venue's line of
+// a security; an EODHD exchange code names a market, whose venues share a
+// currency; and a venue-specific FIGI is issued per line rather than per
+// security, which is what distinguishes it from the share class FIGI above.
+var providerIDTypes = map[string]Grain{
+	"SEGMENT_MIC_TICKER": GrainListing,
+	"EODHD_EXCH_CODE":    GrainListing,
+	"FIGI":               GrainListing,
+}
+
+// ProviderNamesAListing reports whether a provider-specific identifier type's
+// values name one listing of a security.
+//
+// False for a type outside the table, which is the safe reading rather than the
+// likely one: an undeclared provider type could name either level, and filing it
+// against the security attaches it to a row that certainly exists, where filing
+// it against a listing would have to pick one. A plugin returning a new type
+// declares it here.
+func ProviderNamesAListing(t string) bool {
+	return providerIDTypes[t] == GrainListing
 }
 
 // MayMediate reports whether an association on this identifier type may mediate

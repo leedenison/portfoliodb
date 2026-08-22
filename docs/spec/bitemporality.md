@@ -39,7 +39,8 @@ clock every read API means by "as of".
 | `stock_splits` | `ex_date` | The effective / execution date. |
 | `cash_dividends` | `ex_date`, `pay_date`, `record_date`, `declaration_date` | Four distinct points in the dividend's life. `declaration_date` is when the issuer announced it -- the world's knowledge time, but PortfolioDB's valid time, because what we know is that the announcement happened on that date. |
 | `holding_declarations` | `as_of_date` | The date the user's declaration refers to. |
-| `instruments` | `valid_from`, `valid_before`, `expiry` | When the instrument was tradeable. Descriptive only for `valid_from` / `valid_before` -- see [Instrument identity](#instrument-identity) below. |
+| `instruments` | `expiry` | When an option contract expires. |
+| `instrument_listings` | `valid_from`, `valid_before` | When the listing was tradeable. A delisting closes one; the security above has no interval of its own. |
 | `instrument_identifiers` | `valid_from`, `valid_before` | The interval a name was correct for the instrument -- see [Instrument identity](#instrument-identity) below. |
 | `price_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about for prices. |
 | `corporate_event_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about. |
@@ -94,8 +95,9 @@ is character-for-character the 50-strike's old one.
 falling back to the most recently closed one, so a pre-split symbol still
 resolves. Asking what a value denoted on a given date is
 [0122](../issues/0122-resolve-identity-as-of-a-date.md), not this.
-`instruments.valid_from` and `valid_before` describe when the instrument was
-tradeable and no query filters on them. A merge still deletes the loser outright,
+A tradability window is a fact about a listing, not about the security, so
+`instrument_listings` carries the interval and `instruments` carries none. A
+merge still deletes the loser outright,
 leaving no record of what was believed before, though the loser's names travel to
 the survivor with their intervals intact
 (see adr/0004-instrument-resolution-and-merge.md).

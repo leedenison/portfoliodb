@@ -1,5 +1,9 @@
 # An instrument with no identity is completed in place
 
+Amended by [0071](0071-listings-merge-by-currency-and-an-unknown-one-splits.md),
+which applies the same completion one level down: a listing with no currency
+learns one in place and merges into any sibling already holding it.
+
 A broker-description-only instrument is one row and one non-canonical
 `BROKER_DESCRIPTION`: it holds no canonical identifier and every column is null.
 It exists because an upload had to attach a transaction to something and nothing

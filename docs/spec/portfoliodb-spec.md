@@ -47,9 +47,9 @@ The client supports uploading transactions in several formats:
 
 ## Associating Instruments with Transactions
 
-Each transaction modifies holding data for a specific canonical instrument (and possibly modifies a cash holding).  So an instrument must be associated with every transaction.
+Each transaction modifies holding data for one **listing** of a canonical instrument -- one currency that instrument trades in -- and possibly modifies a cash holding.  So a listing must be associated with every transaction.
 
-Every valid transaction must end up with an **instrument_id**: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that source’s description). Truly unidentified transactions must not exist and are considered a fatal validation error.  See identifiers.md.
+Every valid transaction must end up with a **listing_id**, never with a bare instrument: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that source's description).  A transaction whose currency line is not known names that instrument's unknown listing rather than the instrument itself, so that a posting group never mixes grains.  Truly unidentified transactions must not exist and are considered a fatal validation error.  See identifiers.md and adr/0070-a-posting-names-a-listing.md.
 
 ### Transaction description vs instrument name
 
@@ -67,7 +67,7 @@ Exchange codes on MIC_TICKER identifiers are always stored as **operating MICs**
 
 ### Transaction ingestion: resolution cases
 
-The following diagram illustrates how each transaction is resolved to an instrument during upload. Optional client **hints** (exchange, currency, MIC, security type hint) are used only to narrow resolution; the decision tree is driven by whether the client supplies **identifier hints** (e.g. ISIN, TICKER) and by the outcomes of the **description** and **identifier** plugins.
+The following diagram illustrates how each transaction is resolved to an instrument and a listing during upload. Optional client **hints** are used to narrow resolution, and the currency hint additionally completes an identity, since a currency is what names a listing; the decision tree is driven by whether the client supplies **identifier hints** (e.g. ISIN, TICKER) and by the outcomes of the **description** and **identifier** plugins.
 
 ```mermaid
 flowchart TD
@@ -128,17 +128,17 @@ The system should support the ability to fetch current and historical prices for
 
 PortfolioDB calculates holdings for a particular point in time from the transaction data.  It does not materialise the holdings in the database.  The `instrument_description` returned in a holding uses the instrument's canonical name when available, falling back to the transaction description (see "Transaction description vs instrument name" above).
 
-## Exchanges
+## Listings, currencies and exchanges
 
-Instruments should record which exchanges they are traded on and the currencies that they are traded in on those exchanges.  The system should attempt to identify the exchange and the listing currency of a given transaction.  
+A security is split from the currencies it trades in.  A **listing** is one such currency, and a security holds one listing per currency; the venues it trades on are recorded against the listing rather than against the security, because two venues quoting one security in one currency are fungible and differ by a spread rather than by an FX rate.  The system should identify the currency line of a given transaction, and record whatever venues a provider named for it.  See identifiers.md and adr/0068-a-listing-is-a-currency-of-a-security.md.
 
 ## Derivatives
 
-Options and futures should be related to their underlying instrument.
+Options and futures should be related to their underlying listing: the deliverable is shares denominated in a currency, so an option's own currency and its underlying's should agree.
 
 ## Valid From and To
 
-Stocks, Options and Futures should have valid from and to dates which specify when the instrument was available to trade on the exchange.
+A **listing** carries valid from and to dates specifying when it was available to trade.  Delisting closes a listing rather than being represented as a new instrument; a venue migration closes nothing, being only a change to the venues recorded against the listing.  The security above has no interval of its own -- its window is the hull of its listings'.
 
 ## Time Model
 

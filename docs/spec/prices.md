@@ -145,8 +145,8 @@ Compute the date ranges during which any user held a non-zero position in each i
 
 ### Behaviour
 
-1. Aggregate daily net quantity changes per instrument from the transaction history (system-wide, all users). Only transactions with a non-NULL `instrument_id` are included.
-2. Compute the cumulative position per instrument using SQL window functions.
+1. Aggregate daily net quantity changes per listing from the transaction history (system-wide, all users). Only transactions with a non-NULL `listing_id` are included; a listing with no currency is skipped, being unpriceable.
+2. Compute the cumulative position per listing using SQL window functions.
 3. In Go, iterate the daily positions and detect zero-crossings:
    - `held_from` = the date the position first becomes non-zero.
    - `held_before` = the date the position returns to zero, OR today + 1 day (exclusive) if `ExtendToToday` is true and the position is still open.
@@ -279,11 +279,11 @@ FXGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
 ### Behaviour
 
 1. Call `HeldRanges(ctx, opts)` to get instrument held ranges.
-2. For each held instrument, look up `instruments.currency`.
+2. For each held listing, look up its currency.
 3. For each currency C where C != `"USD"`, look up the corresponding FX pair
    instrument ID (by querying `instrument_identifiers` for type `FX_PAIR`
    and value `CUSD`).
-4. Compute the union of held ranges across all instruments sharing currency C.
+4. Compute the union of held ranges across all listings sharing currency C.
    This is the "needed" range for the C/USD FX pair instrument. Use
    `MergeRanges` to consolidate overlapping ranges.
 5. Call `PriceCoverage(ctx, fxInstrumentIDs)` to get existing FX rate coverage.

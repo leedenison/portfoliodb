@@ -42,6 +42,7 @@ Numbers are not reused. A gap is a milestone that was retired.
 - **M22** - What a portfolio selects is settled, and a portfolio definition survives a rebuild.
 - **M23** - Everything that has to happen on a cadence has something running it.
 - **M24** - What makes an identity claim authoritative is written down and enforced: a merge acts on a claim a source actually made, a claim that cannot hold is recorded rather than guessed at, and a claim arriving through a user is owned by them until other users agree.
+- **M25** - A security has listings and a listing is a currency: a holding, a price, a dividend and a transaction each name the line they belong to, so two currency lines of one security are told apart rather than merged.
 
 ## Productionisation
 
@@ -55,7 +56,6 @@ Numbers are not reused. A gap is a milestone that was retired.
 - Portfolio definition based on tagged instruments.
 - Portfolio sharing between users and aggregates that combine portfolios (including shared portfolios).
 - Browser extension recipes for further brokers.
-- Exchange and listing currency: identify and store per transaction/instrument (and support multiple listings per instrument if needed).
 - Modular ingestion workflow with distinct tasks and explicit dependency modelling.
 - Loading index instrument metadata and price data for performance comparison.
 - Portfolio performance metrics: time-weighted return (TWR) and money-weighted return (MWR).

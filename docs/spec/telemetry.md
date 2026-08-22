@@ -212,6 +212,7 @@ One identifier an identifier plugin call returned, or was strictly filtered on.
 | --- | --- |
 | `call_id` | the `identifier_plugin_call` it belongs to |
 | `identifier_type`, `domain`, `value` | the whole triple, because a ticker under two domains names two listings |
+| `listing_currency` | which line the resolution landed on, absent when it landed on the unknown one |
 | `role` | `returned`, or `filtered` where the call constrained the provider to this value and a non-empty response therefore asserts it |
 
 A filtered row is graded with a returned one. A provider answering "no identifier found"
@@ -425,9 +426,9 @@ zero for every other run kind, as `key_count` is for a cycle.
 
 ### Naming an instrument
 
-A resolution key records `instrument_id` and nothing readable, which leaves no panel able
-to say which instrument a description landed on -- the question asked after every manual
-import, since a description resolving to the wrong listing looks identical to it
+A resolution key records `listing_id` and nothing readable, which leaves no panel able
+to say which listing a description landed on -- the question asked after every manual
+import, since a description resolving to the wrong currency line looks identical to it
 resolving to the right one in a bare UUID.
 
 Recording a label when the key is stamped was rejected: the readable instrument is two

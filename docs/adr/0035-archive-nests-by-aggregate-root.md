@@ -1,5 +1,10 @@
 # Archive files nest by aggregate root
 
+Amended by [0069](0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md),
+which makes the aggregate root of prices and corporate events the **listing**
+rather than the instrument, named by a security identifier and a currency. The
+three levels and the rule for what belongs at each stand.
+
 An archive file has three levels -- file, group and row -- and each states its own
 scope in full. The group is the entity's aggregate root: the **instrument** for
 prices and corporate events, the **statement** for holding declarations. Coverage,

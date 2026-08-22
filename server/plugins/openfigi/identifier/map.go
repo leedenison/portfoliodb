@@ -3,6 +3,7 @@ package identifier
 import (
 	"strings"
 
+	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
@@ -11,8 +12,18 @@ import (
 // openFIGICurrencyOverrides maps ISO minor-unit currency codes to the
 // Bloomberg-style codes that the OpenFIGI Mapping API expects.
 // For example, GBX (ISO pence sterling) must be sent as "GBp".
-var openFIGICurrencyOverrides = map[string]string{
-	"GBX": "GBp",
+//
+// Which currencies are minor units of which is currency.MinorUnits; how
+// Bloomberg spells one is this package's business, and the convention is the
+// major code with its final letter lowercased -- GBP becomes GBp.
+var openFIGICurrencyOverrides = currencyOverrides()
+
+func currencyOverrides() map[string]string {
+	m := make(map[string]string, len(currency.MinorUnits))
+	for _, u := range currency.MinorUnits {
+		m[u.Code] = u.Major[:len(u.Major)-1] + strings.ToLower(u.Major[len(u.Major)-1:])
+	}
+	return m
 }
 
 // toOpenFIGICurrency converts a currency code to the form expected by the

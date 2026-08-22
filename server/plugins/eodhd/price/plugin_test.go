@@ -98,7 +98,7 @@ func TestFetchPrices_FX(t *testing.T) {
 func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 	var requestedPath string
 	bars := []client.EODBar{
-		{Date: "2024-01-02", Open: 1.25, High: 1.27, Low: 1.24, Close: 1.26, Volume: 0},
+		{Date: "2024-01-02", Open: 1.25, High: 1.27, Low: 1.24, Close: 1.26, AdjClose: 1.26, Volume: 0},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestedPath = r.URL.Path
@@ -127,6 +127,11 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 	}
 	if result.Bars[0].Open == nil || result.Bars[0].Open.String() != "0.0125" {
 		t.Errorf("bar[0].Open = %v, want 0.0125", result.Bars[0].Open)
+	}
+	// EODHD supplies an adjusted close on every bar, so a derived pair that
+	// arrives without one has lost it on the way through the scaling.
+	if result.Bars[0].AdjustedClose == nil || result.Bars[0].AdjustedClose.String() != "0.0126" {
+		t.Errorf("bar[0].AdjustedClose = %v, want 0.0126", result.Bars[0].AdjustedClose)
 	}
 }
 

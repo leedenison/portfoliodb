@@ -51,6 +51,7 @@ func TestScaleBars(t *testing.T) {
 	h := decimal.RequireFromString("1.27")
 	l := decimal.RequireFromString("1.24")
 	v := int64(1000)
+	ac := decimal.RequireFromString("1.26")
 	bars := []DailyBar{
 		{
 			Date:   time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
@@ -59,11 +60,15 @@ func TestScaleBars(t *testing.T) {
 			Low:    &l,
 			Close:  decimal.RequireFromString("1.26"),
 			Volume: &v,
+			// A price in the same currency as the rest, so it shifts with them.
+			// EODHD supplies one on every bar, including the FX series a derived
+			// pair is scaled from.
+			AdjustedClose: &ac,
 		},
 		{
 			Date:  time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC),
 			Close: decimal.RequireFromString("1.28"),
-			// Open, High, Low, Volume nil
+			// Open, High, Low, Volume, AdjustedClose nil
 		},
 	}
 
@@ -90,6 +95,9 @@ func TestScaleBars(t *testing.T) {
 	if b.Volume == nil || *b.Volume != 1000 {
 		t.Errorf("bar[0].Volume = %v, want 1000", b.Volume)
 	}
+	if b.AdjustedClose == nil || b.AdjustedClose.String() != "0.0126" {
+		t.Errorf("bar[0].AdjustedClose = %v, want 0.0126", b.AdjustedClose)
+	}
 
 	// Bar 1: nil optional fields stay nil.
 	b = scaled[1]
@@ -107,6 +115,9 @@ func TestScaleBars(t *testing.T) {
 	}
 	if b.Volume != nil {
 		t.Errorf("bar[1].Volume should be nil")
+	}
+	if b.AdjustedClose != nil {
+		t.Errorf("bar[1].AdjustedClose should be nil")
 	}
 
 	// Original bars unchanged.

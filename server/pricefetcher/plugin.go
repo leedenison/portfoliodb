@@ -152,8 +152,14 @@ func RewriteFXPair(value string) (string, int32) {
 	return value, 0
 }
 
-// ScaleBars shifts all price fields (Open, High, Low, Close) by exp powers of
-// ten. Volume is left unchanged. Returns a new slice.
+// ScaleBars shifts every price field -- Open, High, Low, Close and
+// AdjustedClose -- by exp powers of ten. Volume is a share count rather than a
+// price and is left unchanged. Returns a new slice.
+//
+// The rebuild is field by field rather than a copy of b, so a price field added
+// to DailyBar and not named here is silently dropped instead of silently left
+// unscaled. Dropping is the safer of the two, a missing value being visible in a
+// way a wrongly-scaled one is not, but neither is correct: add the field.
 func ScaleBars(bars []DailyBar, exp int32) []DailyBar {
 	out := make([]DailyBar, len(bars))
 	for i, b := range bars {
@@ -173,6 +179,10 @@ func ScaleBars(bars []DailyBar, exp int32) []DailyBar {
 		if b.Low != nil {
 			v := b.Low.Shift(exp)
 			out[i].Low = &v
+		}
+		if b.AdjustedClose != nil {
+			v := b.AdjustedClose.Shift(exp)
+			out[i].AdjustedClose = &v
 		}
 	}
 	return out

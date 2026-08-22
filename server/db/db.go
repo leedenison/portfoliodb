@@ -66,6 +66,7 @@ type DB interface {
 	ExternalFlowDB
 	JobDB
 	InstrumentDB
+	ListingDB
 	PluginConfigDB
 	PriceCacheDB
 	PriceFetchBlockDB
@@ -1186,6 +1187,7 @@ type InstrumentRow struct {
 	PutCall             *string          // "C" or "P"; NULL for non-options
 	ContractMultiplier  decimal.Decimal  // deliverable multiplier; 1 = standard
 	Identifiers         []IdentifierInput
+	Listings            []*Listing                // the currency lines this security trades in
 	ProviderIdentifiers []ProviderIdentifierInput // provider-specific identifiers
 	ExchangeName        *string                   // read-only; from exchanges JOIN
 	ExchangeAcronym     *string                   // read-only; from exchanges JOIN
@@ -1196,6 +1198,35 @@ type InstrumentRow struct {
 	// one instance. One pointer rather than three, because a half-named
 	// underlying is not a state this can be in.
 	Underlying *InstrumentRef
+}
+
+// Listing is one currency a security trades in. Currency and exchange are facts
+// about a listing rather than about the security above it: a security listed in
+// GBP and in USD may carry one ISIN, and holdings in the two lines are not
+// fungible because they differ by an FX rate.
+//
+// A security holds one listing per currency family, and at most one whose
+// currency is unknown. See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+type Listing struct {
+	ID           string
+	InstrumentID string
+	// The code the line is quoted in, in the units it is quoted in: GBX for a
+	// London line quoted in pence, not the GBP its family collapses to.
+	//
+	// nil is the unknown listing, which says how many lines this security has is
+	// unknown rather than that it has one. It is never priceable and never
+	// event-bearing, because a price with no stated currency asserts nothing.
+	Currency    *string
+	ValidFrom   *time.Time
+	ValidBefore *time.Time
+	CreatedAt   time.Time
+}
+
+// ListingDB reads the currency lines of a security.
+type ListingDB interface {
+	// ListingsByInstrument returns each instrument's listings, keyed by instrument ID.
+	// Instruments with no listings are absent from the map rather than present and empty.
+	ListingsByInstrument(ctx context.Context, instrumentIDs []string) (map[string][]*Listing, error)
 }
 
 // HoldingDeclarationRow is a single holding declaration for API responses.

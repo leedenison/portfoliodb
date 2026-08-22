@@ -224,9 +224,18 @@ func TestListPricesForExport_NoIdentifiersExcluded(t *testing.T) {
 	instWithID := setupInstrument(t, p, "AAPL")
 	insertPriceWithProvider(t, p, instWithID, d(2024, 1, 15), 100, "test")
 
-	// Create instrument without any identifiers by inserting directly.
+	// Create instrument without any identifiers by inserting directly, minting its
+	// listing alongside: every security has at least one currency line, and this
+	// one's is unknown because nothing states it.
 	var instNoID string
-	err := p.q.QueryRowContext(ctx, `INSERT INTO instruments DEFAULT VALUES RETURNING id`).Scan(&instNoID)
+	err := p.q.QueryRowContext(ctx, `
+		WITH ins AS (
+			INSERT INTO instruments DEFAULT VALUES RETURNING id
+		), lst AS (
+			INSERT INTO instrument_listings (instrument_id, currency) SELECT id, NULL FROM ins
+		)
+		SELECT id FROM ins
+	`).Scan(&instNoID)
 	if err != nil {
 		t.Fatalf("insert bare instrument: %v", err)
 	}

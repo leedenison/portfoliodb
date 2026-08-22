@@ -151,3 +151,29 @@ func TestClassify_EachAssetClass(t *testing.T) {
 		})
 	}
 }
+
+// The overrides are derived from currency.MinorUnits, and a code sent in the
+// wrong spelling silently loses the currency filter that confirms an identity
+// (see plugin.go and adr/0059). A currency added to that table changes what goes
+// out on the wire, so pin the result.
+func TestToOpenFIGICurrency(t *testing.T) {
+	tests := []struct {
+		code string
+		want string
+	}{
+		{"GBX", "GBp"},
+		{"GBP", "GBP"},
+		{"USD", "USD"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.code, func(t *testing.T) {
+			if got := toOpenFIGICurrency(tc.code); got != tc.want {
+				t.Errorf("toOpenFIGICurrency(%q) = %q, want %q", tc.code, got, tc.want)
+			}
+		})
+	}
+	if len(openFIGICurrencyOverrides) != 1 {
+		t.Errorf("openFIGICurrencyOverrides = %+v, want only GBX", openFIGICurrencyOverrides)
+	}
+}

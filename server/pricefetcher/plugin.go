@@ -28,6 +28,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
@@ -138,8 +139,19 @@ type DerivedFXPair struct {
 // divisor keeps the rates exact: a decimal-point shift is multiplication by a
 // power of ten, which is closed, whereas dividing would round at whatever
 // precision the division picked. See adr/0026-exact-decimals-bounded-by-closure.md.
-var DerivedFXPairs = map[string]DerivedFXPair{
-	"GBXUSD": {SourcePair: "GBPUSD", Exponent: -2},
+//
+// Derived from currency.MinorUnits rather than written out, because "GBX is GBP
+// under a different prefix" is also what the listing uniqueness index and the
+// OpenFIGI currency filter key on. Every pair pivots on USD (adr/0006), which is
+// the quote currency every FX instrument is seeded against.
+var DerivedFXPairs = derivedFXPairs()
+
+func derivedFXPairs() map[string]DerivedFXPair {
+	m := make(map[string]DerivedFXPair, len(currency.MinorUnits))
+	for _, u := range currency.MinorUnits {
+		m[u.Code+"USD"] = DerivedFXPair{SourcePair: u.Major + "USD", Exponent: u.Exponent}
+	}
+	return m
 }
 
 // RewriteFXPair checks whether value is a derived FX pair. If so it returns the

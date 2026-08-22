@@ -1,5 +1,10 @@
 -- Seed CASH instruments and CURRENCY identifiers for resolution (candidate plugin returns currency hint; identifier plugin looks up by CURRENCY).
--- One row per currency in instruments and instrument_identifiers.
+-- One row per currency in instruments, instrument_identifiers and instrument_listings.
+--
+-- A cash instrument has a listing degenerately: the currency it holds is the
+-- currency it trades in. GBX cash gets a GBX listing and GBP cash a GBP one --
+-- they are different instruments, so the currency-family uniqueness index never
+-- sees the two together.
 
 WITH ins AS (
   INSERT INTO instruments (asset_class, currency, name)
@@ -108,13 +113,21 @@ WITH ins AS (
     ('CASH', 'MZN', 'Mozambique Metical'),
     ('CASH', 'SCR', 'Seychelles Rupee')
   RETURNING id, currency
+), idents AS (
+  INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
+  SELECT id, 'CURRENCY', currency, true FROM ins
 )
-INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
-SELECT id, 'CURRENCY', currency, true FROM ins;
+INSERT INTO instrument_listings (instrument_id, currency)
+SELECT id, currency FROM ins;
 
 -- Seed FX pair instruments for each non-USD currency above. FX instruments
 -- represent exchange rate time series (BASE/USD); their eod_prices.close stores
 -- how many USD one unit of the base currency buys.
+--
+-- An FX instrument's listing carries USD: a listing currency is the currency the
+-- line is quoted in, and every pair here is quoted against the USD pivot
+-- (adr/0006). Degenerate, like the cash rows above, and coherent for the same
+-- reason.
 WITH fx_ins AS (
   INSERT INTO instruments (asset_class, currency, name)
   VALUES
@@ -220,7 +233,10 @@ WITH fx_ins AS (
     ('FX', 'USD', 'AOA/USD'),
     ('FX', 'USD', 'MZN/USD'),
     ('FX', 'USD', 'SCR/USD')
-  RETURNING id, name
+  RETURNING id, currency, name
+), fx_idents AS (
+  INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
+  SELECT id, 'FX_PAIR', REPLACE(name, '/', ''), true FROM fx_ins
 )
-INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
-SELECT id, 'FX_PAIR', REPLACE(name, '/', ''), true FROM fx_ins;
+INSERT INTO instrument_listings (instrument_id, currency)
+SELECT id, currency FROM fx_ins;

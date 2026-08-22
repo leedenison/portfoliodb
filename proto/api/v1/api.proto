@@ -70,6 +70,32 @@ message Instrument {
   // of 1. A non-standard split leaves a fraction here (3:2 gives 1.5), and it
   // multiplies a posting's weight, so it stays exact.
   optional string contract_multiplier = 17 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  // The currency lines this security trades in. Every security has at least one.
+  repeated Listing listings = 18;
+}
+
+// Listing is one currency a security trades in. Currency and exchange are facts
+// about a listing rather than about the security above it: a security listed in
+// GBP and in USD may carry one ISIN, and holdings in the two lines are not
+// fungible because they differ by an FX rate.
+//
+// A security holds one listing per currency family -- GBX and GBP are one family
+// -- and at most one listing whose currency is unknown.
+// See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+message Listing {
+  string id = 1;
+  // ISO 4217 code the line is quoted in, in the units it is quoted in: GBX for a
+  // London line quoted in pence, not the GBP its family collapses to.
+  //
+  // Empty is the unknown listing, which says how many lines this security has is
+  // unknown rather than that it has one. It is never priced and never
+  // event-bearing, because a price with no stated currency asserts nothing.
+  string currency = 2;
+  // The half-open [valid_from, valid_before) interval the line was tradeable in.
+  // An absent valid_before means the line is current; an absent valid_from means
+  // it predates everything known about it.
+  optional string valid_from = 3; // "YYYY-MM-DD"
+  optional string valid_before = 4; // "YYYY-MM-DD"
 }
 
 // Exchange is ISO 10383 MIC reference data for an instrument's exchange.

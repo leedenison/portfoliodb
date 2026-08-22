@@ -1,9 +1,13 @@
 # A proposed identifier is not evidence
 
+Amended by [0068](0068-a-listing-is-a-currency-of-a-security.md) only in what
+a candidate proposes to complete an identity with: the currency, not the venue.
+The rule is unchanged.
+
 A candidate plugin may propose an identifier a source never stated -- a ticker for a
-row that carried only a CUSIP, a venue for a bare ticker. Resolution holds what a
-source stated apart from what a plugin proposed, and lets only the first stand in for
-a confirmation.
+row that carried only a CUSIP, a currency for a ticker that named no line.
+Resolution holds what a source stated apart from what a plugin proposed, and lets
+only the first stand in for a confirmation.
 
 A proposal never displaces or bypasses something a source stated. It never raises the
 conflicting-hints error, and is never written back as an identifier. What it may do is

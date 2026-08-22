@@ -64,7 +64,7 @@ display currencies users choose (see adr/0006-fx-as-synthetic-instruments.md).
 
     value_usd = qty * close * BASEUSD_rate
 
-where BASEUSD_rate is the `close` from the instrument's currency FX pair
+where BASEUSD_rate is the `close` from the listing's currency FX pair
 (e.g. EURUSD close for a EUR-denominated instrument).
 
 **Display currency is non-USD (e.g. EUR):**
@@ -135,7 +135,7 @@ The valuation query (used by both `GetPortfolioValuation` and
 1. A new CTE `gapfilled_fx_rates` is added, structured identically to
    `gapfilled_prices` but selecting from `eod_prices` for FX pair instrument
    IDs. It uses the same `time_bucket_gapfill` + `locf` pattern.
-2. Each holding is joined to its instrument's currency, and then to the
+2. Each holding is joined to its listing's currency, and then to the
    appropriate FX rate(s).
 3. The final aggregation becomes:
 
@@ -156,11 +156,14 @@ the instrument is treated as unpriced. It appears in `unpriced_instruments`
 and shows as an orange dot on the performance chart. Its value is excluded
 from the total rather than using a stale or assumed rate.
 
-**NULL instrument currency:** Instruments with a NULL currency are treated as
-if they are in the display currency (no conversion applied). This matches
-the existing behavior where unidentified instruments have NULL currency.
+**Listing with no currency:** a holding on a listing whose currency is unknown
+is **unpriced**, not converted. It used to be treated as already in the display
+currency, which valued it at an implied FX rate of 1; a null currency means the
+line is unknown, and a value nobody can state is reported as missing rather than
+guessed. See adr/0068-a-listing-is-a-currency-of-a-security.md. Cash never
+reaches this case, always resolving through a `CURRENCY` identifier.
 
-**Instrument currency equals display currency:** No FX lookup is needed;
+**Listing currency equals display currency:** No FX lookup is needed;
 `fx_rate = 1.0`. This is handled by the COALESCE in the query -- no FX rate
 row exists for same-currency instruments, so the LEFT JOIN produces NULL
 which coalesces to 1.0.

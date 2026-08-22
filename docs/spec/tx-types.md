@@ -30,6 +30,12 @@ node is what a less specific source says, and both are legal values.
 | `TRANSFER` | -- | a commodity moving without a change in what is held | residual routes to `TRANSFER_CLEARING` |
 | `TRANSFER_INTERNAL` | `TRANSFER` | the other side is another account of this user | a match exists to be found |
 | `TRANSFER_EXTERNAL` | `TRANSFER` | the other side is outside the user's holdings | no match will come |
+| `TRANSFER_LISTING` | `TRANSFER` | the broker moved a holding between two currency lines of one security | both sides name one security and two listings |
+
+`TRANSFER_LISTING` sits under `TRANSFER` because it is quantity-preserving on
+one security and carries no economic event: what changes is which line the
+holding sits on, and the two sides are matched through `transfer_matches` like
+any other transfer. See adr/0068-a-listing-is-a-currency-of-a-security.md.
 
 The expense leaves are cut by how the cost is treated, not by what brokers call
 the fee, so a source that says only "fee" says `EXPENSE` and that is a meaningful

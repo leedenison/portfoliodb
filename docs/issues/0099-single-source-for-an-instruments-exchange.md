@@ -1,7 +1,23 @@
 ---
-status: open
+status: closed
 title: Single source for an instrument's exchange
 ---
+
+Closed as superseded by **0137**. That issue drops this one's premise -- that an
+instrument has one authoritative exchange -- by making the exchange a set held
+against a listing rather than a scalar held against a security, so divergence
+between `instruments.exchange_mic` and a `MIC_TICKER` domain stops being
+representable rather than being reconciled. The four things this issue wanted to
+keep survive on `listing_venues`: the foreign key to `exchanges`, the
+`LEFT JOIN exchanges` that populates `Instrument.exchange_info`, the
+single-table exchange filter in `ListInstruments`, and one authoritative answer
+where several `MIC_TICKER` rows carry different domains. 0155 is where the
+column goes.
+
+The composite case this raised is answered rather than left null: a composite
+names a country's venues, which share a currency, so it names a listing exactly.
+
+The original text follows.
 
 An instrument's exchange is stored in two places that can disagree. Make one of
 them the source and derive the other, so divergence is not representable.

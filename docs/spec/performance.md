@@ -10,7 +10,7 @@ CTEs:
 
 1. **portfolio_txs** -- portfolio-matched transactions grouped by
    (instrument, date) with net daily split-adjusted quantity.
-2. **cumulative** -- window function producing running position per instrument.
+2. **cumulative** -- window function producing running position per listing.
 3. **date_series** -- `generate_series` for every calendar date in the range.
 4. **daily_holdings** -- LATERAL subquery forward-filling the last known
    position for each instrument on each date.
@@ -23,7 +23,7 @@ The final SELECT joins holdings with prices and aggregates
 
 ## Exact and approximate parts
 
-The running position per instrument is a sum, so accumulating it introduces no
+The running position per listing is a sum, so accumulating it introduces no
 error of its own. Its inputs are `split_adjusted_quantity`, though, which carries
 the split adjustment's declared rounding scale (see
 [Share count](#share-count) below), so the position is exact to that scale rather
@@ -58,7 +58,7 @@ adr/0027-decimal-values-cross-the-wire-as-strings.md.
 ## TimescaleDB usage
 
 `time_bucket_gapfill('1 day', price_date, dateFrom, dateTo)` generates a row
-for every date in the range per instrument, even when `eod_prices` has no row
+for every date in the range per listing, even when `eod_prices` has no row
 (weekends, holidays). `locf(close)` forward-fills the last known closing price
 into those generated gap rows, giving a continuous daily price series. For why
 the system works in calendar days and forward-fills rather than using a trading
@@ -66,8 +66,9 @@ calendar, see adr/0007-calendar-day-valuation.md.
 
 ## Display currency conversion
 
-The valuation computation above sums `qty * close` in each instrument's native
-currency. Display currency conversion applies an FX rate to each holding before
+The valuation computation above sums `qty * close` in each listing's own
+currency. A holding on a listing whose currency is unknown is unpriced and
+contributes nothing but its name to the unpriced list. Display currency conversion applies an FX rate to each holding before
 aggregation so a mixed-currency portfolio sums to a single meaningful figure. FX
 rates are stored as synthetic instruments (see adr/0006-fx-as-synthetic-instruments.md).
 
@@ -93,7 +94,7 @@ to:
 where `fx_rate` is derived from stored USD-quoted rates:
 
 - **Display = USD:** `fx_rate = BASEUSD_rate` (direct lookup from
-  `gapfilled_fx_rates` for the instrument's currency pair).
+  `gapfilled_fx_rates` for the listing's currency pair).
 - **Display != USD (e.g. EUR):** `fx_rate = BASEUSD_rate / DISPLAYUSD_rate`
   (cross-rate from two stored pairs).
 - **Instrument already in display currency:** no FX join needed; the LEFT

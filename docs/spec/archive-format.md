@@ -93,9 +93,14 @@ A file has three levels, and each states its own scope in full.
 
 - **File.** The `envelope`, and nothing else. It carries `format_version`,
   `exported_at`, the source instance and which of the two archives this is.
-- **Group.** The entity's aggregate root: the instrument for prices and
-  corporate events, the window for transactions, the statement for holding
-  declarations. Coverage, asset class and currency live here.
+- **Group.** The entity's aggregate root: the **listing** for prices, the
+  instrument for corporate events, the window for transactions, the statement
+  for holding declarations. Coverage and asset class live here. A listing is
+  named by a security identifier plus a currency, since an identifier alone no
+  longer picks one out -- see
+  adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+  Where a group spans both grains, the currency sits on the row that varies by
+  it rather than on the group, under the same rule as every other field.
 - **Row.** Only what varies per row. A price row is a date, a bar, and the share
   count basis the bar is denominated in when that is not its own date.
 
@@ -234,13 +239,11 @@ order the list is written in carries no meaning.
 | --- | --- |
 | `asset_class` | |
 | `name` | optional; advisory, see below |
-| `currency` | ISO 4217 |
-| `exchange_mic` | optional; ISO 10383 |
-| `identifiers[]` | at least one; `{type, value, domain, canonical, valid_from, valid_before}` |
+| `listings[]` | at least one; `{currency, valid_from, valid_before, identifiers[], provider_identifiers[]}`. `currency` is ISO 4217 and optional -- absent is the unknown listing, of which a security has at most one |
+| `identifiers[]` | the security-grain ones; `{type, value, domain, canonical, valid_from, valid_before}` |
 | `provider_identifiers[]` | `{provider, identifier_type, value, domain}`; `identifier_type` is the provider's own vocabulary, not `IdentifierType` |
-| `underlying` | optional; an identifier triple naming an instrument in the same part |
+| `underlying` | optional; a listing reference naming a listing in the same part |
 | `cik`, `sic_code` | optional |
-| `valid_from`, `valid_before` | optional; half-open, either bound open-ended |
 | `strike`, `expiry`, `put_call`, `contract_multiplier` | optional; options only |
 
 An identifier's `valid_from` and `valid_before` are the half-open interval in
@@ -273,21 +276,22 @@ the currency and FX rows are reference data created before any file is read --
 added, columns still empty are filled, and a value already stored always wins.
 An import therefore cannot rewrite what the importing instance already knew.
 
-**Not carried:** the server UUID, which means nothing in another instance; the
-`exchange` column, which is derived from `exchange_mic` and the identifiers; the
-nested underlying subtree and the joined exchange reference data, both of which
-exist so the SPA need not fetch them separately and neither of which belongs in
-a file.
+**Not carried:** the server UUID, which means nothing in another instance; a
+listing's venues, which are derived from its own identifiers; the nested
+underlying subtree and the joined exchange reference data, both of which exist so
+the SPA need not fetch them separately and neither of which belongs in a file.
+Nor is there an instrument-level validity interval: a tradability window is a
+fact about a listing, and the security's is the hull of its listings'.
 
 ### Prices
 
-`prices.groups[]` is one group per instrument.
+`prices.groups[]` is one group per listing.
 
 | Level | Field | Notes |
 | --- | --- | --- |
-| group | `instrument` | identifier triple |
+| group | `instrument` | identifier triple naming the security |
+| group | `currency` | ISO 4217; names which listing of it, and is not merely a hint |
 | group | `asset_class` | hint for identifier plugin routing on an unknown instrument |
-| group | `currency` | ISO 4217; validation hint |
 | group | `coverage[]` | half-open intervals |
 | row | `price_date` | |
 | row | `share_count_basis` | optional; absent means the row's own `price_date`, which is as-traded |
@@ -325,7 +329,10 @@ as as-traded and was adjusted a second time.
 ### Corporate events
 
 `corporate_events.groups[]` is one group per instrument, carrying coverage and a
-list of events, each of which is a `split` or a `dividend`.
+list of events, each of which is a `split` or a `dividend`. The group is the
+security rather than the listing because coverage and splits are facts about the
+security; a dividend is paid in a currency, so its own `currency` field names
+the listing it belongs to.
 
 | Level | Field | Notes |
 | --- | --- | --- |
@@ -345,7 +352,7 @@ round trip that dropped it would re-adjust symbols that were already correct. It
 falls back to the envelope's `exported_at` and then to storage time, and a
 stored value only ever moves backwards.
 
-Coverage is stored per instrument and plugin, but an import records every span
+Coverage is stored per instrument and plugin -- the fetch is per security -- but an import records every span
 against the `import` sentinel, so the file carries spans merged across plugins.
 The per-plugin distinction cannot survive a round trip and is not written.
 
@@ -395,6 +402,7 @@ blocks across both fetchers and every plugin.
 | --- | --- | --- |
 | group | `instrument` | identifier triple |
 | block | `category` | `PRICE` or `CORPORATE_EVENT`: which fetcher is blocked |
+| block | `currency` | `PRICE` blocks only; which listing is blocked. A corporate event fetch is per security and states none |
 | block | `plugin_id` | as the plugin registry spells it |
 | block | `reason` | free text, as the plugin reported it |
 | block | `first_blocked_at` | optional; knowledge time |
@@ -429,7 +437,8 @@ an identifier.
 
 ### Unhandled corporate events
 
-`unhandled_events.groups[]` is one group per instrument.
+`unhandled_events.groups[]` is one group per instrument: the events it carries
+-- reverse splits, mergers, futures adjustments -- are actions on the security.
 
 | Level | Field | Notes |
 | --- | --- | --- |

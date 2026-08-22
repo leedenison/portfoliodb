@@ -1090,7 +1090,10 @@ func TestIdentityComplete(t *testing.T) {
 		{"a ticker with its MIC", []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}, true},
 		{"an ISIN alone", []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}, false},
 		{"a CUSIP alone", []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}}, false},
-		{"a SEDOL alone", []identifier.Identifier{{Type: "SEDOL", Value: "2046251"}}, false},
+		// Issued per market and per line, so it names the line without a domain
+		// to say which.
+		{"a SEDOL alone", []identifier.Identifier{{Type: "SEDOL", Value: "2046251"}}, true},
+		{"a composite FIGI alone", []identifier.Identifier{{Type: "OPENFIGI_COMPOSITE", Value: "BBG000B9XRY4"}}, true},
 		{"a broker description", []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "SRC", Value: "APPLE INC"}}, false},
 		{"a currency", []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}}, true},
 		{"an FX pair", []identifier.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}, true},

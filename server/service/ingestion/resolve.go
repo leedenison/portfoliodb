@@ -102,24 +102,26 @@ func cacheKeyWithHints(source, instrumentDescription string, hints []identifier.
 // identityComplete reports whether what a source stated already picks out one
 // listing, so that a candidate plugin has nothing left to offer.
 //
-// Completeness is about the venue, and about nothing else. A source that named
-// one has said the last thing that changes which instrument resolution lands on:
-// the currency, the ISIN and the rest all follow from the listing, and an
-// identifier plugin fills them in from its own data at no cost. A source that
+// Completeness is about which listing, and about nothing else. A source that
+// named one has said the last thing that changes which instrument resolution
+// lands on: the currency, the ISIN and the rest all follow from the listing, and
+// an identifier plugin fills them in from its own data at no cost. A source that
 // did not has left a choice open that no amount of provider lookup closes --
 // a bare ticker maps to every listing of that symbol in the world, and an ISIN
-// maps to every venue the security trades on -- and choosing among them is what
+// maps to every line the security trades in -- and choosing among them is what
 // this stage is for.
 //
 // So a MIC_TICKER carrying its MIC is complete and a bare one is not, and an
-// ISIN, CUSIP or SEDOL alone is not. The exceptions name the instrument rather
-// than a listing of it:
+// ISIN or CUSIP alone is not. Every listing-grain type that carries no domain is
+// complete on its own, which is what a SEDOL and a composite FIGI are: each is
+// issued per market and so names the line outright. The rest of the exceptions
+// name the instrument rather than a listing of it:
 //
 //   - A currency or an FX pair is the cash or FX instrument, entire.
 //   - A contract symbol -- OCC, OPRA, FUT_OPT -- carries its own underlying,
 //     expiry, right and strike, and names its market by construction.
-//   - A FIGI is a provider's key into the provider's own data, which a model
-//     asked to improve on could only invent.
+//   - A share class FIGI is a provider's key into the provider's own data, which
+//     a model asked to improve on could only invent.
 //
 // A BROKER_DESCRIPTION states no security at all, so it leaves the identity as
 // incomplete as it found it.
@@ -127,7 +129,7 @@ func identityComplete(stated []identifier.Identifier) bool {
 	for _, id := range stated {
 		switch id.Type {
 		case "CURRENCY", "FX_PAIR", "OCC", "OPRA", "FUT_OPT",
-			"OPENFIGI_SHARE_CLASS", "OPENFIGI_COMPOSITE":
+			"OPENFIGI_SHARE_CLASS", "OPENFIGI_COMPOSITE", "SEDOL":
 			return true
 		case "MIC_TICKER", "OPENFIGI_TICKER":
 			if strings.TrimSpace(id.Domain) != "" {

@@ -124,8 +124,8 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 			if res.Instrument.AssetClass != tc.wantClass {
 				t.Errorf("AssetClass = %q, want %q", res.Instrument.AssetClass, tc.wantClass)
 			}
-			if res.Instrument.Currency != tc.wantCurrency {
-				t.Errorf("Currency = %q, want %q", res.Instrument.Currency, tc.wantCurrency)
+			if res.Instrument.Listing.Currency != tc.wantCurrency {
+				t.Errorf("Currency = %q, want %q", res.Instrument.Listing.Currency, tc.wantCurrency)
 			}
 			if len(res.Identifiers) == 0 {
 				t.Error("expected at least one identifier")

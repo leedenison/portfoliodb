@@ -26,10 +26,19 @@ var PluginRetryBackoff = 2 * time.Second
 // ResolveResult holds the outcome of plugin-based instrument resolution.
 type ResolveResult struct {
 	InstrumentID string
-	HadTimeout   bool                  // at least one plugin timed out
-	HadError     bool                  // at least one plugin returned a non-ErrNotIdentified error
-	Identified   bool                  // a plugin successfully identified the instrument
-	HintDiffs    []identifier.HintDiff // differences between supplied hints and resolved instrument
+	// ListingID is the currency line the resolution landed on, which is a
+	// separate answer from which security it landed on: a security listed in GBP
+	// and in USD is one security and two lines, and a holding in one is not
+	// fungible with a holding in the other.
+	//
+	// Empty where nothing named a line. That is not a failure -- the security is
+	// still resolved -- it says the currency is unknown, which is what the
+	// unknown listing records. Postings and holdings start naming this in 0149.
+	ListingID  string
+	HadTimeout bool                  // at least one plugin timed out
+	HadError   bool                  // at least one plugin returned a non-ErrNotIdentified error
+	Identified bool                  // a plugin successfully identified the instrument
+	HintDiffs  []identifier.HintDiff // differences between supplied hints and resolved instrument
 	// Unconfirmed reports that a result was found and then dropped: the whole
 	// identity was a proposal and nothing independent agreed with what it
 	// resolved to. The instrument is the broker-description-only fallback, so it
@@ -477,17 +486,24 @@ func normalizeMICValue(ctx context.Context, normalizeMIC MICNormalizer, mic stri
 // that decides: two results naming one symbol on two venues have described two
 // listings, and merging them is how a London ticker comes to sit on a New York
 // instrument for a price plugin to fetch the wrong line's close against.
+//
+// The currency check stays, and stays an exclusion rather than becoming a
+// second listing. One resolution answers about one line: it writes the
+// identifiers it gathered against the line its winner named, so a result about
+// another line has nothing to contribute to this one and its identifiers must
+// not be filed under this currency. Unioning two results into two listings is
+// adr/0071.
 func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer, countryOf MICCountry) bool {
 	l = resolveLogger(l)
-	if winner.inst.Currency != "" && other.inst.Currency != "" &&
-		!strings.EqualFold(winner.inst.Currency, other.inst.Currency) {
+	if winner.inst.Listing.Currency != "" && other.inst.Listing.Currency != "" &&
+		!strings.EqualFold(winner.inst.Listing.Currency, other.inst.Listing.Currency) {
 		l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
 			"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
-			"field", "Currency", "winner_value", winner.inst.Currency, "other_value", other.inst.Currency)
+			"field", "Currency", "winner_value", winner.inst.Listing.Currency, "other_value", other.inst.Listing.Currency)
 		return false
 	}
-	winnerVenue := normalizeVenue(ctx, normalizeMIC, winner.inst.Venue)
-	otherVenue := normalizeVenue(ctx, normalizeMIC, other.inst.Venue)
+	winnerVenue := normalizeVenue(ctx, normalizeMIC, winner.inst.Listing.Venue)
+	otherVenue := normalizeVenue(ctx, normalizeMIC, other.inst.Listing.Venue)
 	if !winnerVenue.Agrees(otherVenue, countryOf) {
 		l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
 			"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
@@ -542,25 +558,26 @@ func fillBlanks(ctx context.Context, normalizeMIC MICNormalizer, countryOf MICCo
 	// market-level answer is not an absence of opinion: taking a venue outside
 	// the country it named would replace a real constraint with a value that
 	// contradicts it. The market itself is kept when nothing better arrives.
-	if dst.Venue.MIC == "" && src.Venue.MIC != "" &&
-		dst.Venue.Permits(normalizeMICValue(ctx, normalizeMIC, src.Venue.MIC), countryOf) {
-		dst.Venue.MIC = src.Venue.MIC
+	if dst.Listing.Venue.MIC == "" && src.Listing.Venue.MIC != "" &&
+		dst.Listing.Venue.Permits(normalizeMICValue(ctx, normalizeMIC, src.Listing.Venue.MIC), countryOf) {
+		dst.Listing.Venue.MIC = src.Listing.Venue.MIC
 	}
-	if dst.Venue.Country == "" {
-		dst.Venue.Country = src.Venue.Country
+	if dst.Listing.Venue.Country == "" {
+		dst.Listing.Venue.Country = src.Listing.Venue.Country
 	}
-	// A currency is a fact about a listing, so it travels only from a result
-	// that named the listing dst is about. One that named no venue, or only a
-	// market, has not said which line its currency belongs to, and taking it is
-	// how the London line's GBP comes to be asserted of the New York one. Where
-	// dst names no venue either there is no listing for it to contradict, and
-	// the currency arrives with whatever else that result supplied -- including,
-	// just above, the venue itself.
-	if dst.Currency == "" && src.Currency != "" &&
-		(dst.Venue.MIC == "" || strings.EqualFold(
-			normalizeMICValue(ctx, normalizeMIC, dst.Venue.MIC),
-			normalizeMICValue(ctx, normalizeMIC, src.Venue.MIC))) {
-		dst.Currency = src.Currency
+	// The currency travels like any other field the winner left blank. It used
+	// to travel only from a result that named the same venue, because with one
+	// row per instrument a currency learned from the London line would be
+	// asserted of the New York one and the venue was the only thing available to
+	// stop it. There is now a row per line, and the currency is what names the
+	// line rather than something the venue scopes: two venues quoting one
+	// currency are one listing (adr/0068), so conditioning this on the venue
+	// would refuse a fact about the line from a result that named the line.
+	//
+	// What still guards it is consistentWith, which has already excluded any
+	// result whose currency contradicts the winner's.
+	if dst.Listing.Currency == "" {
+		dst.Listing.Currency = src.Listing.Currency
 	}
 	if dst.Name == "" {
 		dst.Name = src.Name
@@ -653,9 +670,9 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 	var diffs []identifier.HintDiff
 
 	// Currency.
-	if hints.Currency != "" && inst.Currency != "" &&
-		!strings.EqualFold(hints.Currency, inst.Currency) {
-		diffs = append(diffs, identifier.HintDiff{Field: "Currency", HintValue: hints.Currency, ResolvedValue: inst.Currency})
+	if hints.Currency != "" && inst.Listing.Currency != "" &&
+		!strings.EqualFold(hints.Currency, inst.Listing.Currency) {
+		diffs = append(diffs, identifier.HintDiff{Field: "Currency", HintValue: hints.Currency, ResolvedValue: inst.Listing.Currency})
 	}
 
 	// SecurityType (same vocabulary as AssetClass).
@@ -665,15 +682,15 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 		diffs = append(diffs, identifier.HintDiff{Field: "SecurityType", HintValue: hints.SecurityTypeHint, ResolvedValue: inst.AssetClass})
 	}
 
-	// Exchange: compare MIC_TICKER hint domain (the MIC code) against inst.Venue.MIC.
+	// Exchange: compare MIC_TICKER hint domain (the MIC code) against inst.Listing.Venue.MIC.
 	// Both sides are normalized to operating MICs before comparison.
 	//
 	// Every stated MIC_TICKER is consulted, not just the first. A source naming
 	// two listings has said the security trades on both, and the resolution
 	// landing on either one agrees with it; judging it on whichever hint came
 	// first would report a difference the source did not state.
-	if inst.Venue.MIC != "" {
-		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "" {
+		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Listing.Venue.MIC)
 		var stated *identifier.Identifier
 		for i, h := range identifierHints {
 			if h.Type != "MIC_TICKER" || h.Domain == "" {
@@ -688,7 +705,7 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 			}
 		}
 		if stated != nil {
-			diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: stated.Domain, ResolvedValue: inst.Venue.MIC})
+			diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: stated.Domain, ResolvedValue: inst.Listing.Venue.MIC})
 		}
 	}
 
@@ -730,14 +747,14 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 		return false
 	}
 	// At least one hint field must have been compared (both sides non-empty).
-	if hints.Currency != "" && r.inst.Currency != "" {
+	if hints.Currency != "" && r.inst.Listing.Currency != "" {
 		return true
 	}
 	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
 		r.inst.AssetClass != "" && r.inst.AssetClass != identifier.SecurityTypeHintUnknown {
 		return true
 	}
-	if r.inst.Venue.MIC != "" {
+	if r.inst.Listing.Venue.MIC != "" {
 		for _, h := range identifierHints {
 			if h.Type == "MIC_TICKER" && h.Domain != "" {
 				return true
@@ -793,7 +810,7 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 	// That is what makes it a real test of a guessed ticker: the currency comes
 	// off the transaction, not off the guess, so a ticker naming the wrong company
 	// only survives if that company also trades in the currency the source stated.
-	if hints.Currency != "" && inst.Currency != "" && strings.EqualFold(hints.Currency, inst.Currency) {
+	if hints.Currency != "" && inst.Listing.Currency != "" && strings.EqualFold(hints.Currency, inst.Listing.Currency) {
 		out = append(out, "Currency")
 	}
 	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
@@ -805,8 +822,8 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 	// named two listings corroborates the resolution by either of them, and
 	// stopping at the first would turn the order the hints arrived in into a
 	// verdict.
-	if inst.Venue.MIC != "" {
-		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Venue.MIC)
+	if inst.Listing.Venue.MIC != "" {
+		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Listing.Venue.MIC)
 		for _, h := range stated {
 			if h.Type == "MIC_TICKER" && h.Domain != "" &&
 				strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, h.Domain), instExch) {
@@ -867,9 +884,9 @@ func proposalOutcomes(ctx context.Context, proposed []identifier.Identifier, ins
 func proposalOutcome(ctx context.Context, p identifier.Identifier, inst *identifier.Instrument, byType map[string]string, normalizeMIC MICNormalizer) string {
 	if p.Type == "CURRENCY" {
 		switch {
-		case inst.Currency == "":
+		case inst.Listing.Currency == "":
 			return db.TelemetryCandidateFieldUntested
-		case strings.EqualFold(inst.Currency, p.Value):
+		case strings.EqualFold(inst.Listing.Currency, p.Value):
 			return db.TelemetryCandidateFieldConfirmed
 		default:
 			return db.TelemetryCandidateFieldContradicted
@@ -882,8 +899,8 @@ func proposalOutcome(ctx context.Context, p identifier.Identifier, inst *identif
 	// The venue half of the claim, checked whether or not the symbol was carried:
 	// a proposal naming the wrong venue is contradicted even by a result that
 	// says nothing about the symbol.
-	if p.Domain != "" && inst.Venue.MIC != "" {
-		if !strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, p.Domain), normalizeMICValue(ctx, normalizeMIC, inst.Venue.MIC)) {
+	if p.Domain != "" && inst.Listing.Venue.MIC != "" {
+		if !strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, p.Domain), normalizeMICValue(ctx, normalizeMIC, inst.Listing.Venue.MIC)) {
 			return db.TelemetryCandidateFieldContradicted
 		}
 		if carried {
@@ -976,8 +993,10 @@ func ResolveWithPlugins(
 	if len(resolved) == 1 {
 		inst := &identifier.Instrument{
 			AssetClass: resolved[0].AssetClass,
-			Venue:      identifier.Venue{MIC: resolved[0].Exchange},
-			Currency:   resolved[0].Currency,
+			Listing: identifier.Listing{
+				Venue:    identifier.Venue{MIC: resolved[0].Exchange},
+				Currency: resolved[0].Currency,
+			},
 		}
 		diffs := CompareHints(ctx, hints, identifierHints, inst, nil, normMIC)
 		confirmed := confirmedFields(ctx, hints, identifierHints, inst, nil, normMIC)
@@ -1316,7 +1335,7 @@ func ResolveWithPlugins(
 		// identifiers follow the same routing, so it is passed on rather than
 		// discarded; carrying it out of Resolve to the caller is 0147's third
 		// step.
-		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Venue.MIC, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingID, validFrom, validBefore, optFields)
+		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Venue.MIC, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingID, validFrom, validBefore, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}
@@ -1325,8 +1344,23 @@ func ResolveWithPlugins(
 				l.WarnContext(ctx, "save provider identifiers failed", "instrument_id", id, "err", err)
 			}
 		}
+		// Where the result named a venue and no currency, the venue may still
+		// pick the line out. It does so only when it picks out exactly one: the
+		// LSE lists both the GBP and the USD line of the same ETC, and settling
+		// that by taking either would attach a holding to a currency nobody
+		// stated. Two matches leaves the resolution naming no line, which is the
+		// honest answer and the one adr/0068 requires.
+		if listingID == "" && inst.Listing.Venue.MIC != "" {
+			mic := normalizeMICValue(ctx, normMIC, inst.Listing.Venue.MIC)
+			byVenue, vErr := database.ListingForVenue(ctx, id, mic)
+			if vErr != nil {
+				l.WarnContext(ctx, "listing lookup by venue failed", "instrument_id", id, "mic", mic, "err", vErr)
+			} else {
+				listingID = byVenue
+			}
+		}
 		writeAttempt(db.TelemetryAttemptIdentified, inst.AssetClass)
-		return ResolveResult{InstrumentID: id, Identified: true, HintDiffs: diffs, Confirmed: confirmed,
+		return ResolveResult{InstrumentID: id, ListingID: listingID, Identified: true, HintDiffs: diffs, Confirmed: confirmed,
 			ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, inst, mergedIds, normMIC)}, nil
 	}
 
@@ -1385,7 +1419,7 @@ func instrumentSummary(inst *identifier.Instrument) string {
 	if inst == nil {
 		return ""
 	}
-	return inst.Name + " (" + inst.AssetClass + "/" + inst.Venue.MIC + ")"
+	return inst.Name + " (" + inst.AssetClass + "/" + inst.Listing.Venue.MIC + ")"
 }
 
 // callStats is what only the caller of a plugin knows about the invocation: the

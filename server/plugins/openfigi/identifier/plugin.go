@@ -116,7 +116,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		// the filter from the job would turn this line into the echo it merely
 		// resembles, and the guess would start confirming itself.
 		if hints.Currency != "" {
-			inst.Currency = hints.Currency
+			inst.Listing.Currency = hints.Currency
 		}
 		// When the matched hint was a stated MIC_TICKER, include it in the returned
 		// identifiers. A successful Mapping API response for that ticker proves
@@ -286,7 +286,7 @@ func (p *Plugin) assertsExchange(inst *identifier.Instrument, mic string) bool {
 	if mic == "" || inst == nil {
 		return true
 	}
-	return inst.Venue.Permits(mic, func(m string) string {
+	return inst.Listing.Venue.Permits(mic, func(m string) string {
 		if p.exchMap == nil {
 			return ""
 		}
@@ -355,6 +355,14 @@ func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints
 			// listing over an arbitrary venue: it is the consolidated line for
 			// the market, and recording it leaves the exchange unset rather than
 			// asserting whichever venue the provider happened to list first.
+			//
+			// This is now a complete answer rather than the least-bad guess 0129
+			// left it as. A composite covers a market, a market's venues share a
+			// currency, and a currency is what names a listing -- so the
+			// composite row identifies the line exactly and leaves only the venue
+			// unknown, which is a thing the model can represent. Ranking one
+			// venue above another would still be inventing something nobody
+			// stated. See adr/0068.
 			idx = 0
 			for i := range results {
 				if isComposite(&results[i]) {

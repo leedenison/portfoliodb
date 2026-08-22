@@ -36,7 +36,7 @@ func TestPlugin_Identify_CurrencyFound(t *testing.T) {
 	if res.Instrument == nil {
 		t.Fatal("expected instrument")
 	}
-	if res.Instrument.AssetClass != "CASH" || res.Instrument.Currency != "USD" || res.Instrument.Name != "US Dollar" {
+	if res.Instrument.AssetClass != "CASH" || res.Instrument.Listing.Currency != "USD" || res.Instrument.Name != "US Dollar" {
 		t.Errorf("instrument = %+v", res.Instrument)
 	}
 	if len(res.Identifiers) != 1 || res.Identifiers[0].Type != "CURRENCY" || res.Identifiers[0].Value != "USD" {

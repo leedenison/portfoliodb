@@ -536,7 +536,7 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			registry := identifier.NewRegistry()
 			registry.Register("local", &fakePlugin{
-				inst: &identifier.Instrument{AssetClass: "OPTION", Currency: "USD"},
+				inst: &identifier.Instrument{AssetClass: "OPTION", Listing: identifier.Listing{Currency: "USD"}},
 				ids:  []identifier.Identifier{{Type: "OCC", Value: occ}},
 			})
 

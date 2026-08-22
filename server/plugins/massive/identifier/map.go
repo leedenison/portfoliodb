@@ -16,11 +16,13 @@ func stockFromTicker(r *client.TickerOverviewResult) (*identifier.Instrument, []
 	}
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassStock,
-		Venue:      identifier.Venue{MIC: r.PrimaryExchange},
-		Currency:   strings.ToUpper(r.CurrencyName),
-		Name:       r.Name,
-		CIK:        r.CIK,
-		SICCode:    r.SICCode,
+		Listing: identifier.Listing{
+			Venue:    identifier.Venue{MIC: r.PrimaryExchange},
+			Currency: strings.ToUpper(r.CurrencyName),
+		},
+		Name:    r.Name,
+		CIK:     r.CIK,
+		SICCode: r.SICCode,
 	}
 	if r.PrimaryExchange != "" && r.Ticker != "" {
 		inst.ProviderIdentifiers = append(inst.ProviderIdentifiers,
@@ -36,8 +38,10 @@ func stockFromTicker(r *client.TickerOverviewResult) (*identifier.Instrument, []
 func optionFromContract(r *client.OptionsContractResult) (*identifier.Instrument, []identifier.Identifier) {
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassOption,
-		Venue:      identifier.Venue{MIC: r.PrimaryExchange},
-		Name:       strings.TrimPrefix(r.Ticker, "O:"),
+		// A contract carries no currency of its own here; the venue is the
+		// option's own, never the underlying's.
+		Listing: identifier.Listing{Venue: identifier.Venue{MIC: r.PrimaryExchange}},
+		Name:    strings.TrimPrefix(r.Ticker, "O:"),
 	}
 	if r.PrimaryExchange != "" && r.Ticker != "" {
 		inst.ProviderIdentifiers = append(inst.ProviderIdentifiers,

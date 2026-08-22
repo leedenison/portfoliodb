@@ -19,9 +19,11 @@ func stockFromSearch(r *client.SearchResult, exchMap *exchangemap.ExchangeMap) (
 	exchange := venue.MIC
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassStock,
-		Venue:      venue,
-		Currency:   strings.ToUpper(r.Currency),
-		Name:       r.Name,
+		Listing: identifier.Listing{
+			Venue:    venue,
+			Currency: strings.ToUpper(r.Currency),
+		},
+		Name: r.Name,
 	}
 	if r.Exchange != "" {
 		inst.ProviderIdentifiers = append(inst.ProviderIdentifiers,

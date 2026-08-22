@@ -78,10 +78,10 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		inst.AssetClass = *row.AssetClass
 	}
 	if row.ExchangeMIC != nil {
-		inst.Venue = identifier.Venue{MIC: *row.ExchangeMIC}
+		inst.Listing.Venue = identifier.Venue{MIC: *row.ExchangeMIC}
 	}
 	if row.Currency != nil {
-		inst.Currency = *row.Currency
+		inst.Listing.Currency = *row.Currency
 	}
 	if row.Name != nil {
 		inst.Name = *row.Name

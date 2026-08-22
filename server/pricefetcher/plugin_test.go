@@ -29,6 +29,23 @@ func TestRewriteFXPair(t *testing.T) {
 	}
 }
 
+// DerivedFXPairs is built from currency.MinorUnits, and every entry is a pair a
+// price plugin has to be able to synthesise from its source. A currency added to
+// that table silently adds one here, so pin what it holds.
+func TestDerivedFXPairs_holdsOnlyGBXUSD(t *testing.T) {
+	want := map[string]DerivedFXPair{
+		"GBXUSD": {SourcePair: "GBPUSD", Exponent: -2},
+	}
+	if len(DerivedFXPairs) != len(want) {
+		t.Fatalf("DerivedFXPairs = %+v, want %+v", DerivedFXPairs, want)
+	}
+	for pair, d := range want {
+		if DerivedFXPairs[pair] != d {
+			t.Errorf("DerivedFXPairs[%q] = %+v, want %+v", pair, DerivedFXPairs[pair], d)
+		}
+	}
+}
+
 func TestScaleBars(t *testing.T) {
 	o := decimal.RequireFromString("1.25")
 	h := decimal.RequireFromString("1.27")

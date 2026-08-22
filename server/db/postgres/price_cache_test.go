@@ -35,7 +35,7 @@ func setupUser(t *testing.T, p *Postgres) string {
 func setupInstrument(t *testing.T, p *Postgres, desc string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "TEST"},
 			Canonical: false,
@@ -817,7 +817,7 @@ func TestUpsertPricesForRange_DuplicateDates(t *testing.T) {
 func setupInstrumentWithCurrency(t *testing.T, p *Postgres, desc, assetClass, currency string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, err := p.EnsureInstrument(ctx, assetClass, "", currency, desc, "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, assetClass, "", currency, desc, "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "TEST"},
 			Canonical: false,

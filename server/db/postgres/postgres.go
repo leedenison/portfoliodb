@@ -407,7 +407,10 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 	}
 }
 
-// loadIdentifiers batch-loads instrument identifiers for the given IDs and attaches them to the corresponding rows.
+// loadIdentifiers batch-loads an instrument's security-grain identifiers and
+// attaches them to the corresponding rows. What a listing-grain type names is
+// one currency line, so those rows come back through loadListings attached to
+// the listing they name.
 func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.InstrumentRow) error {
 	if len(ids) == 0 {
 		return nil
@@ -456,7 +459,8 @@ func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*
 	return idRows.Err()
 }
 
-// loadProviderIdentifiers batch-loads provider-specific identifiers for the given instrument IDs.
+// loadProviderIdentifiers batch-loads security-grain provider identifiers, and
+// leaves the listing-grain ones to loadListings for the reason above.
 func loadProviderIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.InstrumentRow) error {
 	if len(ids) == 0 {
 		return nil

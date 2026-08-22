@@ -53,8 +53,13 @@ func (s *Server) ListInstruments(ctx context.Context, req *apiv1.ListInstruments
 // the joined exchange reference data, which exists so the SPA need not fetch it
 // separately.
 func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
-	identifiers := make([]*archivev1.Identifier, 0, len(row.Identifiers))
-	for _, idn := range row.Identifiers {
+	// Both grains, flattened. An archive instrument states one currency and so
+	// names one line, and dropping its ticker would produce a file that cannot
+	// re-resolve what it exported. Naming a listing outright, so a file can carry
+	// more than one line of a security, is 0151.
+	all := row.AllIdentifiers()
+	identifiers := make([]*archivev1.Identifier, 0, len(all))
+	for _, idn := range all {
 		identifiers = append(identifiers, &archivev1.Identifier{
 			Type:      identifierTypeFromString(idn.Ref.Type),
 			Value:     idn.Ref.Value,
@@ -70,8 +75,12 @@ func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
 	// The recorded output of the identifier lookups. Carrying them is the point
 	// of the archive: a restored instrument the fetchers can address by the
 	// provider's own identifier costs no second lookup.
-	providerIdentifiers := make([]*archivev1.ProviderIdentifier, 0, len(row.ProviderIdentifiers))
-	for _, pi := range row.ProviderIdentifiers {
+	// Both grains, for the reason above: the archive exists so a restored
+	// instrument needs no plugin call, and every provider identifier that exists
+	// today names a listing.
+	allProv := row.AllProviderIdentifiers()
+	providerIdentifiers := make([]*archivev1.ProviderIdentifier, 0, len(allProv))
+	for _, pi := range allProv {
 		providerIdentifiers = append(providerIdentifiers, &archivev1.ProviderIdentifier{
 			Provider:       pi.Provider,
 			IdentifierType: pi.Type,

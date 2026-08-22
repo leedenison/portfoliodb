@@ -14,7 +14,7 @@ import { readFile } from "fs/promises";
 import type { Page } from "@playwright/test";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
-import { resetAndSeedBase, closeDB, rawQuery } from "../helpers/db";
+import { resetAndSeedBase, closeDB, rawQuery, INSTRUMENT_NAMES } from "../helpers/db";
 import { getJobStatus } from "../helpers/api";
 import { writeGeneratedArchive } from "../helpers/archive";
 import { JobStatus } from "../gen/api/v1/api_pb";
@@ -102,7 +102,7 @@ test.describe("system archive at scale", () => {
     const rows = (await rawQuery("SELECT count(*)::int AS n FROM eod_prices")) as { n: number }[];
     expect(rows[0].n).toBe(TOTAL_ROWS);
     const instruments = (await rawQuery(
-      "SELECT count(*)::int AS n FROM instrument_identifiers WHERE value LIKE 'E2E%'",
+      `SELECT count(*)::int AS n FROM ${INSTRUMENT_NAMES} ii WHERE ii.value LIKE 'E2E%'`,
     )) as { n: number }[];
     expect(instruments[0].n).toBe(INSTRUMENTS);
 

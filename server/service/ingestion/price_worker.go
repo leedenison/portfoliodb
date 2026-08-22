@@ -427,7 +427,7 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 	}
 	// No claim: a price import states one identifier, so there is no
 	// association for it to have asserted.
-	id, err := database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
+	id, _, err := database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: idType, Value: value, Domain: domain},
 			Canonical: true,

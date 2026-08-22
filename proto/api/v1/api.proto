@@ -96,6 +96,19 @@ message Listing {
   // it predates everything known about it.
   optional string valid_from = 3; // "YYYY-MM-DD"
   optional string valid_before = 4; // "YYYY-MM-DD"
+  // The identifiers that name this line rather than the security above it: a
+  // ticker under its venue, a SEDOL, a composite FIGI. Which of the two an
+  // identifier type belongs to is declared rather than inferred from whether it
+  // carries a domain.
+  //
+  // Instrument.identifiers still carries these as well, flattened, because the
+  // UI reads one list per instrument. Saying which grain it means is 0154.
+  repeated InstrumentIdentifier identifiers = 5;
+  // The operating MICs this line is admitted to, derived from its MIC_TICKER
+  // identifiers. A set rather than one venue: two venues quoting one line differ
+  // by a spread, which does not make two listings. Empty is ordinary and means
+  // no provider named a venue -- a composite names a market and stores no MIC.
+  repeated string venues = 6;
 }
 
 // Exchange is ISO 10383 MIC reference data for an instrument's exchange.

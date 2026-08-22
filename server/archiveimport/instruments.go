@@ -153,7 +153,7 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	// rather than a set assembled from several answers. An archive carrying
 	// instrument data is admin-only and authoritative at every level, which is
 	// what makes that claim admissible (adr/0063).
-	id, err := database.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchangeMic(), inst.GetCurrency(),
+	id, listingID, err := database.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchangeMic(), inst.GetCurrency(),
 		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, []db.IdentityClaim{archiveClaim(idns)}, underlyingID,
 		archiveDate(inst.ValidFrom), archiveDate(inst.ValidBefore), opts)
 	if err != nil {
@@ -176,7 +176,11 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	}); err != nil {
 		return fail(err.Error())
 	}
-	if err := restoreProviderIdentifiers(ctx, database, id, inst.GetProviderIdentifiers()); err != nil {
+	// The line the file's currency names, which is where a provider identifier
+	// of listing grain belongs. An archive states one currency per instrument,
+	// so it names one line and every provider identifier in the block is about
+	// it. Naming a listing outright, so a file can carry more than one, is 0151.
+	if err := restoreProviderIdentifiers(ctx, database, id, listingID, inst.GetProviderIdentifiers()); err != nil {
 		return fail("provider_identifiers: " + err.Error())
 	}
 	if inst.ContractMultiplier != nil {
@@ -199,7 +203,7 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 //
 // SaveProviderIdentifiers ignores conflicts, so importing over an instance that
 // has already resolved the instrument adds nothing and loses nothing.
-func restoreProviderIdentifiers(ctx context.Context, database db.DB, instrumentID string, pis []*archivev1.ProviderIdentifier) error {
+func restoreProviderIdentifiers(ctx context.Context, database db.DB, instrumentID, listingID string, pis []*archivev1.ProviderIdentifier) error {
 	if len(pis) == 0 {
 		return nil
 	}
@@ -212,7 +216,7 @@ func restoreProviderIdentifiers(ctx context.Context, database db.DB, instrumentI
 			Value:    pi.GetValue(),
 		})
 	}
-	return database.SaveProviderIdentifiers(ctx, instrumentID, in)
+	return database.SaveProviderIdentifiers(ctx, instrumentID, listingID, in)
 }
 
 // archiveOptionFields reads the denormalized OCC components off an archive

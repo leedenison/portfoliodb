@@ -203,9 +203,13 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 			if !pluginutil.PluginAccepts(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst) {
 				continue
 			}
-			ids := pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.Identifiers)
+			// Both grains, for the reason the price fetcher gives: an events
+			// request is keyed on a ticker as often as on anything else, and a
+			// ticker now lives on the listing. Which grain an event belongs to
+			// is 0150.
+			ids := pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.AllIdentifiers())
 			// Merge provider-specific identifiers for this plugin.
-			for _, pi := range inst.ProviderIdentifiers {
+			for _, pi := range inst.AllProviderIdentifiers() {
 				if pi.Provider == pe.id {
 					ids = append(ids, db.IdentifierInput{
 						Ref: db.InstrumentRef{Type: pi.Type, Value: pi.Value, Domain: pi.Domain},

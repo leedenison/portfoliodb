@@ -20,6 +20,32 @@ async function getClient(): Promise<Client> {
   return client;
 }
 
+// Every name of a security, at either grain, as a subquery a fixture can join.
+//
+// An identifier is stored against what its type names: an ISIN against the
+// security, a ticker against one of its currency lines. Production code knows
+// which grain it means before it asks, so it asks one table. A fixture checking
+// "what is this instrument called" has no grain to state and wants both, which
+// is the same flattening InstrumentRow.AllIdentifiers performs in Go.
+export const INSTRUMENT_NAMES = `(
+  SELECT instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before
+  FROM instrument_identifiers
+  UNION ALL
+  SELECT l.instrument_id, li.identifier_type, li.domain, li.value, li.canonical, li.valid_from, li.valid_before
+  FROM instrument_listing_identifiers li
+  JOIN instrument_listings l ON l.id = li.listing_id
+)`;
+
+// Every provider identifier of a security, at either grain, for the same reason.
+export const PROVIDER_INSTRUMENT_NAMES = `(
+  SELECT instrument_id, provider, identifier_type, domain, value
+  FROM provider_instrument_identifiers
+  UNION ALL
+  SELECT l.instrument_id, pli.provider, pli.identifier_type, pli.domain, pli.value
+  FROM provider_listing_identifiers pli
+  JOIN instrument_listings l ON l.id = pli.listing_id
+)`;
+
 export async function closeDB(): Promise<void> {
   if (client) {
     await client.end();
@@ -225,7 +251,7 @@ export async function queryInstrumentByIdentifier(
   const instRes = await c.query(
     `SELECT i.id, i.asset_class, i.strike, i.underlying_id
      FROM instruments i
-     JOIN instrument_identifiers ii ON ii.instrument_id = i.id
+     JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = i.id
      WHERE ii.identifier_type = $1 AND ii.value = $2
      LIMIT 1`,
     [identifierType, identifierValue],
@@ -233,7 +259,7 @@ export async function queryInstrumentByIdentifier(
   if (instRes.rows.length === 0) return null;
   const row = instRes.rows[0] as Record<string, unknown>;
   const idRes = await c.query(
-    `SELECT identifier_type AS type, value FROM instrument_identifiers WHERE instrument_id = $1`,
+    `SELECT identifier_type AS type, value FROM ${INSTRUMENT_NAMES} ii WHERE ii.instrument_id = $1`,
     [row.id],
   );
   return {

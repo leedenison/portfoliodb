@@ -86,17 +86,11 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row == nil {
 		return nil
 	}
-	identifiers := make([]*apiv1.InstrumentIdentifier, 0, len(row.Identifiers))
-	for _, idn := range row.Identifiers {
-		pi := &apiv1.InstrumentIdentifier{Type: identifierTypeFromString(idn.Ref.Type), Domain: idn.Ref.Domain, Value: idn.Ref.Value, Canonical: idn.Canonical}
-		if idn.ValidFrom != nil {
-			pi.ValidFrom = proto.String(idn.ValidFrom.Format("2006-01-02"))
-		}
-		if idn.ValidBefore != nil {
-			pi.ValidBefore = proto.String(idn.ValidBefore.Format("2006-01-02"))
-		}
-		identifiers = append(identifiers, pi)
-	}
+	// Flattened, because the UI reads one list per instrument and the identity
+	// page it draws does not yet say which grain a row is at. Each listing also
+	// carries its own below, so the two views are consistent and a caller can
+	// already read the grain off the response. Removing the flat one is 0154.
+	identifiers := identifiersToProto(row.AllIdentifiers())
 	out := &apiv1.Instrument{
 		Id:          row.ID,
 		Identifiers: identifiers,
@@ -146,6 +140,24 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	return out
 }
 
+// identifiersToProto converts identifier rows at either grain. The row carries
+// nothing that says which, and nothing here needs to: what differs between the
+// two is where they are stored and what they name, not how they are rendered.
+func identifiersToProto(idns []db.IdentifierInput) []*apiv1.InstrumentIdentifier {
+	out := make([]*apiv1.InstrumentIdentifier, 0, len(idns))
+	for _, idn := range idns {
+		pi := &apiv1.InstrumentIdentifier{Type: identifierTypeFromString(idn.Ref.Type), Domain: idn.Ref.Domain, Value: idn.Ref.Value, Canonical: idn.Canonical}
+		if idn.ValidFrom != nil {
+			pi.ValidFrom = proto.String(idn.ValidFrom.Format("2006-01-02"))
+		}
+		if idn.ValidBefore != nil {
+			pi.ValidBefore = proto.String(idn.ValidBefore.Format("2006-01-02"))
+		}
+		out = append(out, pi)
+	}
+	return out
+}
+
 // listingsToProto converts a security's currency lines. A nil Currency is the
 // unknown listing and becomes an empty string, as every other nullable string on
 // this message does.
@@ -155,7 +167,10 @@ func listingsToProto(listings []*db.Listing) []*apiv1.Listing {
 	}
 	out := make([]*apiv1.Listing, 0, len(listings))
 	for _, l := range listings {
-		pl := &apiv1.Listing{Id: l.ID, Currency: derefStr(l.Currency)}
+		pl := &apiv1.Listing{Id: l.ID, Currency: derefStr(l.Currency), Venues: l.Venues}
+		if len(l.Identifiers) > 0 {
+			pl.Identifiers = identifiersToProto(l.Identifiers)
+		}
 		if l.ValidFrom != nil {
 			pl.ValidFrom = proto.String(l.ValidFrom.Format("2006-01-02"))
 		}

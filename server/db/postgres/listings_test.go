@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 
@@ -185,7 +186,7 @@ func TestEnsureInstrument_CurrencyNamesTheUnknownListing(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// A broker-description-only instrument: no canonical identifier, no currency.
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "Some Security", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "Some Security", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME SECURITY", Domain: "test"}, Canonical: false},
 	}, nil, "", nil, nil, nil)
 	if err != nil {
@@ -196,7 +197,7 @@ func TestEnsureInstrument_CurrencyNamesTheUnknownListing(t *testing.T) {
 	}
 
 	// Identification completes it, and the currency it learned names the line.
-	same, err := p.EnsureInstrument(ctx, "STOCK", "", "GBX", "Some Security", "", "", []db.IdentifierInput{
+	same, _, err := p.EnsureInstrument(ctx, "STOCK", "", "GBX", "Some Security", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME SECURITY", Domain: "test"}, Canonical: false},
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00LISTING08"}, Canonical: true},
 	}, nil, "", nil, nil, nil)
@@ -346,7 +347,7 @@ func TestSeedCurrencyInstruments_Listings(t *testing.T) {
 // with currency "" meaning the source stated none.
 func ensureListedInstrument(t *testing.T, p *Postgres, idType, value, currency string) string {
 	t.Helper()
-	id, err := p.EnsureInstrument(context.Background(), "STOCK", "", currency, "", "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(context.Background(), "STOCK", "", currency, "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: idType, Value: value}, Canonical: true},
 	}, nil, "", nil, nil, nil)
 	if err != nil {
@@ -379,5 +380,309 @@ func listingCurrencies(t *testing.T, p *Postgres, instrumentID string) []string 
 		}
 		out = append(out, *l.Currency)
 	}
+	return out
+}
+
+// A row is stored against what its type names. This is the whole of 0147 in one
+// assertion: the ISIN is a fact about the security and the ticker is a fact
+// about one of its lines, and neither is found where the other lives.
+func TestEnsureInstrument_StoresIdentifiersAtTheirGrain(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00GRAIN001"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "GRN", Domain: "XNAS"}, Canonical: true},
+		// Listing-grain without a domain, which is the case a rule reading the
+		// domain instead of the declared grain would file in the wrong table.
+		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BGRAIN1"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if listingID == "" {
+		t.Fatal("EnsureInstrument named no listing for a stated currency")
+	}
+
+	row, err := p.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if len(row.Identifiers) != 1 || row.Identifiers[0].Ref.Type != "ISIN" {
+		t.Errorf("security identifiers = %+v, want just the ISIN", row.Identifiers)
+	}
+	if len(row.Listings) != 1 {
+		t.Fatalf("listings = %+v, want one", row.Listings)
+	}
+	if row.Listings[0].ID != listingID {
+		t.Errorf("listing id = %s, want the one EnsureInstrument returned (%s)", row.Listings[0].ID, listingID)
+	}
+	var types []string
+	for _, idn := range row.Listings[0].Identifiers {
+		types = append(types, idn.Ref.Type)
+	}
+	sort.Strings(types)
+	if len(types) != 2 || types[0] != "MIC_TICKER" || types[1] != "SEDOL" {
+		t.Errorf("listing identifiers = %v, want the ticker and the SEDOL", types)
+	}
+	// The flattening the callers that have not yet picked a grain read.
+	if got := len(row.AllIdentifiers()); got != 3 {
+		t.Errorf("AllIdentifiers = %d, want all three", got)
+	}
+}
+
+// A ticker names one listing across the whole instance, exactly as an ISIN names
+// one instrument. Two listings of one security holding it at once is the
+// ambiguity the constraint refuses -- it is no less ambiguous for the two lines
+// belonging to the same security.
+func TestListingIdentifiers_OverlapExcludedAcrossListings(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, gbp, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00OVERLAP1"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "DUP", Domain: "XLON"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	// A second line of the same security.
+	if err := insertListing(ctx, p, instID, "USD"); err != nil {
+		t.Fatalf("insert second listing: %v", err)
+	}
+	var usd string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT id::text FROM instrument_listings WHERE instrument_id = $1::uuid AND currency = 'USD'
+	`, instID).Scan(&usd); err != nil {
+		t.Fatalf("read USD listing: %v", err)
+	}
+	if usd == gbp {
+		t.Fatal("the two lines are the same row")
+	}
+	err = p.InsertInstrumentIdentifier(ctx, instID, usd, db.IdentifierInput{
+		Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "DUP", Domain: "XLON"}, Canonical: true,
+	})
+	if err == nil {
+		t.Fatal("one ticker accepted on two lines at once, want exclusion violation")
+	}
+	if !isIdentifierConflict(err) {
+		t.Fatalf("error = %v, want an exclusion violation", err)
+	}
+}
+
+// A listing's venues are derived from its MIC_TICKER identifiers, and the whole
+// set is recomputed: closing a name takes its venue away as surely as writing
+// one adds it.
+func TestListingVenues_DerivedFromTickers(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VEN", Domain: "XNAS"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if got := listingVenues(t, p, instID); len(got) != 1 || got[0] != "XNAS" {
+		t.Fatalf("venues = %v, want [XNAS]", got)
+	}
+
+	// A second venue quoting the same line is a second member of the set rather
+	// than a second listing.
+	if err := p.InsertInstrumentIdentifier(ctx, instID, listingID, db.IdentifierInput{
+		Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VEN", Domain: "XLON"}, Canonical: true,
+	}); err != nil {
+		t.Fatalf("insert second venue: %v", err)
+	}
+	if got := listingVenues(t, p, instID); len(got) != 2 || got[0] != "XLON" || got[1] != "XNAS" {
+		t.Fatalf("venues = %v, want [XLON XNAS]", got)
+	}
+
+	// A name no longer in force names no venue.
+	if _, err := p.q.ExecContext(ctx, `
+		UPDATE instrument_listing_identifiers SET valid_before = DATE '2020-01-01' WHERE domain = 'XLON'
+	`); err != nil {
+		t.Fatalf("close the XLON name: %v", err)
+	}
+	if got := listingVenues(t, p, instID); len(got) != 1 || got[0] != "XNAS" {
+		t.Fatalf("venues after closing = %v, want [XNAS]", got)
+	}
+}
+
+// A composite names a market rather than a venue, so a ticker under one records
+// no MIC. The listing is still perfectly well identified -- the currency is what
+// identifies it -- and the venue is simply not known.
+func TestListingVenues_CompositeRecordsNoVenue(t *testing.T) {
+	p := testDBTx(t)
+	instID := ensureListedInstrument(t, p, "ISIN", "US00COMPOS01", "USD")
+	ctx := context.Background()
+	listings, err := p.ListingsByInstrument(ctx, []string{instID})
+	if err != nil {
+		t.Fatalf("listings: %v", err)
+	}
+	if err := p.InsertInstrumentIdentifier(ctx, instID, listings[instID][0].ID, db.IdentifierInput{
+		Ref: db.InstrumentRef{Type: "OPENFIGI_TICKER", Value: "CMP", Domain: "US"}, Canonical: true,
+	}); err != nil {
+		t.Fatalf("insert composite ticker: %v", err)
+	}
+	if got := listingVenues(t, p, instID); len(got) != 0 {
+		t.Errorf("venues = %v, want none: a composite is not a MIC", got)
+	}
+}
+
+// A MIC the reference table does not carry loses the venue and keeps the ticker,
+// rather than failing the identifier write. It is the same judgement the
+// resolver makes about a proposed exchange nothing recognises.
+func TestListingVenues_UnknownMICIsDropped(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00UNKMIC01"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	// Written straight in, because EnsureInstrument would normalise a MIC it
+	// recognised and this one it does not.
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
+		VALUES ($1::uuid, 'MIC_TICKER', 'ZZZZ', 'UNK', true)
+	`, listingID); err != nil {
+		t.Fatalf("insert ticker under an unknown MIC: %v", err)
+	}
+	if got := listingVenues(t, p, instID); len(got) != 0 {
+		t.Errorf("venues = %v, want none", got)
+	}
+	row, err := p.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if tkr, _ := findListingIdentifier(row, "MIC_TICKER", "UNK"); tkr == nil {
+		t.Error("the ticker was lost with the venue, want it kept")
+	}
+}
+
+// MIC_TICKER leads the name priority and now lives on a listing, so the trigger
+// has to read both tables or every equity falls through to its description.
+func TestRecomputeInstrumentName_ReadsBothGrains(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME EQUITY", Domain: "test"}, Canonical: false},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "NAMED", Domain: "XNAS"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	row, err := p.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.Name == nil || *row.Name != "NAMED" {
+		t.Errorf("name = %v, want the ticker rather than the description", row.Name)
+	}
+}
+
+// No listing is primary, so the name is stable across a security's lines. What
+// breaks the tie is having a currency at all: a security with a known line is
+// never named by its unknown one.
+func TestRecomputeInstrumentName_PrefersALineWithACurrency(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, known, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00PRIMARY1"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "KNOWN", Domain: "XNAS"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	// An unknown line beside the known one, which nothing writes today but which
+	// the ordering has to answer for.
+	var unknown string
+	if err := p.q.QueryRowContext(ctx, `
+		INSERT INTO instrument_listings (instrument_id, currency) VALUES ($1::uuid, NULL) RETURNING id::text
+	`, instID).Scan(&unknown); err != nil {
+		t.Fatalf("insert unknown listing: %v", err)
+	}
+	if unknown == known {
+		t.Fatal("the two lines are the same row")
+	}
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
+		VALUES ($1::uuid, 'MIC_TICKER', 'XLON', 'AAAAA', true)
+	`, unknown); err != nil {
+		t.Fatalf("insert ticker on the unknown line: %v", err)
+	}
+	row, err := p.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	// AAAAA sorts first on every other key, so only the currency preference
+	// keeps the name off the unknown line.
+	if row.Name == nil || *row.Name != "KNOWN" {
+		t.Errorf("name = %v, want the ticker on the line that has a currency", row.Name)
+	}
+}
+
+// The eager merge moves the loser's names across, and a name on a line has to
+// land on the survivor's line of the same currency family. Without this every
+// merge would silently drop the ticker it moves today.
+func TestMergeInstruments_MovesListingIdentifiersByCurrencyFamily(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	// Quoted in pence by one source.
+	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "", "GBX", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "FAMILY", Domain: "XLON"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure loser: %v", err)
+	}
+	// And in pounds by another, with two more names so it wins pickSurvivor.
+	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00FAMILY01"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BFAMILY"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	if loser == survivor {
+		t.Fatal("the two securities are the same row")
+	}
+
+	// One answer naming both: the eager merge follows.
+	merged, _, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00FAMILY01"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "FAMILY", Domain: "XLON"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure merge: %v", err)
+	}
+	if merged != survivor {
+		t.Fatalf("survivor = %s, want %s", merged, survivor)
+	}
+
+	row, err := p.GetInstrument(ctx, merged)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	// GBX and GBP are one family, so the two lines are one line and the ticker
+	// arrives on it rather than forking a second.
+	if got := listingCurrencies(t, p, merged); len(got) != 1 || got[0] != "GBP" {
+		t.Fatalf("listings = %v, want the single GBP line", got)
+	}
+	if tkr, _ := findListingIdentifier(row, "MIC_TICKER", "FAMILY"); tkr == nil {
+		t.Errorf("the loser's ticker was dropped by the merge: %+v", row.Listings)
+	}
+}
+
+// listingVenues returns every venue across a security's lines, sorted.
+func listingVenues(t *testing.T, p *Postgres, instrumentID string) []string {
+	t.Helper()
+	got, err := p.ListingsByInstrument(context.Background(), []string{instrumentID})
+	if err != nil {
+		t.Fatalf("listings by instrument: %v", err)
+	}
+	var out []string
+	for _, l := range got[instrumentID] {
+		out = append(out, l.Venues...)
+	}
+	sort.Strings(out)
 	return out
 }

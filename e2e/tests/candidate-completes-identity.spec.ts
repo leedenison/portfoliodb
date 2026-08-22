@@ -16,7 +16,7 @@
 import { test, expect } from "@playwright/test";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
-import { resetAndSeedBase, closeDB, rawQuery } from "../helpers/db";
+import { resetAndSeedBase, closeDB, rawQuery, INSTRUMENT_NAMES } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
@@ -261,7 +261,7 @@ test.describe("a candidate plugin completes a partial identity", () => {
     // ranks and never resolves, so the ISIN is what found the security.
     const ids = (await rawQuery(
       `SELECT ii.identifier_type
-         FROM instrument_identifiers ii
+         FROM ${INSTRUMENT_NAMES} ii
         WHERE ii.instrument_id = (
                 SELECT instrument_id FROM instrument_identifiers
                  WHERE identifier_type = 'ISIN' AND value = $1)`,

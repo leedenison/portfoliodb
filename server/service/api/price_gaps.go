@@ -84,7 +84,9 @@ func toPriceGapProtos(gaps []db.InstrumentDateRanges, instrMap map[string]*db.In
 		if len(acFilter) > 0 && !acFilter[ac] {
 			continue
 		}
-		ident := bestIdentifier(inst.Identifiers)
+		// A gap is reported to a person, who knows the security by its ticker.
+		// Both grains, until 0154 says which one a gap is at.
+		ident := bestIdentifier(inst.AllIdentifiers())
 		if ident == nil {
 			continue
 		}

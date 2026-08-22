@@ -5,6 +5,10 @@ import "fmt"
 // identifierPriorityOrder ranks identifier types for export-shaped queries that
 // surface a single identifier per instrument. Adding a new identifier type or
 // changing the order requires editing only this expression.
+//
+// The alias is fixed because the lateral below builds one candidate set from
+// both identifier tables and names it ii, which is what keeps one order over
+// types that are now stored in two places.
 const identifierPriorityOrder = `CASE ii.identifier_type
 			WHEN 'MIC_TICKER' THEN 1
 			WHEN 'OPENFIGI_TICKER' THEN 2
@@ -38,14 +42,35 @@ var bestIdentifierJoin = bestIdentifierJoinOn("JOIN", "i.id", "best_id")
 // Only names still in force are candidates. An option that has worn two OCC
 // symbols holds both, and a file naming it by the one it has given up would name
 // a contract that no longer answers to it.
+//
+// Both grains are candidates, because the priority order leads with MIC_TICKER
+// and a ticker names a listing. This is the same flattening
+// recompute_instrument_name performs to derive a security's display name, and
+// for the same reason: naming a security is a question about the security, and
+// its listings are where several of its names now live.
+//
+// It is not the split adr/0069 asks for. That one gives a price group a listing
+// join beside the security join, because an archive naming a listing needs its
+// currency as well as an identifier; here one row per instrument is exactly what
+// is wanted. Issue 0151 is where the ref gains a currency and the two joins part
+// company.
 func bestIdentifierJoinOn(joinType, idExpr, alias string) string {
 	return fmt.Sprintf(`
-	%s LATERAL (
+	%[1]s LATERAL (
 		SELECT ii.identifier_type, ii.value, ii.domain
-		FROM instrument_identifiers ii
-		WHERE ii.instrument_id = %s AND ii.valid_before IS NULL
-		ORDER BY %s
+		FROM (
+			SELECT si.identifier_type, si.value, si.domain, si.valid_before
+			FROM instrument_identifiers si
+			WHERE si.instrument_id = %[2]s
+			UNION ALL
+			SELECT li.identifier_type, li.value, li.domain, li.valid_before
+			FROM instrument_listing_identifiers li
+			JOIN instrument_listings l ON l.id = li.listing_id
+			WHERE l.instrument_id = %[2]s
+		) ii
+		WHERE ii.valid_before IS NULL
+		ORDER BY %[3]s
 		LIMIT 1
-	) %s ON true
+	) %[4]s ON true
 `, joinType, idExpr, identifierPriorityOrder, alias)
 }

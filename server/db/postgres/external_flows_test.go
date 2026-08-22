@@ -205,7 +205,7 @@ func TestGetPortfolioExternalFlows_SecurityTransferFlowsInShares(t *testing.T) {
 	ctx := context.Background()
 
 	userID, _ := p.GetOrCreateUser(ctx, "sub|flow-shares", "U", "u@flow-shares.com")
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "FIDELITY"},
 			Canonical: false,
@@ -431,7 +431,7 @@ func TestGetPortfolioExternalFlows_InstrumentFilterSeesTheCashLeg(t *testing.T) 
 
 	userID, _ := p.GetOrCreateUser(ctx, "sub|flow-instfilter", "U", "u@flow-instfilter.com")
 	cashID := usdCash(t, p)
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "FIDELITY"},
 			Canonical: false,

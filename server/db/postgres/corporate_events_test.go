@@ -810,7 +810,7 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 	ctx := context.Background()
 
 	// Create an instrument with three identifiers, MIC_TICKER should win.
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "Apple Inc.", Domain: "TEST"},
 			Canonical: false,
@@ -866,7 +866,7 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -1014,7 +1014,7 @@ func TestApplyOptionSplit(t *testing.T) {
 	// Create option instrument with OCC identifier and option fields.
 	expiry := d(2025, 1, 17)
 	optFields := &db.OptionFields{Strike: decf(150), Expiry: expiry, PutCall: "C"}
-	optID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL 250117C00150000", "", "", []db.IdentifierInput{
+	optID, _, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL 250117C00150000", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00150000"},
 			Canonical: true,
@@ -1476,7 +1476,7 @@ func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike flo
 		t.Fatalf("setupOption: unparseable OCC %q", occ)
 	}
 	optFields := &db.OptionFields{Strike: decf(strike), Expiry: expiry, PutCall: "C"}
-	id, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", occ, "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", occ, "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: occ},
 			Canonical: true,

@@ -459,62 +459,6 @@ CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identi
 -- the constraint's index is not a substitute for this one.
 CREATE INDEX idx_instrument_identifiers_lookup_domain ON instrument_identifiers (identifier_type, domain, value);
 
--- Trigger: recompute instruments.name and instruments.exchange whenever identifiers
--- or the instrument itself change. Fires AFTER so that all rows are visible.
---
--- Only names still in force are considered. An instrument that has worn two OCC
--- symbols holds both, and without the filter the priority order would fall
--- through to the lexicographically smaller value rather than the current one.
-CREATE OR REPLACE FUNCTION recompute_instrument_name() RETURNS TRIGGER AS $$
-DECLARE
-  instr_id UUID;
-BEGIN
-  IF TG_TABLE_NAME = 'instrument_identifiers' THEN
-    instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
-  ELSE
-    instr_id := NEW.id;
-  END IF;
-
-  UPDATE instruments SET
-    name = COALESCE(
-      (SELECT ii.value FROM instrument_identifiers ii
-       WHERE ii.instrument_id = instr_id
-         AND ii.valid_before IS NULL
-         AND ii.identifier_type IN ('MIC_TICKER','OPENFIGI_TICKER','OCC','BROKER_DESCRIPTION','CURRENCY','FX_PAIR')
-       ORDER BY CASE ii.identifier_type
-         WHEN 'MIC_TICKER' THEN 0 WHEN 'OPENFIGI_TICKER' THEN 1
-         WHEN 'OCC' THEN 2 WHEN 'BROKER_DESCRIPTION' THEN 3
-         WHEN 'CURRENCY' THEN 4 WHEN 'FX_PAIR' THEN 5
-       END, ii.domain, ii.value LIMIT 1),
-      NULLIF(instruments.name, ''),
-      instr_id::text
-    ),
-    exchange = COALESCE(
-      (SELECT e.acronym FROM exchanges e WHERE e.mic = instruments.exchange_mic),
-      (SELECT ii.domain FROM instrument_identifiers ii
-       WHERE ii.instrument_id = instr_id AND ii.identifier_type = 'OPENFIGI_TICKER'
-         AND ii.valid_before IS NULL
-         AND ii.domain IS NOT NULL AND ii.domain <> ''
-       ORDER BY ii.domain LIMIT 1),
-      ''
-    )
-  WHERE id = instr_id;
-
-  RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
--- Recompute on identifier changes.
-CREATE TRIGGER trg_recompute_instrument_name_on_ident
-  AFTER INSERT OR UPDATE OR DELETE ON instrument_identifiers
-  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
-
--- Recompute on instrument creation or exchange_mic change.
--- Column-specific UPDATE OF avoids infinite loop (trigger only writes name/exchange).
-CREATE TRIGGER trg_recompute_instrument_name_on_inst
-  AFTER INSERT OR UPDATE OF exchange_mic ON instruments
-  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
-
 -- currency_family collapses a minor-unit currency onto the unit it is a prefix
 -- of. GBX is pence sterling: the same currency as GBP under a different prefix,
 -- so a provider quoting the London line in pence and another quoting it in
@@ -599,6 +543,57 @@ CREATE TABLE listing_venues (
 
 CREATE INDEX idx_listing_venues_mic ON listing_venues (mic);
 
+-- Identifiers that name one listing of a security rather than the security
+-- itself: a ticker, a SEDOL, a composite FIGI. identifier.NamesAListing decides
+-- which of the two tables a row lands in, and nothing reads them
+-- polymorphically -- a caller knows the grain of the type it is asking about
+-- before it asks.
+--
+-- The split is what gives a listing fact somewhere to live. Currency and
+-- exchange are facts about a listing, and while every identifier hung off the
+-- security a currency learned from the London line was asserted of the New York
+-- one; the rules that suppressed that consequence are removed rather than ported.
+-- See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+--
+-- Every column below means what the matching column on instrument_identifiers
+-- means, including the half-open [valid_from, valid_before) interval and what a
+-- NULL bound says. Only the thing named differs.
+CREATE TABLE instrument_listing_identifiers (
+  id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  listing_id      UUID NOT NULL REFERENCES instrument_listings (id) ON DELETE CASCADE,
+  identifier_type TEXT NOT NULL,
+  domain          TEXT,
+  value           TEXT NOT NULL,
+  canonical       BOOLEAN NOT NULL DEFAULT true,
+  valid_from      DATE,
+  valid_before    DATE,
+  CONSTRAINT chk_instrument_listing_identifiers_interval CHECK (
+    valid_from IS NULL OR valid_before IS NULL OR valid_from < valid_before
+  ),
+  -- One name denotes one listing at a time, instance-wide, exactly as
+  -- excl_instrument_identifiers_overlap does one instrument. Global rather than
+  -- per-listing for the same reason: a triple held by two listings at once is
+  -- the ambiguity the constraint exists to refuse, and it is no less ambiguous
+  -- for the two listings belonging to one security.
+  --
+  -- The COALESCE is load-bearing there and here: a GIST 'WITH =' on a NULL never
+  -- conflicts, so an absent domain has to be spelled as a value.
+  CONSTRAINT excl_instrument_listing_identifiers_overlap EXCLUDE USING gist (
+    identifier_type WITH =,
+    COALESCE(domain, '') WITH =,
+    value WITH =,
+    daterange(valid_from, valid_before) WITH &&
+  )
+);
+
+-- The same pair of lookup indexes instrument_identifiers carries, and for the
+-- same reasons: the domain-agnostic one is kept narrow so a prefix match on
+-- value still reaches it, and GIST answers equality far worse than btree, so the
+-- exclusion constraint's index is no substitute for the domain-aware one.
+CREATE INDEX idx_instrument_listing_identifiers_lookup ON instrument_listing_identifiers (identifier_type, value);
+CREATE INDEX idx_instrument_listing_identifiers_lookup_domain ON instrument_listing_identifiers (identifier_type, domain, value);
+CREATE INDEX idx_instrument_listing_identifiers_listing ON instrument_listing_identifiers (listing_id);
+
 -- Provider-specific instrument identifiers. Mirrors instrument_identifiers but
 -- scoped to a data provider. Identifier types are free-form strings specific to
 -- the provider (e.g. "SEGMENT_MIC_TICKER", "EODHD_EXCH_CODE", "FIGI").
@@ -616,6 +611,192 @@ CREATE TABLE provider_instrument_identifiers (
 -- indexes, so no separate lookup index is needed.
 CREATE UNIQUE INDEX idx_prov_instr_ident_unique_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, value) WHERE domain IS NULL;
 CREATE UNIQUE INDEX idx_prov_instr_ident_unique_non_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value) WHERE domain IS NOT NULL;
+
+-- Provider identifiers that name a listing, split from the table above on the
+-- same axis and by the same rule -- identifier.ProviderNamesAListing, which
+-- declares grain for the provider types that exist. All three of them name a
+-- listing today, so the table above holds nothing at present; it stays because a
+-- provider type nobody has classified reads as security-grain, which attaches it
+-- to a row that certainly exists rather than to a listing something had to pick.
+CREATE TABLE provider_listing_identifiers (
+  id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  listing_id      UUID NOT NULL REFERENCES instrument_listings (id) ON DELETE CASCADE,
+  provider        TEXT NOT NULL,
+  identifier_type TEXT NOT NULL,
+  domain          TEXT,
+  value           TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX idx_prov_listing_ident_unique_null_domain ON provider_listing_identifiers (listing_id, provider, identifier_type, value) WHERE domain IS NULL;
+CREATE UNIQUE INDEX idx_prov_listing_ident_unique_non_null_domain ON provider_listing_identifiers (listing_id, provider, identifier_type, domain, value) WHERE domain IS NOT NULL;
+
+-- Trigger: recompute instruments.name and instruments.exchange whenever an
+-- identifier at either grain, a listing, or the instrument itself changes.
+-- Fires AFTER so that all rows are visible.
+--
+-- It sits below the listing tables because it reads them. MIC_TICKER ranks first
+-- in the name priority and is listing-grain, so a version reading only
+-- instrument_identifiers would name every equity by its broker description.
+--
+-- Only names still in force are considered. An instrument that has worn two OCC
+-- symbols holds both, and without the filter the priority order would fall
+-- through to the lexicographically smaller value rather than the current one.
+--
+-- No listing is primary. Naming one would reintroduce the conflation between a
+-- default listing and an unknown one that the level exists to remove, so the
+-- security's name is a label its listings share rather than a claim about which
+-- of them matters. Where a user has to tell two listings apart, the currency is
+-- what tells them apart. See
+-- docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+CREATE OR REPLACE FUNCTION recompute_instrument_name() RETURNS TRIGGER AS $$
+DECLARE
+  instr_id UUID;
+BEGIN
+  CASE TG_TABLE_NAME
+    WHEN 'instrument_identifiers' THEN
+      instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
+    WHEN 'instrument_listing_identifiers' THEN
+      -- A listing-grain row names its listing, and the listing names the
+      -- security. A cascading delete can remove both before this runs, which
+      -- leaves instr_id null and nothing to recompute.
+      SELECT l.instrument_id INTO instr_id
+      FROM instrument_listings l
+      WHERE l.id = COALESCE(NEW.listing_id, OLD.listing_id);
+    WHEN 'instrument_listings' THEN
+      instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
+    ELSE
+      instr_id := NEW.id;
+  END CASE;
+
+  IF instr_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  UPDATE instruments SET
+    name = COALESCE(
+      -- Each branch selects only the types of its own grain, so the two are
+      -- read separately and joined here rather than searched together. The
+      -- currency comes from the listing a listing-grain name belongs to and is
+      -- null for every security-grain one, which costs nothing: type priority
+      -- sorts first and the branches contribute disjoint types, so the currency
+      -- only ever tie-breaks among a security's listings.
+      --
+      -- Nulls last within a type is "prefer a listing that has a currency": a
+      -- security with a known line is never named by its unknown one.
+      (SELECT n.value FROM (
+         SELECT ii.identifier_type, ii.domain, ii.value, NULL::text AS currency
+         FROM instrument_identifiers ii
+         WHERE ii.instrument_id = instr_id
+           AND ii.valid_before IS NULL
+           AND ii.identifier_type IN ('OCC','BROKER_DESCRIPTION','CURRENCY','FX_PAIR')
+         UNION ALL
+         SELECT li.identifier_type, li.domain, li.value, l.currency
+         FROM instrument_listing_identifiers li
+         JOIN instrument_listings l ON l.id = li.listing_id
+         WHERE l.instrument_id = instr_id
+           AND li.valid_before IS NULL
+           AND li.identifier_type IN ('MIC_TICKER','OPENFIGI_TICKER')
+       ) n
+       ORDER BY CASE n.identifier_type
+         WHEN 'MIC_TICKER' THEN 0 WHEN 'OPENFIGI_TICKER' THEN 1
+         WHEN 'OCC' THEN 2 WHEN 'BROKER_DESCRIPTION' THEN 3
+         WHEN 'CURRENCY' THEN 4 WHEN 'FX_PAIR' THEN 5
+       END, n.currency IS NULL, n.currency, n.domain, n.value LIMIT 1),
+      NULLIF(instruments.name, ''),
+      instr_id::text
+    ),
+    exchange = COALESCE(
+      (SELECT e.acronym FROM exchanges e WHERE e.mic = instruments.exchange_mic),
+      (SELECT li.domain FROM instrument_listing_identifiers li
+       JOIN instrument_listings l ON l.id = li.listing_id
+       WHERE l.instrument_id = instr_id AND li.identifier_type = 'OPENFIGI_TICKER'
+         AND li.valid_before IS NULL
+         AND li.domain IS NOT NULL AND li.domain <> ''
+       ORDER BY l.currency IS NULL, l.currency, li.domain LIMIT 1),
+      ''
+    )
+  WHERE id = instr_id;
+
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Recompute on identifier changes, at either grain.
+CREATE TRIGGER trg_recompute_instrument_name_on_ident
+  AFTER INSERT OR UPDATE OR DELETE ON instrument_identifiers
+  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
+
+CREATE TRIGGER trg_recompute_instrument_name_on_listing_ident
+  AFTER INSERT OR UPDATE OR DELETE ON instrument_listing_identifiers
+  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
+
+-- Recompute on instrument creation or exchange_mic change.
+-- Column-specific UPDATE OF avoids infinite loop (trigger only writes name/exchange).
+CREATE TRIGGER trg_recompute_instrument_name_on_inst
+  AFTER INSERT OR UPDATE OF exchange_mic ON instruments
+  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
+
+-- A listing acquiring a currency changes which of a security's listings the name
+-- is taken from, so the currency is watched as exchange_mic is above. Insertion
+-- is not: a listing is minted with no identifiers, so there is nothing for it to
+-- change until a row arrives on the trigger above.
+CREATE TRIGGER trg_recompute_instrument_name_on_listing
+  AFTER UPDATE OF currency ON instrument_listings
+  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
+
+-- Trigger: derive a listing's venues from its listing-grain identifiers.
+--
+-- A set rather than a column, because a venue migration is a change to this set
+-- rather than an event, and because two venues quoting one line are one listing.
+-- Deriving it keeps a real foreign key to exchanges while making divergence
+-- between the identifiers and the venue set unrepresentable.
+--
+-- MIC_TICKER alone, because it is the only listing-grain type whose domain is a
+-- MIC: an OPENFIGI_TICKER's domain is a composite exchange code, which names a
+-- market rather than a venue and is deliberately not stored as one, and a SEDOL
+-- and a composite FIGI carry no domain at all. SEGMENT_MIC_TICKER is a provider
+-- identifier and is excluded too -- its segment MIC normalises to the operating
+-- MIC the canonical row already carries, so it would add nothing and could only
+-- disagree.
+--
+-- The join to exchanges is both the foreign key and the filter. A MIC the
+-- reference table does not carry is dropped rather than failing the identifier
+-- write, which is the same judgement the resolver makes when a candidate
+-- proposes an unknown exchange: keep the ticker, lose the venue.
+--
+-- Recomputed whole rather than patched, in the pattern recompute_instrument_name
+-- follows: a closed interval or a deleted row removes a venue as surely as an
+-- insert adds one, and one statement pair says so for all three.
+CREATE OR REPLACE FUNCTION recompute_listing_venues() RETURNS TRIGGER AS $$
+DECLARE
+  lstg_id UUID;
+BEGIN
+  lstg_id := COALESCE(NEW.listing_id, OLD.listing_id);
+  -- The listing may have gone with the row, in which case its venues went too.
+  IF NOT EXISTS (SELECT 1 FROM instrument_listings WHERE id = lstg_id) THEN
+    RETURN NULL;
+  END IF;
+
+  DELETE FROM listing_venues WHERE listing_id = lstg_id;
+
+  INSERT INTO listing_venues (listing_id, mic)
+  SELECT DISTINCT lstg_id, li.domain
+  FROM instrument_listing_identifiers li
+  JOIN exchanges e ON e.mic = li.domain
+  WHERE li.listing_id = lstg_id
+    AND li.identifier_type = 'MIC_TICKER'
+    AND li.canonical
+    AND li.valid_before IS NULL
+    AND li.domain IS NOT NULL AND li.domain <> '';
+
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_recompute_listing_venues
+  AFTER INSERT OR UPDATE OR DELETE ON instrument_listing_identifiers
+  FOR EACH ROW EXECUTE FUNCTION recompute_listing_venues();
+
 
 -- Plugin config: which plugins are enabled, precedence (unique per category), plugin-specific config.
 -- category: 'identifier', 'candidate', 'price'.

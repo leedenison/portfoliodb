@@ -41,7 +41,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry() // no plugins
 
 	ctx := context.Background()
@@ -78,7 +78,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: "IBKR:test:statement"},
 			Canonical: false,
 		}}, gomock.Any(), "", nil, nil, nil).
-		Return("broker-only-id", nil)
+		Return("broker-only-id", "listing-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-1").
 		Return(nil)
@@ -121,7 +121,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
@@ -159,7 +159,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "CACHED", Domain: "IBKR:test:statement"},
 			Canonical: false,
 		}}, gomock.Any(), "", nil, nil, nil).
-		Return("cached-inst-id", nil)
+		Return("cached-inst-id", "listing-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-2").
 		Return(nil).Times(2)
@@ -198,7 +198,7 @@ func TestProcessBulk_StatedCashOnStockInstrumentFails(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
@@ -271,7 +271,7 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
@@ -335,7 +335,7 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
@@ -398,7 +398,7 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
@@ -455,7 +455,7 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
@@ -533,7 +533,7 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			defer ctrl.Finish()
 			database := mock.NewMockDB(ctrl)
 			database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-			database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			registry := identifier.NewRegistry()
 			registry.Register("local", &fakePlugin{
 				inst: &identifier.Instrument{AssetClass: "OPTION", Currency: "USD"},
@@ -580,11 +580,11 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			// The assertion.
 			var validFrom []*time.Time
 			database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "", gomock.Any(), gomock.Any(), "", nil, nil, gomock.Any()).
-				DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+				DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 					for _, idn := range idns {
 						validFrom = append(validFrom, idn.ValidFrom)
 					}
-					return "option-id", nil
+					return "option-id", "listing-id", nil
 				})
 			database.EXPECT().AppendIdentificationErrors(gomock.Any(), "job-1", gomock.Any()).Return(nil).AnyTimes()
 			database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-1").Return(nil)

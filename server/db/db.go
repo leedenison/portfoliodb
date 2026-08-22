@@ -1171,24 +1171,28 @@ func ValidCurrencyCode(s string) bool {
 // InstrumentRow is a single instrument with its identifiers (for API responses).
 // Nullable DB columns use pointer types; nil means NULL.
 type InstrumentRow struct {
-	ID                  string
-	AssetClass          *string
-	ExchangeMIC         *string
-	Currency            *string
-	Name                *string
-	Exchange            string // denormalized; trigger-computed from acronym/identifier
-	UnderlyingID        *string
-	ValidFrom           *time.Time
-	ValidBefore         *time.Time
-	CIK                 *string
-	SICCode             *string
-	Strike              *decimal.Decimal // denormalized from OCC; NULL for non-options
-	Expiry              *time.Time       // denormalized from OCC; NULL for non-options
-	PutCall             *string          // "C" or "P"; NULL for non-options
-	ContractMultiplier  decimal.Decimal  // deliverable multiplier; 1 = standard
+	ID                 string
+	AssetClass         *string
+	ExchangeMIC        *string
+	Currency           *string
+	Name               *string
+	Exchange           string // denormalized; trigger-computed from acronym/identifier
+	UnderlyingID       *string
+	ValidFrom          *time.Time
+	ValidBefore        *time.Time
+	CIK                *string
+	SICCode            *string
+	Strike             *decimal.Decimal // denormalized from OCC; NULL for non-options
+	Expiry             *time.Time       // denormalized from OCC; NULL for non-options
+	PutCall            *string          // "C" or "P"; NULL for non-options
+	ContractMultiplier decimal.Decimal  // deliverable multiplier; 1 = standard
+	// Security-grain identifiers only. What a listing-grain type names is one
+	// currency line, so those rows hang off the Listing they name and are
+	// reached through Listings. AllIdentifiers is the flattening, for a caller
+	// that has not yet picked a grain.
 	Identifiers         []IdentifierInput
 	Listings            []*Listing                // the currency lines this security trades in
-	ProviderIdentifiers []ProviderIdentifierInput // provider-specific identifiers
+	ProviderIdentifiers []ProviderIdentifierInput // security-grain provider identifiers
 	ExchangeName        *string                   // read-only; from exchanges JOIN
 	ExchangeAcronym     *string                   // read-only; from exchanges JOIN
 	ExchangeCountryCode *string                   // read-only; from exchanges JOIN
@@ -1220,6 +1224,58 @@ type Listing struct {
 	ValidFrom   *time.Time
 	ValidBefore *time.Time
 	CreatedAt   time.Time
+	// The identifiers that name this line rather than the security above it: a
+	// ticker under its venue, a SEDOL, a composite FIGI.
+	Identifiers []IdentifierInput
+	// Provider-specific identifiers at the same grain.
+	ProviderIdentifiers []ProviderIdentifierInput
+	// The operating MICs this line is admitted to, derived from its MIC_TICKER
+	// identifiers by trigger. A set rather than one venue: two venues quoting
+	// one line differ by a spread, which does not make two listings. Empty is
+	// ordinary and means no provider named a venue -- a composite names a market
+	// and stores no MIC.
+	Venues []string
+}
+
+// AllIdentifiers is the security's identifiers followed by those of each of its
+// listings, in listing order.
+//
+// It exists for the callers that have not yet been told which grain they mean:
+// the price fetcher, the corporate event fetcher, and the API boundary that
+// still hands the UI one flat list. Each of those picks a grain in its own issue
+// (0148, 0150, 0151, 0154), and until then this is the one place the two sets
+// are put back together -- deliberately named, so the list of callers still to
+// migrate is a search for it rather than a reading of every query.
+//
+// It is not a way to look an identifier up. Which table a row lives in follows
+// from its type, so a lookup asks the table its type names; searching both is
+// the polymorphic read the split exists to remove.
+func (r *InstrumentRow) AllIdentifiers() []IdentifierInput {
+	n := len(r.Identifiers)
+	for _, l := range r.Listings {
+		n += len(l.Identifiers)
+	}
+	out := make([]IdentifierInput, 0, n)
+	out = append(out, r.Identifiers...)
+	for _, l := range r.Listings {
+		out = append(out, l.Identifiers...)
+	}
+	return out
+}
+
+// AllProviderIdentifiers is AllIdentifiers for provider-specific identifiers,
+// and exists for the same callers.
+func (r *InstrumentRow) AllProviderIdentifiers() []ProviderIdentifierInput {
+	n := len(r.ProviderIdentifiers)
+	for _, l := range r.Listings {
+		n += len(l.ProviderIdentifiers)
+	}
+	out := make([]ProviderIdentifierInput, 0, n)
+	out = append(out, r.ProviderIdentifiers...)
+	for _, l := range r.Listings {
+		out = append(out, l.ProviderIdentifiers...)
+	}
+	return out
 }
 
 // ListingDB reads the currency lines of a security.
@@ -1227,6 +1283,20 @@ type ListingDB interface {
 	// ListingsByInstrument returns each instrument's listings, keyed by instrument ID.
 	// Instruments with no listings are absent from the map rather than present and empty.
 	ListingsByInstrument(ctx context.Context, instrumentIDs []string) (map[string][]*Listing, error)
+	// FindListingByIdentifier looks a listing up by a listing-grain identifier
+	// triple, returning the listing and the security it belongs to. Both are ""
+	// when nothing matches. Passing a security-grain type is a programming
+	// error: its values name no listing, so there is no answer to give.
+	FindListingByIdentifier(ctx context.Context, identifierType, domain, value string) (instrumentID, listingID string, err error)
+	// ListingForVenue returns the security's listing admitted to the given
+	// operating MIC.
+	//
+	// "" when no listing is on that venue, and "" again when more than one is.
+	// A bare MIC does not always identify a line -- the LSE lists both the GBP
+	// and the USD line of the same ETC -- and the second case is unresolved
+	// rather than a choice to make: picking one would attach a holding to a
+	// currency nobody stated. See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+	ListingForVenue(ctx context.Context, instrumentID, mic string) (string, error)
 }
 
 // HoldingDeclarationRow is a single holding declaration for API responses.
@@ -1347,13 +1417,24 @@ type HoldingDeclarationDB interface {
 
 // InstrumentDB provides instrument resolution and plugin config.
 type InstrumentDB interface {
-	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. exchangeMIC is the ISO 10383 MIC code (nullable). optionFields is non-nil only for OPTION instruments and supplies denormalized OCC components.
+	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. exchangeMIC is the ISO 10383 MIC code (nullable). optionFields is non-nil only for OPTION instruments and supplies denormalized OCC components.
+	//
+	// It returns a security and the listing the stated currency names, because
+	// identifiers arrive at two grains and land in two places: every identifier
+	// whose type names a listing is written against that line rather than
+	// against the security.
+	//
+	// The listing is "" only where the caller stated no currency and the
+	// security has more than one line. Nothing said which, and choosing would
+	// attach the caller's listing-grain identifiers to a currency nobody stated.
+	// A caller in that position has to state a currency; one whose security has
+	// a single line, the unknown line included, always gets it.
 	//
 	// claims says which of those identifiers were named together, and by which
 	// answer. It is what separates an association somebody asserted from a set
 	// the caller assembled, and the merge below does not read it yet: the rule
 	// that does is 0140.
-	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *OptionFields) (string, error)
+	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *OptionFields) (instrumentID, listingID string, err error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
 	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but also returns asset_class, exchange_mic (ISO 10383 MIC code), and currency from the instruments table in one query.
@@ -1395,8 +1476,11 @@ type InstrumentDB interface {
 	// ListInstruments returns instruments sorted alphabetically by display name (ticker, then name, then broker description). If search is non-empty, only instruments with at least one identifier value matching (case-insensitive substring) are returned. If assetClasses is non-empty, only instruments with matching asset_class are returned. Returns (rows, totalCount, nextPageToken, error).
 	ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*InstrumentRow, int32, string, error)
 
-	// InsertInstrumentIdentifier inserts a single identifier row.
-	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
+	// InsertInstrumentIdentifier inserts a single identifier row, against the
+	// instrument or against the listing according to what its type names.
+	// listingID may be "" only when the type is security-grain: a listing-grain
+	// row has to say which line it names rather than have one chosen for it.
+	InsertInstrumentIdentifier(ctx context.Context, instrumentID, listingID string, input IdentifierInput) error
 	// MergeInstrumentFromArchive fills in what an existing instrument does not
 	// already have: identifiers it lacks, and columns that are still NULL. A
 	// stored value always wins, so importing a file cannot rewrite reference
@@ -1412,10 +1496,15 @@ type InstrumentDB interface {
 	// nothing recomputes it, so a file that states it is the only way it comes
 	// back. See docs/spec/corporate-events.md.
 	SetContractMultiplier(ctx context.Context, instrumentID string, m decimal.Decimal) error
-	// SaveProviderIdentifiers inserts provider-specific identifiers for an instrument.
-	// Duplicates (same instrument, provider, type, domain, value) are silently ignored.
-	SaveProviderIdentifiers(ctx context.Context, instrumentID string, ids []ProviderIdentifierInput) error
-	// FindProviderIdentifiers returns provider-specific identifiers for an instrument and provider.
+	// SaveProviderIdentifiers inserts provider-specific identifiers, routed by
+	// grain the way InsertInstrumentIdentifier routes canonical ones.
+	// Duplicates are silently ignored.
+	SaveProviderIdentifiers(ctx context.Context, instrumentID, listingID string, ids []ProviderIdentifierInput) error
+	// FindProviderIdentifiers returns provider-specific identifiers for an
+	// instrument and provider, at both grains: the caller is a plugin
+	// orchestrator asking what it can key a request on, which is a question
+	// about the security and every line of it. Narrowing that to one listing is
+	// 0148 and 0150.
 	FindProviderIdentifiers(ctx context.Context, instrumentID, provider string) ([]ProviderIdentifierInput, error)
 	// LookupOperatingMIC returns the operating MIC for the given MIC code.
 	// If mic is already an operating MIC it returns itself. Returns ("", error) if not found.

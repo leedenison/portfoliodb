@@ -54,14 +54,16 @@ And a composite **constrains what other plugins may contribute**. A plugin that 
 
 ### Provider-specific identifiers
 
-Some identifiers are specific to a particular data provider and are not part of the canonical identifier vocabulary. These are stored in the `provider_instrument_identifiers` table, separate from canonical identifiers. Each row includes a `provider` column (e.g. "massive", "eodhd", "openfigi") and a free-form `identifier_type` specific to that provider.
+Some identifiers are specific to a particular data provider and are not part of the canonical identifier vocabulary. Each row includes a `provider` column (e.g. "massive", "eodhd", "openfigi") and a free-form `identifier_type` specific to that provider.
+
+They are split by grain on the same axis the canonical ones are, into `provider_instrument_identifiers` and `provider_listing_identifiers`. The grain of a provider type is declared in a table of its own rather than read off the canonical vocabulary, because a provider type is a free-form string a plugin invents; an undeclared one names the security, which attaches it to a row that certainly exists rather than to a listing something had to pick. All three types below name a listing.
 
 Examples of provider-specific identifiers:
 - **SEGMENT_MIC_TICKER** (provider: massive) -- the segment-level MIC and ticker that Polygon.io's API requires for price and corporate event lookups
 - **EODHD_EXCH_CODE** (provider: eodhd) -- EODHD's proprietary exchange code (e.g. "US", "LSE") used to build `ticker.code` symbols for API calls
 - **FIGI** (provider: openfigi) -- the venue-specific FIGI (formerly OPENFIGI_GLOBAL), which is tied to a specific trading venue
 
-Provider identifiers are populated by identifier plugins during resolution and stored alongside canonical identifiers. When a price or corporate event plugin needs to fetch data, the orchestrator loads provider-specific identifiers for the plugin's provider ID and merges them into the identifier list. Plugins prefer their provider-specific identifiers when available and fall back to canonical identifiers.
+Provider identifiers are populated by identifier plugins during resolution and stored alongside canonical identifiers. When a price or corporate event plugin needs to fetch data, the orchestrator loads provider-specific identifiers for the plugin's provider ID -- at both grains, since it is asking what the security and every line of it can be keyed on -- and merges them into the identifier list. Plugins prefer their provider-specific identifiers when available and fall back to canonical identifiers.
 
 If a provider-specific identifier is not available (e.g. the instrument was imported without running through the provider's identifier plugin), the provider plugin falls back to canonical identifiers. If those are also insufficient for the provider's API, the fetch fails gracefully and the orchestrator tries the next plugin in precedence order.
 

@@ -92,7 +92,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 	// other instrument, so they need real bars and real coverage, not just a row.
 	fxIDs := make(map[string]string, len(foreignCurrencies))
 	for _, cur := range foreignCurrencies {
-		id, err := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
+		id, _, err := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
 			{
 				Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: cur + "USD", Domain: ""},
 				Canonical: true,
@@ -119,7 +119,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 		if load.foreignEvery > 0 && i%load.foreignEvery == 0 {
 			cur = foreignCurrencies[(i/load.foreignEvery)%len(foreignCurrencies)]
 		}
-		instID, err := p.EnsureInstrument(ctx, "STOCK", "", cur, desc, "", "", []db.IdentifierInput{
+		instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", cur, desc, "", "", []db.IdentifierInput{
 			{
 				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "BENCH"},
 				Canonical: false,

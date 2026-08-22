@@ -12,6 +12,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 )
@@ -19,13 +20,45 @@ import (
 // errIdentifierExists is returned when EnsureInstrument hits a unique violation (identifier already for another instrument).
 var errIdentifierExists = errors.New("identifier already exists for another instrument")
 
+// splitByGrain divides identifiers into those naming the security and those
+// naming one of its listings, which is the same thing as dividing them by which
+// table they are stored in. The declared grain of the type decides it, so a
+// caller never inspects a domain to work out what a value is about.
+func splitByGrain(ids []db.IdentifierInput) (security, listing []db.IdentifierInput) {
+	for _, idn := range ids {
+		if identifier.NamesAListing(idn.Ref.Type) {
+			listing = append(listing, idn)
+		} else {
+			security = append(security, idn)
+		}
+	}
+	return security, listing
+}
+
+// splitProviderByGrain is splitByGrain for provider-specific identifiers, whose
+// grain comes from a table of its own: a provider type is a free-form string
+// rather than a vocabulary member, and an undeclared one names the security.
+func splitProviderByGrain(ids []db.ProviderIdentifierInput) (security, listing []db.ProviderIdentifierInput) {
+	for _, pi := range ids {
+		if identifier.ProviderNamesAListing(pi.Type) {
+			listing = append(listing, pi)
+		} else {
+			security = append(security, pi)
+		}
+	}
+	return security, listing
+}
+
 // mergeInstruments merges mergedAway into survivor inside the same transaction: updates all txs pointing at mergedAway to survivor, moves identifier rows to survivor (or keeps survivor's if duplicate), then deletes mergedAway. exec must be a transaction.
 // The delete is deliberate and lossy: mergedAway's canonical fields and its cascaded prices, splits, dividends and coverage rows go with it, and nothing records the prior identity. See docs/adr/0004-instrument-resolution-and-merge.md.
 //
-// mergedAway's listings cascade away with it, which is the same loss and is safe
-// only while nothing points at a listing. Unioning two securities' listing sets
-// by currency family, so that two listings of one currency merge rather than one
-// being discarded, is adr/0071.
+// mergedAway's listing rows cascade away with it, so the names they carry are
+// moved across first, onto the survivor's line of the same currency family. That
+// much of adr/0071's union is required here rather than deferred: a MIC_TICKER
+// now lives on a listing, and without the move every eager merge would silently
+// drop the ticker it moves today. What an unknown listing does when the survivor
+// has known lines to split across is the rest of adr/0071, and is not decided
+// here.
 func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
 	if survivor == mergedAway {
 		return nil
@@ -108,6 +141,9 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 			return fmt.Errorf("insert identifier: %w", err)
 		}
 	}
+	if err := mergeListingIdentifiers(ctx, exec, survivor, mergedAway); err != nil {
+		return err
+	}
 	// Update any instruments that referenced mergedAway as their underlying.
 	if _, err := exec.ExecContext(ctx, `UPDATE instruments SET underlying_id = $1 WHERE underlying_id = $2`, survivor, mergedAway); err != nil {
 		return fmt.Errorf("update instruments.underlying_id: %w", err)
@@ -116,6 +152,112 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 		return fmt.Errorf("delete merged instrument: %w", err)
 	}
 	return nil
+}
+
+// mergeListingIdentifiers moves the names on each of mergedAway's listings onto
+// the survivor's listing of the same currency family, minting one where the
+// survivor has no line in that family yet.
+//
+// The family and not the code, so a line stored in GBX and one stored in GBP are
+// one line and their names end up together -- which is the whole reason listing
+// uniqueness is on the family.
+//
+// Delete-then-insert rather than an UPDATE of listing_id, for the reason the
+// security-grain move above has it: the overlap constraint is global, so a name
+// the survivor already holds over the same interval would fail the merge, and
+// skipping it is right -- the survivor holding it already is the two rows saying
+// the same thing.
+func mergeListingIdentifiers(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
+	rows, err := exec.QueryContext(ctx, `
+		SELECT id, COALESCE(currency, '') FROM instrument_listings WHERE instrument_id = $1
+	`, mergedAway)
+	if err != nil {
+		return fmt.Errorf("list merged listings: %w", err)
+	}
+	defer rows.Close()
+	type listing struct {
+		id       uuid.UUID
+		currency string
+	}
+	var listings []listing
+	for rows.Next() {
+		var l listing
+		if err := rows.Scan(&l.id, &l.currency); err != nil {
+			return fmt.Errorf("scan merged listing: %w", err)
+		}
+		listings = append(listings, l)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, l := range listings {
+		target, err := ensureListing(ctx, exec, survivor, l.currency)
+		if err != nil {
+			return fmt.Errorf("merge listing %s: %w", l.id, err)
+		}
+		if target == uuid.Nil {
+			// The loser's line has no currency and the survivor has several, so
+			// nothing says which of them these names belong to. They go with the
+			// listing rather than being filed under a currency nobody stated.
+			// Splitting an unknown listing across known ones is adr/0071.
+			continue
+		}
+		idns, err := readListingIdentifiers(ctx, exec, l.id)
+		if err != nil {
+			return err
+		}
+		if _, err := exec.ExecContext(ctx, `DELETE FROM instrument_listing_identifiers WHERE listing_id = $1`, l.id); err != nil {
+			return fmt.Errorf("delete merged listing identifiers: %w", err)
+		}
+		for _, idn := range idns {
+			_, err := exec.ExecContext(ctx, `
+				INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
+			`, target, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+			if err != nil {
+				if isIdentifierConflict(err) {
+					continue
+				}
+				return fmt.Errorf("insert listing identifier: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// readListingIdentifiers reads one listing's identifiers, bounds included. The
+// validity interval moves with the name for the reason the security-grain read
+// gives: a name the loser wore and gave up is history the survivor inherits.
+func readListingIdentifiers(ctx context.Context, exec queryable, listingID uuid.UUID) ([]db.IdentifierInput, error) {
+	rows, err := exec.QueryContext(ctx, `
+		SELECT identifier_type, domain, value, canonical, valid_from, valid_before
+		FROM instrument_listing_identifiers WHERE listing_id = $1
+	`, listingID)
+	if err != nil {
+		return nil, fmt.Errorf("list listing identifiers: %w", err)
+	}
+	defer rows.Close()
+	var out []db.IdentifierInput
+	for rows.Next() {
+		var idn db.IdentifierInput
+		var domain sql.NullString
+		var validFrom, validBefore sql.NullTime
+		if err := rows.Scan(&idn.Ref.Type, &domain, &idn.Ref.Value, &idn.Canonical, &validFrom, &validBefore); err != nil {
+			return nil, err
+		}
+		if domain.Valid {
+			idn.Ref.Domain = domain.String
+		}
+		if validFrom.Valid {
+			idn.ValidFrom = &validFrom.Time
+		}
+		if validBefore.Valid {
+			idn.ValidBefore = &validBefore.Time
+		}
+		out = append(out, idn)
+	}
+	return out, rows.Err()
 }
 
 // pickSurvivor returns the instrument ID that should survive when merging the given set (most identifiers, then oldest created_at). ids must have at least one element.
@@ -127,8 +269,16 @@ func pickSurvivor(ctx context.Context, q queryable, ids []uuid.UUID) (uuid.UUID,
 		return ids[0], nil
 	}
 	inClause, args := inClauseUUIDs(ids)
+	// Names at both grains count. The tie-break is "the row that knows the most
+	// about this security", and a listing's ticker is as much a name for it as
+	// an ISIN is; counting one table would make a ticker-rich instrument lose to
+	// a bare one.
 	query := fmt.Sprintf(`
-		SELECT i.id, i.created_at, (SELECT count(*) FROM instrument_identifiers WHERE instrument_id = i.id) AS n
+		SELECT i.id, i.created_at,
+		       (SELECT count(*) FROM instrument_identifiers WHERE instrument_id = i.id)
+		     + (SELECT count(*) FROM instrument_listing_identifiers li
+		        JOIN instrument_listings l ON l.id = li.listing_id
+		        WHERE l.instrument_id = i.id) AS n
 		FROM instruments i WHERE i.id IN (%s)
 	`, inClause)
 	rows, err := q.QueryContext(ctx, query, args...)
@@ -196,7 +346,15 @@ func isIdentifierConflict(err error) bool {
 // recently closed one is the fallback -- so a value two different instruments
 // held over disjoint intervals resolves to the current holder. Asking what a
 // value denoted on a given date is issue 0122, not this.
+//
+// The type says which table holds the row, so this asks one of them rather than
+// searching both. A caller wanting the listing as well as the security asks
+// FindListingByIdentifier directly.
 func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error) {
+	if identifier.NamesAListing(identifierType) {
+		instID, _, err := p.FindListingByIdentifier(ctx, identifierType, domain, value)
+		return instID, err
+	}
 	var id uuid.UUID
 	var err error
 	if domain == "" {
@@ -224,11 +382,46 @@ func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierTyp
 }
 
 // FindInstrumentWithMetaByIdentifier implements db.InstrumentDB. It orders by
-// validity for the same reason FindInstrumentByIdentifier does.
+// validity, and dispatches on grain, for the same reasons
+// FindInstrumentByIdentifier does.
 func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (string, string, string, string, error) {
 	var id uuid.UUID
 	var ac, exch, cur string
 	var err error
+	if identifier.NamesAListing(identifierType) {
+		// The metadata still comes off the security. Currency and exchange are
+		// listing facts and instruments carries a column for each until 0155
+		// retires them; reading the listing's own is what 0154 does at the
+		// boundaries that display it.
+		if domain == "" {
+			err = p.q.QueryRowContext(ctx, `
+				SELECT l.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
+				FROM instrument_listing_identifiers li
+				JOIN instrument_listings l ON l.id = li.listing_id
+				JOIN instruments i ON i.id = l.instrument_id
+				WHERE li.identifier_type = $1 AND li.domain IS NULL AND li.value = $2
+				ORDER BY li.valid_before IS NULL DESC, li.valid_before DESC
+				LIMIT 1
+			`, identifierType, value).Scan(&id, &ac, &exch, &cur)
+		} else {
+			err = p.q.QueryRowContext(ctx, `
+				SELECT l.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
+				FROM instrument_listing_identifiers li
+				JOIN instrument_listings l ON l.id = li.listing_id
+				JOIN instruments i ON i.id = l.instrument_id
+				WHERE li.identifier_type = $1 AND li.domain = $2 AND li.value = $3
+				ORDER BY li.valid_before IS NULL DESC, li.valid_before DESC
+				LIMIT 1
+			`, identifierType, domain, value).Scan(&id, &ac, &exch, &cur)
+		}
+		if err == sql.ErrNoRows {
+			return "", "", "", "", nil
+		}
+		if err != nil {
+			return "", "", "", "", fmt.Errorf("find instrument with meta by identifier: %w", err)
+		}
+		return id.String(), ac, exch, cur, nil
+	}
 	if domain == "" {
 		err = p.q.QueryRowContext(ctx, `
 			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
@@ -265,9 +458,11 @@ func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, ident
 // separator's position and cannot have it put back.
 func (p *Postgres) FindInstrumentByTickerIgnoringSeparators(ctx context.Context, value string) (string, error) {
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT DISTINCT instrument_id FROM instrument_identifiers
-		WHERE identifier_type = 'MIC_TICKER'
-		  AND translate(value, './- ', '') = translate($1, './- ', '')
+		SELECT DISTINCT l.instrument_id
+		FROM instrument_listing_identifiers li
+		JOIN instrument_listings l ON l.id = li.listing_id
+		WHERE li.identifier_type = 'MIC_TICKER'
+		  AND translate(li.value, './- ', '') = translate($1, './- ', '')
 	`, value)
 	if err != nil {
 		return "", fmt.Errorf("find instrument by ticker ignoring separators: %w", err)
@@ -296,10 +491,19 @@ func (p *Postgres) FindInstrumentByTickerIgnoringSeparators(ctx context.Context,
 }
 
 func (p *Postgres) FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error) {
-	rows, err := p.q.QueryContext(ctx, `
+	q := `
 		SELECT instrument_id FROM instrument_identifiers
 		WHERE identifier_type = $1 AND value = $2
-	`, identifierType, value)
+	`
+	if identifier.NamesAListing(identifierType) {
+		q = `
+			SELECT l.instrument_id
+			FROM instrument_listing_identifiers li
+			JOIN instrument_listings l ON l.id = li.listing_id
+			WHERE li.identifier_type = $1 AND li.value = $2
+		`
+	}
+	rows, err := p.q.QueryContext(ctx, q, identifierType, value)
 	if err != nil {
 		return "", fmt.Errorf("find instrument by type and value: %w", err)
 	}
@@ -341,6 +545,11 @@ func (p *Postgres) FindInstrumentBySourceDescription(ctx context.Context, source
 // question -- does this description name an instrument with no identity -- and
 // two lookups would let the answer change between them.
 //
+// Two of them, one per grain. An instrument whose only canonical name is a
+// ticker has an identity, and asking the security's table alone would report it
+// as nothing but a broker's text and let a description associate it with
+// something else.
+//
 // It orders by validity for the same reason FindInstrumentByIdentifier does.
 func (p *Postgres) FindDescriptionOnlyInstrument(ctx context.Context, source, description string) (string, error) {
 	var id uuid.UUID
@@ -350,6 +559,11 @@ func (p *Postgres) FindDescriptionOnlyInstrument(ctx context.Context, source, de
 		  AND NOT EXISTS (
 			SELECT 1 FROM instrument_identifiers c
 			WHERE c.instrument_id = ii.instrument_id AND c.canonical
+		  )
+		  AND NOT EXISTS (
+			SELECT 1 FROM instrument_listing_identifiers cl
+			JOIN instrument_listings l ON l.id = cl.listing_id
+			WHERE l.instrument_id = ii.instrument_id AND cl.canonical
 		  )
 		ORDER BY ii.valid_before IS NULL DESC, ii.valid_before DESC
 		LIMIT 1
@@ -423,7 +637,12 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	matched := `
 		SELECT i.id
 		FROM instruments i
-		WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)`
+		WHERE (EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
+		       OR EXISTS (
+		            SELECT 1 FROM instrument_listing_identifiers li
+		            JOIN instrument_listings l ON l.id = li.listing_id
+		            WHERE l.instrument_id = i.id AND li.canonical = true
+		          ))`
 
 	args := []interface{}{}
 	argN := 1
@@ -546,16 +765,16 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // caller assembled from several results is not an association anybody stated,
 // and two results agreeing about a currency and a venue have not said they are
 // the same security. Carrying the partition is 0139; acting on it is 0140.
-func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields) (string, error) {
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields) (string, string, error) {
 	_ = claims
 	if len(identifiers) == 0 {
-		return "", fmt.Errorf("at least one identifier required")
+		return "", "", fmt.Errorf("at least one identifier required")
 	}
 	if assetClass != "" && !db.ValidAssetClasses[assetClass] {
-		return "", fmt.Errorf("invalid asset_class %q", assetClass)
+		return "", "", fmt.Errorf("invalid asset_class %q", assetClass)
 	}
 	if (assetClass == db.AssetClassOption || assetClass == db.AssetClassFuture) && underlyingID == "" {
-		return "", fmt.Errorf("underlying_id required when asset_class is %s", assetClass)
+		return "", "", fmt.Errorf("underlying_id required when asset_class is %s", assetClass)
 	}
 	// Normalize MIC_TICKER domains and exchangeMIC to operating MICs.
 	exchangeMIC = p.normalizeToOperatingMIC(ctx, exchangeMIC)
@@ -568,17 +787,23 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	if underlyingID != "" {
 		parsed, err := uuid.Parse(underlyingID)
 		if err != nil {
-			return "", fmt.Errorf("invalid underlying_id: %w", err)
+			return "", "", fmt.Errorf("invalid underlying_id: %w", err)
 		}
 		underlyingUUID = &parsed
 	}
+	// Each identifier is stored against what its type names. The split is taken
+	// once here and carried through every branch below, so no branch can decide
+	// it differently.
+	securityIDs, listingIDs := splitByGrain(identifiers)
 	// Look up every identifier and collect distinct instrument IDs (no early return).
 	seen := make(map[uuid.UUID]struct{})
 	var distinctIDs []uuid.UUID
 	for _, idn := range identifiers {
+		// FindInstrumentByIdentifier asks the table the type names, so a mixed
+		// set is looked up a row at a time at each row's own grain.
 		existingID, err := p.FindInstrumentByIdentifier(ctx, idn.Ref.Type, idn.Ref.Domain, idn.Ref.Value)
 		if err != nil {
-			return "", fmt.Errorf("lookup instrument: %w", err)
+			return "", "", fmt.Errorf("lookup instrument: %w", err)
 		}
 		if existingID != "" {
 			parsed, _ := uuid.Parse(existingID)
@@ -592,8 +817,9 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	if len(distinctIDs) > 1 {
 		survivor, err := pickSurvivor(ctx, p.q, distinctIDs)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
+		var listingID uuid.UUID
 		err = p.runInTx(ctx, func(exec queryable) error {
 			for _, id := range distinctIDs {
 				if id == survivor {
@@ -603,13 +829,21 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 					return err
 				}
 			}
+			// The survivor's line for the stated currency, which is where the
+			// caller's listing-grain identifiers belong. Minting it if it is not
+			// there yet is the same act ensureListing performs on the create
+			// path, and it is idempotent for a survivor that already has one.
+			listingID, err = ensureListing(ctx, exec, survivor, currency)
+			if err != nil {
+				return err
+			}
 			// Update underlying and option fields on the survivor.
 			return updateInstrumentOnMatch(ctx, exec, survivor, underlyingUUID, optionFields)
 		})
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return survivor.String(), nil
+		return survivor.String(), nilUUIDToString(listingID), nil
 	}
 	// Exactly one instrument: update underlying and option fields, and complete
 	// it outright where it had no identity to begin with.
@@ -617,13 +851,31 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		id := distinctIDs[0]
 		descOnly, err := holdsNoCanonicalIdentifier(ctx, p.q, id)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if !descOnly {
-			if err := updateInstrumentOnMatch(ctx, p.q, id, underlyingUUID, optionFields); err != nil {
-				return "", err
+			// The line the currency names, read rather than written. This is the
+			// path a bulk import takes on almost every row, so it stays one
+			// statement outside a transaction; only a currency the security has
+			// no line in yet is worth the write below.
+			listingID, err := listingFor(ctx, p.q, id, currency)
+			if err != nil {
+				return "", "", err
 			}
-			return id.String(), nil
+			if listingID == uuid.Nil && currency != "" {
+				err = p.runInTx(ctx, func(exec queryable) error {
+					var lErr error
+					listingID, lErr = ensureListing(ctx, exec, id, currency)
+					return lErr
+				})
+				if err != nil {
+					return "", "", err
+				}
+			}
+			if err := updateInstrumentOnMatch(ctx, p.q, id, underlyingUUID, optionFields); err != nil {
+				return "", "", err
+			}
+			return id.String(), nilUUIDToString(listingID), nil
 		}
 		// The instrument is nothing but a broker's text for a security: it holds
 		// no canonical identifier and every column is null. So what identified it
@@ -639,8 +891,10 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		// An instrument that does hold a canonical identifier is left alone. What
 		// may be added to one is 0136, and it is a different question with a
 		// different answer.
+		var listingID uuid.UUID
 		err = p.runInTx(ctx, func(exec queryable) error {
-			if err := mergeIntoInstrument(ctx, exec, id, db.InstrumentMerge{
+			var mErr error
+			listingID, mErr = mergeIntoInstrument(ctx, exec, id, db.InstrumentMerge{
 				AssetClass:  assetClass,
 				ExchangeMIC: exchangeMIC,
 				Currency:    currency,
@@ -649,18 +903,19 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 				ValidFrom:   validFrom,
 				ValidBefore: validBefore,
 				Identifiers: identifiers,
-			}); err != nil {
-				return err
+			})
+			if mErr != nil {
+				return mErr
 			}
 			return updateInstrumentOnMatch(ctx, exec, id, underlyingUUID, optionFields)
 		})
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return id.String(), nil
+		return id.String(), nilUUIDToString(listingID), nil
 	}
 	// None found: create new instrument and add identifiers.
-	var newID uuid.UUID
+	var newID, newListingID uuid.UUID
 	err := p.runInTx(ctx, func(exec queryable) error {
 		var strike, expiry, putCall any
 		if optionFields != nil {
@@ -679,13 +934,25 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		// Every security has at least one currency line, and a security created
 		// without a stated currency gets the unknown one rather than none: how
 		// many lines it has is what is unknown, not whether it has any.
-		if err := ensureListing(ctx, exec, newID, currency); err != nil {
+		newListingID, err = ensureListing(ctx, exec, newID, currency)
+		if err != nil {
 			return err
 		}
-		for _, idn := range identifiers {
-			canonical := idn.Canonical
+		for _, idn := range securityIDs {
 			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				newID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+				newID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+			if err != nil {
+				if isIdentifierConflict(err) {
+					return errIdentifierExists // rollback tx; caller will look up existing id
+				}
+				return err
+			}
+		}
+		// A listing-grain name goes on the line the currency named. A security
+		// just created has exactly one, so newListingID is never nil here.
+		for _, idn := range listingIDs {
+			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				newListingID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 			if err != nil {
 				if isIdentifierConflict(err) {
 					return errIdentifierExists // rollback tx; caller will look up existing id
@@ -697,25 +964,61 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	})
 	if err != nil {
 		if errors.Is(err, errIdentifierExists) {
+			// The losing race looks the winner up at each identifier's own
+			// grain, which is what FindInstrumentByIdentifier dispatches on.
 			for _, idn := range identifiers {
 				existingID, rowErr := p.FindInstrumentByIdentifier(ctx, idn.Ref.Type, idn.Ref.Domain, idn.Ref.Value)
 				if rowErr == nil && existingID != "" {
-					return existingID, nil
+					existingUUID, parseErr := uuid.Parse(existingID)
+					if parseErr != nil {
+						return "", "", parseErr
+					}
+					var listingID uuid.UUID
+					lErr := p.runInTx(ctx, func(exec queryable) error {
+						var e error
+						listingID, e = ensureListing(ctx, exec, existingUUID, currency)
+						return e
+					})
+					if lErr != nil {
+						return "", "", lErr
+					}
+					return existingID, nilUUIDToString(listingID), nil
 				}
 			}
 		}
-		return "", err
+		return "", "", err
 	}
-	return newID.String(), nil
+	return newID.String(), nilUUIDToString(newListingID), nil
+}
+
+// nilUUIDToString renders a listing id for the API boundary, where the absence
+// of one is "" rather than a nil UUID. Absence is a real answer here: a caller
+// that stated no currency for a security with several lines has named none of
+// them.
+func nilUUIDToString(id uuid.UUID) string {
+	if id == uuid.Nil {
+		return ""
+	}
+	return id.String()
 }
 
 // holdsNoCanonicalIdentifier reports whether an instrument is nothing but a
 // broker description. canonical = false marks one of those and nothing else, so
 // the absence of a canonical row is the stored form of broker-description-only.
+//
+// Both grains are asked, because a canonical name at either is an identity. A
+// ticker-only instrument answering true here would be completed in place by the
+// next resolution that matched its description, which is a write adr/0004
+// reserves for an instrument that has no identity at all.
 func holdsNoCanonicalIdentifier(ctx context.Context, exec queryable, id uuid.UUID) (bool, error) {
 	var exists bool
 	err := exec.QueryRowContext(ctx, `
 		SELECT EXISTS (SELECT 1 FROM instrument_identifiers WHERE instrument_id = $1 AND canonical)
+		    OR EXISTS (
+		         SELECT 1 FROM instrument_listing_identifiers li
+		         JOIN instrument_listings l ON l.id = li.listing_id
+		         WHERE l.instrument_id = $1 AND li.canonical
+		       )
 	`, id).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("check canonical identifiers: %w", err)
@@ -859,13 +1162,31 @@ func (p *Postgres) ValidateMIC(ctx context.Context, mic string) (bool, error) {
 }
 
 // InsertInstrumentIdentifier implements db.InstrumentDB.
-func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input db.IdentifierInput) error {
+//
+// A listing-grain row needs the listing said outright rather than inferred. The
+// caller holds it -- EnsureInstrument hands it back -- and a security with two
+// lines has no way to work out which one a bare ticker meant.
+func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID, listingID string, input db.IdentifierInput) error {
+	if input.Ref.Type == "MIC_TICKER" && input.Ref.Domain != "" {
+		input.Ref.Domain = p.normalizeToOperatingMIC(ctx, input.Ref.Domain)
+	}
+	if identifier.NamesAListing(input.Ref.Type) {
+		lid, err := uuid.Parse(listingID)
+		if err != nil {
+			return fmt.Errorf("insert listing identifier %s: invalid listing id %q: %w", input.Ref.Type, listingID, err)
+		}
+		_, err = p.q.ExecContext(ctx, `
+			INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, lid, input.Ref.Type, nullStr(input.Ref.Domain), input.Ref.Value, input.Canonical, nullTime(input.ValidFrom), nullTime(input.ValidBefore))
+		if err != nil {
+			return fmt.Errorf("insert listing identifier: %w", err)
+		}
+		return nil
+	}
 	uid, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return fmt.Errorf("insert instrument identifier: invalid id: %w", err)
-	}
-	if input.Ref.Type == "MIC_TICKER" && input.Ref.Domain != "" {
-		input.Ref.Domain = p.normalizeToOperatingMIC(ctx, input.Ref.Domain)
 	}
 	_, err = p.q.ExecContext(ctx, `
 		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
@@ -907,7 +1228,8 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 	in.ExchangeMIC = mic
 	in.Identifiers = idns
 	return p.runInTx(ctx, func(exec queryable) error {
-		return mergeIntoInstrument(ctx, exec, uid, in)
+		_, err := mergeIntoInstrument(ctx, exec, uid, in)
+		return err
 	})
 }
 
@@ -927,8 +1249,9 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 // name is not among the columns. A trigger derives it from the identifiers in
 // force, so an inserted MIC_TICKER takes over from the broker description on its
 // own, and writing it here would fight that.
-func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in db.InstrumentMerge) error {
-	for _, idn := range in.Identifiers {
+func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in db.InstrumentMerge) (uuid.UUID, error) {
+	securityIDs, listingIDs := splitByGrain(in.Identifiers)
+	for _, idn := range securityIDs {
 		// ON CONFLICT with no target covers the exclusion constraint as well as
 		// a unique index, so an identifier the row already holds over an
 		// overlapping interval is still a no-op rather than an error.
@@ -938,7 +1261,7 @@ func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in d
 			ON CONFLICT DO NOTHING
 		`, id, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 		if err != nil {
-			return fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
+			return uuid.Nil, fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
 		}
 	}
 	// The WHERE guard leaves a row that needs nothing unwritten, which keeps
@@ -960,13 +1283,37 @@ func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in d
 	`, id, nullStr(in.AssetClass), nullStr(in.ExchangeMIC), nullStr(in.Currency),
 		nullStr(in.CIK), nullStr(in.SICCode), nullTime(in.ValidFrom), nullTime(in.ValidBefore))
 	if err != nil {
-		return fmt.Errorf("merge instrument columns: %w", err)
+		return uuid.Nil, fmt.Errorf("merge instrument columns: %w", err)
 	}
 	// A currency filling a blank names the line the security was already
 	// trading on, so its unknown listing moves onto that currency rather than
 	// gaining a sibling. The guard against rewriting a stored value lives in
 	// ensureListing: a security already quoted in this family keeps what it has.
-	return ensureListing(ctx, exec, id, in.Currency)
+	listingID, err := ensureListing(ctx, exec, id, in.Currency)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	// The listing-grain names go on last, because the listing they go on is what
+	// the two statements above have just settled. A file that named none leaves
+	// nothing to do here, which is why an ambiguous listing is only an error
+	// where there is actually something to file under it.
+	if len(listingIDs) == 0 {
+		return listingID, nil
+	}
+	if listingID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("merge listing identifiers: no currency stated and the security has several lines")
+	}
+	for _, idn := range listingIDs {
+		_, err := exec.ExecContext(ctx, `
+			INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT DO NOTHING
+		`, listingID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("merge listing identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
+		}
+	}
+	return listingID, nil
 }
 
 // UpdateInstrumentStrike implements db.InstrumentDB.
@@ -983,28 +1330,59 @@ func (p *Postgres) UpdateInstrumentStrike(ctx context.Context, instrumentID stri
 }
 
 // SaveProviderIdentifiers implements db.InstrumentDB.
-func (p *Postgres) SaveProviderIdentifiers(ctx context.Context, instrumentID string, ids []db.ProviderIdentifierInput) error {
+//
+// Routed by grain, exactly as the canonical identifiers are. Every provider type
+// that exists today names a listing, so listingID is required in practice; it is
+// still only required where there is a listing-grain row to file, so a caller
+// holding none is not made to produce one.
+func (p *Postgres) SaveProviderIdentifiers(ctx context.Context, instrumentID, listingID string, ids []db.ProviderIdentifierInput) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	uid, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("save provider identifiers: invalid id: %w", err)
+	securityPIs, listingPIs := splitProviderByGrain(ids)
+	if len(securityPIs) > 0 {
+		uid, err := uuid.Parse(instrumentID)
+		if err != nil {
+			return fmt.Errorf("save provider identifiers: invalid id: %w", err)
+		}
+		for _, id := range securityPIs {
+			_, err := p.q.ExecContext(ctx, `
+				INSERT INTO provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value)
+				VALUES ($1, $2, $3, $4, $5)
+				ON CONFLICT DO NOTHING
+			`, uid, id.Provider, id.Type, nullStr(id.Domain), id.Value)
+			if err != nil {
+				return fmt.Errorf("save provider identifier (%s/%s): %w", id.Provider, id.Type, err)
+			}
+		}
 	}
-	for _, id := range ids {
+	if len(listingPIs) == 0 {
+		return nil
+	}
+	lid, err := uuid.Parse(listingID)
+	if err != nil {
+		return fmt.Errorf("save provider identifiers: invalid listing id %q: %w", listingID, err)
+	}
+	for _, id := range listingPIs {
 		_, err := p.q.ExecContext(ctx, `
-			INSERT INTO provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value)
+			INSERT INTO provider_listing_identifiers (listing_id, provider, identifier_type, domain, value)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT DO NOTHING
-		`, uid, id.Provider, id.Type, nullStr(id.Domain), id.Value)
+		`, lid, id.Provider, id.Type, nullStr(id.Domain), id.Value)
 		if err != nil {
-			return fmt.Errorf("save provider identifier (%s/%s): %w", id.Provider, id.Type, err)
+			return fmt.Errorf("save provider listing identifier (%s/%s): %w", id.Provider, id.Type, err)
 		}
 	}
 	return nil
 }
 
 // FindProviderIdentifiers implements db.InstrumentDB.
+//
+// Both grains, because the caller is asking what it may key a request on and
+// that is a question about the security and every line of it. This is a
+// flattening at the boundary in the sense InstrumentRow.AllIdentifiers is, not a
+// lookup: nothing here is searching two tables for one row. Narrowing the
+// question to one listing is 0148 for prices and 0150 for corporate events.
 func (p *Postgres) FindProviderIdentifiers(ctx context.Context, instrumentID, provider string) ([]db.ProviderIdentifierInput, error) {
 	uid, err := uuid.Parse(instrumentID)
 	if err != nil {
@@ -1014,6 +1392,11 @@ func (p *Postgres) FindProviderIdentifiers(ctx context.Context, instrumentID, pr
 		SELECT provider, identifier_type, domain, value
 		FROM provider_instrument_identifiers
 		WHERE instrument_id = $1 AND provider = $2
+		UNION ALL
+		SELECT pli.provider, pli.identifier_type, pli.domain, pli.value
+		FROM provider_listing_identifiers pli
+		JOIN instrument_listings l ON l.id = pli.listing_id
+		WHERE l.instrument_id = $1 AND pli.provider = $2
 		ORDER BY identifier_type, value
 	`, uid, provider)
 	if err != nil {

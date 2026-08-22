@@ -12,7 +12,7 @@
 
 import { test, expect } from "@playwright/test";
 import { seedSession, closeRedis } from "../helpers/auth";
-import { resetAndSeedBase, closeDB, rawQuery } from "../helpers/db";
+import { resetAndSeedBase, closeDB, rawQuery, INSTRUMENT_NAMES } from "../helpers/db";
 import { restartServer } from "../helpers/cassette";
 import { getJobStatus, importSystemArchive } from "../helpers/api";
 import { writeGeneratedArchive, readArchive } from "../helpers/archive";
@@ -88,7 +88,7 @@ test.describe("system archive import across a restart", () => {
     // upserts, so re-running one must land the same data rather than double it.
     expect(await storedRows()).toBe(TOTAL_ROWS);
     const instruments = (await rawQuery(
-      "SELECT count(*)::int AS n FROM instrument_identifiers WHERE value LIKE 'E2E%'",
+      `SELECT count(*)::int AS n FROM ${INSTRUMENT_NAMES} ii WHERE ii.value LIKE 'E2E%'`,
     )) as { n: number }[];
     expect(instruments[0].n).toBe(INSTRUMENTS);
 

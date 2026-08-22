@@ -16,7 +16,7 @@
 import { test, expect } from "@playwright/test";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
-import { resetAndSeedBase, closeDB } from "../helpers/db";
+import { resetAndSeedBase, closeDB, INSTRUMENT_NAMES } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
@@ -81,7 +81,7 @@ test.describe("price-first instrument merge", () => {
     const preEnrich = await db.query(
       `SELECT i.id, i.asset_class, i.name
        FROM instruments i
-       JOIN instrument_identifiers ii ON ii.instrument_id = i.id
+       JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = i.id
        WHERE ii.identifier_type = 'MIC_TICKER' AND ii.value = 'AAPL'`
     );
     expect(preEnrich.rows).toHaveLength(1);
@@ -90,8 +90,8 @@ test.describe("price-first instrument merge", () => {
 
     const preIds = await db.query(
       `SELECT identifier_type, value, canonical
-       FROM instrument_identifiers
-       WHERE instrument_id = $1
+       FROM ${INSTRUMENT_NAMES} ii
+       WHERE ii.instrument_id = $1
        ORDER BY identifier_type`,
       [instrumentId]
     );
@@ -120,7 +120,7 @@ test.describe("price-first instrument merge", () => {
     const postInstruments = await db.query(
       `SELECT i.id
        FROM instruments i
-       JOIN instrument_identifiers ii ON ii.instrument_id = i.id
+       JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = i.id
        WHERE ii.identifier_type = 'MIC_TICKER' AND ii.value = 'AAPL'`
     );
     expect(postInstruments.rows).toHaveLength(1);

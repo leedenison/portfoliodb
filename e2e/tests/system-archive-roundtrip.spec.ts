@@ -19,7 +19,13 @@ import { readFile, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
-import { resetAndSeedBase, closeDB, rawQuery } from "../helpers/db";
+import {
+  resetAndSeedBase,
+  closeDB,
+  rawQuery,
+  INSTRUMENT_NAMES,
+  PROVIDER_INSTRUMENT_NAMES,
+} from "../helpers/db";
 import { importSystemArchiveAndWait } from "../helpers/api";
 import { writeGeneratedArchive, readArchive } from "../helpers/archive";
 import { JobStatus } from "../gen/api/v1/api_pb";
@@ -68,17 +74,20 @@ test.describe("system archive page", () => {
     // An instrument identification has not classified yet. Created directly
     // because no ingest path reaches this state without calling a plugin.
     await rawQuery(
-      `WITH i AS (INSERT INTO instruments (currency) VALUES ('USD') RETURNING id)
-       INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical)
-       SELECT id, 'MIC_TICKER', 'XNAS', $1, true FROM i`,
+      `WITH i AS (INSERT INTO instruments (currency) VALUES ('USD') RETURNING id),
+            l AS (INSERT INTO instrument_listings (instrument_id, currency)
+                  SELECT id, 'USD' FROM i RETURNING id)
+       INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
+       SELECT id, 'MIC_TICKER', 'XNAS', $1, true FROM l`,
       [UNCLASSIFIED_TICKER],
     );
     // The recorded output of a lookup, hung on reference data the importing
     // instance already has.
     await rawQuery(
-      `INSERT INTO provider_instrument_identifiers (instrument_id, provider, identifier_type, value)
-       SELECT ii.instrument_id, 'eodhd', 'EODHD_EXCH_CODE', 'FOREX'
+      `INSERT INTO provider_listing_identifiers (listing_id, provider, identifier_type, value)
+       SELECT l.id, 'eodhd', 'EODHD_EXCH_CODE', 'FOREX'
          FROM instrument_identifiers ii
+         JOIN instrument_listings l ON l.instrument_id = ii.instrument_id
         WHERE ii.identifier_type = 'FX_PAIR' AND ii.value = $1
        ON CONFLICT DO NOTHING`,
       [FX_PAIR],
@@ -91,7 +100,7 @@ test.describe("system archive page", () => {
     );
     await rawQuery(
       `INSERT INTO price_fetch_blocks (instrument_id, plugin_id, reason)
-       SELECT ii.instrument_id, $1, $2 FROM instrument_identifiers ii WHERE ii.value = $3`,
+       SELECT ii.instrument_id, $1, $2 FROM ${INSTRUMENT_NAMES} ii WHERE ii.value = $3`,
       [BLOCKED_PLUGIN, BLOCK_REASON, tickers[0]],
     );
     // Resolved, because the flag is the only trace that a person looked at this
@@ -99,7 +108,7 @@ test.describe("system archive page", () => {
     await rawQuery(
       `INSERT INTO unhandled_corporate_events (instrument_id, event_type, ex_date, detail, resolved)
        SELECT ii.instrument_id, 'REVERSE_SPLIT', '2025-04-11', '1:10 reverse split', true
-         FROM instrument_identifiers ii WHERE ii.value = $1`,
+         FROM ${INSTRUMENT_NAMES} ii WHERE ii.value = $1`,
       [tickers[0]],
     );
 
@@ -213,7 +222,7 @@ test.describe("system archive page", () => {
     // What the page said happened, checked against what is stored.
     const priceRows = (await rawQuery(
       `SELECT count(*)::int AS n FROM eod_prices p
-         JOIN instrument_identifiers ii ON ii.instrument_id = p.instrument_id
+         JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = p.instrument_id
         WHERE ii.value = $1`,
       [tickers[0]],
     )) as { n: number }[];
@@ -221,7 +230,7 @@ test.describe("system archive page", () => {
 
     const coverage = (await rawQuery(
       `SELECT count(*)::int AS n FROM price_coverage c
-         JOIN instrument_identifiers ii ON ii.instrument_id = c.instrument_id
+         JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = c.instrument_id
         WHERE ii.value = $1`,
       [tickers[0]],
     )) as { n: number }[];
@@ -230,7 +239,7 @@ test.describe("system archive page", () => {
     // The instrument was matched rather than duplicated: an archive re-imported
     // into the instance that produced it must not fork its own security master.
     const instruments = (await rawQuery(
-      `SELECT count(*)::int AS n FROM instrument_identifiers WHERE value LIKE 'E2E%'`,
+      `SELECT count(*)::int AS n FROM ${INSTRUMENT_NAMES} ii WHERE ii.value LIKE 'E2E%'`,
     )) as { n: number }[];
     expect(instruments[0].n).toBe(SEED.instruments);
 
@@ -239,7 +248,7 @@ test.describe("system archive page", () => {
     // added -- here the recorded lookup result.
     const fxRow = (await rawQuery(
       `SELECT i.asset_class, i.currency, i.name,
-              (SELECT count(*)::int FROM provider_instrument_identifiers p
+              (SELECT count(*)::int FROM ${PROVIDER_INSTRUMENT_NAMES} p
                 WHERE p.instrument_id = i.id AND p.identifier_type = 'EODHD_EXCH_CODE') AS provider_ids,
               (SELECT count(*)::int FROM instrument_identifiers x
                 WHERE x.instrument_id = i.id AND x.identifier_type = 'FX_PAIR') AS fx_ids
@@ -256,7 +265,7 @@ test.describe("system archive page", () => {
 
     // And the unclassified instrument came back as one row, not two.
     const unclassified = (await rawQuery(
-      `SELECT count(*)::int AS n FROM instrument_identifiers WHERE value = $1`,
+      `SELECT count(*)::int AS n FROM ${INSTRUMENT_NAMES} ii WHERE ii.value = $1`,
       [UNCLASSIFIED_TICKER],
     )) as { n: number }[];
     expect(unclassified[0].n).toBe(1);

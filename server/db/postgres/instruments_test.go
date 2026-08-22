@@ -18,14 +18,14 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Create instrument A with (ISIN, 1) and B with (CUSIP, 1).
-	idA, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	idA, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "1"},
 		Canonical: true,
 	}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
-	idB, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	idB, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "CUSIP", Value: "1"},
 		Canonical: true,
 	}}, nil, "", nil, nil, nil)
@@ -55,7 +55,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	}
 	// Resolve with identifiers that match both A and B; should merge and return survivor.
 	brokerDesc := "SomeStock"
-	result, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	result, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: brokerDesc},
 			Canonical: false,
@@ -130,7 +130,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Instrument with only broker description (canonical=false) - should be excluded.
-	brokerOnlyID, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", "", "", []db.IdentifierInput{{
+	brokerOnlyID, _, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BRK", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -138,7 +138,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 		t.Fatalf("ensure broker-only: %v", err)
 	}
 	// Instrument with canonical identifier - should be included.
-	withCanonID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
+	withCanonID, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
 			Canonical: true,
@@ -175,14 +175,14 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Nasdaq", "", "", []db.IdentifierInput{{
+	_, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Nasdaq", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "N1"},
 		Canonical: true,
 	}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNAS: %v", err)
 	}
-	_, err = p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "NYSE", "", "", []db.IdentifierInput{{
+	_, _, err = p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "NYSE", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "Y1"},
 		Canonical: true,
 	}}, nil, "", nil, nil, nil)
@@ -229,7 +229,7 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Create underlying first (STOCK).
-	underlyingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "0000320193", "3571", []db.IdentifierInput{
+	underlyingID, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "0000320193", "3571", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
 			Canonical: true,
@@ -252,7 +252,7 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	// Exclusive, so the option's last tradeable day is 17 January.
 	validBefore := time.Date(2025, 1, 18, 0, 0, 0, 0, time.UTC)
 	// Create option with underlying_id and valid dates (empty exchange -- SMART is not a MIC).
-	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL Call", "", "", []db.IdentifierInput{
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL Call", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: "AAPL 20250117C200"},
 			Canonical: false,
@@ -298,7 +298,7 @@ func TestEnsureInstrument_LeavesNameDatesAlone(t *testing.T) {
 		Canonical: true,
 		ValidFrom: day(2024, 1, 1),
 	}}
-	id, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", idns, nil, "", nil, nil, nil)
+	id, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", idns, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestEnsureInstrument_LeavesNameDatesAlone(t *testing.T) {
 		Canonical: true,
 		ValidFrom: day(2025, 6, 1),
 	}}
-	again, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", later, nil, "", nil, nil, nil)
+	again, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", later, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("re-ensure: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestEnsureInstrument_LeavesNameDatesAlone(t *testing.T) {
 // name, with every column still null.
 func descriptionOnly(t *testing.T, p *Postgres, source, desc string) string {
 	t.Helper()
-	id, err := p.EnsureInstrument(context.Background(), "", "", "", desc, "", "", []db.IdentifierInput{{
+	id, _, err := p.EnsureInstrument(context.Background(), "", "", "", desc, "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -367,7 +367,7 @@ func TestEnsureInstrument_CompletesADescriptionOnlyInstrument(t *testing.T) {
 
 	// The same description, now arriving with what the identifier plugins
 	// resolved for it.
-	again, err := p.EnsureInstrument(ctx, "STOCK", "XLON", "USD", "", "0000320193", "6770", []db.IdentifierInput{
+	again, _, err := p.EnsureInstrument(ctx, "STOCK", "XLON", "USD", "", "0000320193", "6770", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00BK5BQT80"}, Canonical: true, ValidFrom: day(2025, 3, 1)},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VWRP", Domain: "XLON"}, Canonical: true, ValidFrom: day(2025, 3, 1)},
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
@@ -388,8 +388,12 @@ func TestEnsureInstrument_CompletesADescriptionOnlyInstrument(t *testing.T) {
 	} else if isin.ValidFrom == nil || !isin.ValidFrom.Equal(*day(2025, 3, 1)) {
 		t.Errorf("ISIN valid_from = %v, want the resolution's own vintage 2025-03-01", isin.ValidFrom)
 	}
-	if findIdentifier(row, "MIC_TICKER", "VWRP") == nil {
+	// The ticker names a line, so it lands on the listing the stated currency
+	// named rather than beside the ISIN on the security.
+	if tkr, lst := findListingIdentifier(row, "MIC_TICKER", "VWRP"); tkr == nil {
 		t.Errorf("MIC_TICKER not written onto the instrument that had no identity")
+	} else if lst.Currency == nil || *lst.Currency != "USD" {
+		t.Errorf("MIC_TICKER landed on listing %v, want the USD line", lst.Currency)
 	}
 	if row.AssetClass == nil || *row.AssetClass != "STOCK" {
 		t.Errorf("asset_class = %v, want STOCK", row.AssetClass)
@@ -421,14 +425,14 @@ func TestEnsureInstrument_LeavesAnIdentifiedInstrumentAlone(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	id, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
 	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 
-	again, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "", "", "", []db.IdentifierInput{
+	again, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"}, Canonical: true},
 	}, nil, "", nil, nil, nil)
@@ -469,7 +473,7 @@ func TestEnsureInstrument_CompletionLeavesAStoredNameDateAlone(t *testing.T) {
 
 	// The description-only instrument gains a name at the vintage the export
 	// stated it as of.
-	if _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "OCC", Value: "CSCO250117C00060000"}, Canonical: true, ValidFrom: day(2024, 1, 1)},
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
 	}, nil, "", nil, nil, nil); err != nil {
@@ -478,7 +482,7 @@ func TestEnsureInstrument_CompletionLeavesAStoredNameDateAlone(t *testing.T) {
 
 	// A later upload restating the same name must not move the bound, and the
 	// instrument now holds an identity, so nothing else is written either.
-	if _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "OCC", Value: "CSCO250117C00060000"}, Canonical: true, ValidFrom: day(2025, 6, 1)},
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
 	}, nil, "", nil, nil, nil); err != nil {
@@ -537,7 +541,7 @@ func TestFindDescriptionOnlyInstrument(t *testing.T) {
 
 	// Once the instrument has an identity the description no longer answers for
 	// it: what may be added to an identified instrument is 0136's question.
-	if err := p.InsertInstrumentIdentifier(ctx, id, db.IdentifierInput{
+	if err := p.InsertInstrumentIdentifier(ctx, id, "", db.IdentifierInput{
 		Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00B3RBWM25"}, Canonical: true,
 	}); err != nil {
 		t.Fatalf("insert canonical identifier: %v", err)
@@ -570,7 +574,7 @@ func TestMergeInstrumentFromArchive_RestoresNameDates(t *testing.T) {
 			Canonical: true,
 			ValidFrom: day(2024, 6, 10),
 		}}
-	id, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", idns, nil, "", nil, nil, nil)
+	id, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", idns, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -602,7 +606,7 @@ func TestMergeInstrumentFromArchive_RestoresNameDates(t *testing.T) {
 func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "Option", "", "", []db.IdentifierInput{
+	_, _, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "Option", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: "OPT1"},
 			Canonical: false,
@@ -618,7 +622,7 @@ func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {
 func TestEnsureInstrument_InvalidAssetClass_Rejected(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.EnsureInstrument(ctx, "unknown", "XNAS", "USD", "X", "", "", []db.IdentifierInput{
+	_, _, err := p.EnsureInstrument(ctx, "unknown", "XNAS", "USD", "X", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: "X"},
 			Canonical: false,
@@ -668,7 +672,7 @@ func TestListInstruments_NullAssetClassMatchesUnknown(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Create an instrument with no asset class (empty string stored as NULL).
-	nullID, err := p.EnsureInstrument(ctx, "", "", "", "NoClass", "", "", []db.IdentifierInput{
+	nullID, _, err := p.EnsureInstrument(ctx, "", "", "", "NoClass", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "NOCLASS", Domain: "test"},
 			Canonical: false,
@@ -677,7 +681,7 @@ func TestListInstruments_NullAssetClassMatchesUnknown(t *testing.T) {
 		t.Fatalf("ensure null-class: %v", err)
 	}
 	// Create a STOCK instrument for comparison.
-	stockID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "StockCo", "", "", []db.IdentifierInput{
+	stockID, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "StockCo", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US1234567890"},
 			Canonical: true,
@@ -751,7 +755,7 @@ func TestFindInstrumentWithMetaByIdentifier_ReturnsMIC(t *testing.T) {
 	ctx := context.Background()
 	// Create instrument with exchange_mic = "XNAS". The DB trigger sets the
 	// denormalized exchange column to "NASDAQ" (the acronym from the exchanges table).
-	_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "TestCo", "", "", []db.IdentifierInput{
+	_, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "TestCo", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "TEST", Domain: "XNAS"},
 			Canonical: true,
@@ -770,7 +774,7 @@ func TestFindInstrumentWithMetaByIdentifier_ReturnsMIC(t *testing.T) {
 	}
 
 	// Also verify the domain-less path returns MIC.
-	_, err = p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "TestCo2", "", "", []db.IdentifierInput{
+	_, _, err = p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "TestCo2", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US9999999999"},
 			Canonical: true,
@@ -792,7 +796,7 @@ func TestListInstruments_PaginationPastEnd(t *testing.T) {
 	ctx := context.Background()
 	// Create 3 instruments so we have a known small set (plus seeded CASH instruments).
 	for i, name := range []string{"Alpha", "Beta", "Gamma"} {
-		_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", name, "", "", []db.IdentifierInput{
+		_, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", name, "", "", []db.IdentifierInput{
 			{
 				Ref:       db.InstrumentRef{Type: "ISIN", Value: "TEST" + string(rune('A'+i))},
 				Canonical: true,
@@ -885,7 +889,7 @@ func TestSaveAndFindProviderIdentifiers(t *testing.T) {
 	ctx := context.Background()
 
 	// Create an instrument to attach provider identifiers to.
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "AAPL", "", "",
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "AAPL", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -896,8 +900,10 @@ func TestSaveAndFindProviderIdentifiers(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 
-	// Save provider identifiers.
-	err = p.SaveProviderIdentifiers(ctx, instID, []db.ProviderIdentifierInput{
+	// Save provider identifiers. All three name a listing, so they land on the
+	// line the ensure minted and come back through the instrument all the same:
+	// FindProviderIdentifiers asks what the security can be keyed on.
+	err = p.SaveProviderIdentifiers(ctx, instID, listingID, []db.ProviderIdentifierInput{
 		{Provider: "massive", Type: "SEGMENT_MIC_TICKER", Domain: "XNGS", Value: "AAPL"},
 		{Provider: "eodhd", Type: "EODHD_EXCH_CODE", Value: "US"},
 		{Provider: "openfigi", Type: "FIGI", Value: "BBG000B9XRY4"},
@@ -927,7 +933,7 @@ func TestSaveAndFindProviderIdentifiers(t *testing.T) {
 	}
 
 	// Duplicate insert is idempotent.
-	err = p.SaveProviderIdentifiers(ctx, instID, []db.ProviderIdentifierInput{
+	err = p.SaveProviderIdentifiers(ctx, instID, listingID, []db.ProviderIdentifierInput{
 		{Provider: "massive", Type: "SEGMENT_MIC_TICKER", Domain: "XNGS", Value: "AAPL"},
 	})
 	if err != nil {
@@ -946,8 +952,13 @@ func TestSaveAndFindProviderIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get instrument: %v", err)
 	}
-	if len(inst.ProviderIdentifiers) != 3 {
-		t.Fatalf("expected 3 provider identifiers on instrument, got %d", len(inst.ProviderIdentifiers))
+	// All three name a listing, so none is on the security itself and all three
+	// come back through the flattening.
+	if len(inst.ProviderIdentifiers) != 0 {
+		t.Fatalf("expected no security-grain provider identifiers, got %d", len(inst.ProviderIdentifiers))
+	}
+	if got := len(inst.AllProviderIdentifiers()); got != 3 {
+		t.Fatalf("expected 3 provider identifiers across the security and its lines, got %d", got)
 	}
 
 	// Unknown provider returns empty.
@@ -965,7 +976,7 @@ func TestEnsureInstrument_NormalizesSegmentMIC(t *testing.T) {
 	ctx := context.Background()
 
 	// Create instrument with segment MIC XNGS (segment of XNAS).
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "XNGS", "USD", "AAPL", "", "",
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "XNGS", "USD", "AAPL", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNGS"},
 			Canonical: true,
@@ -986,17 +997,17 @@ func TestEnsureInstrument_NormalizesSegmentMIC(t *testing.T) {
 	}
 
 	// Verify MIC_TICKER domain was normalized to operating MIC.
-	var found bool
-	for _, id := range inst.Identifiers {
-		if id.Ref.Type == "MIC_TICKER" {
-			if id.Ref.Domain != "XNAS" {
-				t.Fatalf("expected MIC_TICKER domain XNAS, got %s", id.Ref.Domain)
-			}
-			found = true
-		}
-	}
-	if !found {
+	tkr, lst := findListingIdentifier(inst, "MIC_TICKER", "AAPL")
+	if tkr == nil {
 		t.Fatal("MIC_TICKER identifier not found")
+	}
+	if tkr.Ref.Domain != "XNAS" {
+		t.Fatalf("expected MIC_TICKER domain XNAS, got %s", tkr.Ref.Domain)
+	}
+	// Normalised before the venue set is derived from it, so the listing is
+	// admitted to the operating MIC and not to the segment.
+	if len(lst.Venues) != 1 || lst.Venues[0] != "XNAS" {
+		t.Fatalf("listing venues = %v, want [XNAS]", lst.Venues)
 	}
 
 	// Ensure same instrument is found when looking up with segment MIC.
@@ -1024,7 +1035,7 @@ func TestInsertInstrumentIdentifier_NormalizesSegmentMIC(t *testing.T) {
 	ctx := context.Background()
 
 	// Create instrument with operating MIC.
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "AAPL", "", "",
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "AAPL", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
 			Canonical: true,
@@ -1035,8 +1046,9 @@ func TestInsertInstrumentIdentifier_NormalizesSegmentMIC(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 
-	// Insert MIC_TICKER with segment MIC.
-	err = p.InsertInstrumentIdentifier(ctx, instID, db.IdentifierInput{
+	// Insert MIC_TICKER with segment MIC. A ticker names a line, so the listing
+	// the ensure minted is the one it goes on.
+	err = p.InsertInstrumentIdentifier(ctx, instID, listingID, db.IdentifierInput{
 		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNGS"},
 		Canonical: true,
 	})
@@ -1064,14 +1076,14 @@ func TestInsertInstrumentIdentifier_NormalizesSegmentMIC(t *testing.T) {
 func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	idA, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	idA, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "W1"},
 		Canonical: true,
 	}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
-	idB, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	idB, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "CUSIP", Value: "W1"},
 		Canonical: true,
 	}}, nil, "", nil, nil, nil)
@@ -1098,7 +1110,7 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 		t.Fatalf("replace txs: %v", err)
 	}
 
-	survivor, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "W1"},
 			Canonical: true,
@@ -1141,7 +1153,7 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	validFrom := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
-	underlyingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "0000320193", "3571",
+	underlyingID, underlyingListing, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "0000320193", "3571",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -1150,7 +1162,7 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 		t.Fatalf("ensure underlying: %v", err)
 	}
 	expiry := time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)
-	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "", "", "",
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL  260116C00150500"},
 			Canonical: true,
@@ -1162,7 +1174,7 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 
 	// The recorded output of the identifier lookups, which is what the archive
 	// exists to avoid paying for twice.
-	if err := p.SaveProviderIdentifiers(ctx, underlyingID, []db.ProviderIdentifierInput{
+	if err := p.SaveProviderIdentifiers(ctx, underlyingID, underlyingListing, []db.ProviderIdentifierInput{
 		{Provider: "eodhd", Type: "EODHD_EXCH_CODE", Value: "US"},
 		{Provider: "openfigi", Type: "FIGI", Domain: "XNAS", Value: "BBG000B9XRY4"},
 	}); err != nil {
@@ -1192,8 +1204,10 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 	if stock.Underlying != nil {
 		t.Fatalf("a non-derivative names no underlying, got %+v", stock.Underlying)
 	}
-	if len(stock.ProviderIdentifiers) != 2 {
-		t.Fatalf("provider identifiers not loaded for export: %+v", stock.ProviderIdentifiers)
+	// Both name a listing, so the export finds them through the security's lines
+	// rather than on the security itself.
+	if got := len(stock.AllProviderIdentifiers()); got != 2 {
+		t.Fatalf("provider identifiers not loaded for export: %+v", stock.AllProviderIdentifiers())
 	}
 
 	opt := byID[optionID]
@@ -1220,7 +1234,7 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 func TestListInstrumentsForExport_PullsInUnderlyingOutsideTheFilter(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	underlyingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "", "",
+	underlyingID, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -1228,7 +1242,7 @@ func TestListInstrumentsForExport_PullsInUnderlyingOutsideTheFilter(t *testing.T
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
-	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "", "", "",
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL  260116C00150500"},
 			Canonical: true,
@@ -1266,7 +1280,7 @@ func TestListInstrumentsForExport_UnfilteredMeansEverything(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	unclassifiedID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+	unclassifiedID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "NOCLASS", Domain: "XNAS"},
 			Canonical: true,
@@ -1274,7 +1288,7 @@ func TestListInstrumentsForExport_UnfilteredMeansEverything(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure unclassified: %v", err)
 	}
-	stockID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "", "", "",
+	stockID, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -1334,7 +1348,7 @@ func containsInstrument(rows []*db.InstrumentRow, id string) bool {
 func TestMergeInstrumentFromArchive_FillsGapsWithoutOverwriting(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	id, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "",
+	id, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -1379,8 +1393,20 @@ func TestMergeInstrumentFromArchive_FillsGapsWithoutOverwriting(t *testing.T) {
 	if row.Currency == nil || *row.Currency != "USD" {
 		t.Errorf("currency = %v, want the stored USD to survive the file's EUR", row.Currency)
 	}
-	if len(row.Identifiers) != 2 {
-		t.Fatalf("expected the held identifier plus the new one, got %+v", row.Identifiers)
+	// The ISIN is the security's; the ticker is a line's. Between them that is
+	// the held identifier plus the new one, filed where each belongs.
+	if len(row.Identifiers) != 1 || row.Identifiers[0].Ref.Type != "ISIN" {
+		t.Fatalf("expected the new ISIN on the security, got %+v", row.Identifiers)
+	}
+	if tkr, _ := findListingIdentifier(row, "MIC_TICKER", "AAPL"); tkr == nil {
+		t.Fatalf("the held ticker is no longer on any line: %+v", row.Listings)
+	}
+	// A file states one currency and so names one line. Its EUR is a line the
+	// instance did not have, and gaining one is not the same as rewriting the
+	// security's own currency column, which the check above pins. Whether a file
+	// may name several lines at once is 0151.
+	if len(row.Listings) != 2 {
+		t.Fatalf("expected the stored USD line and the file's EUR line, got %+v", row.Listings)
 	}
 }
 
@@ -1440,7 +1466,7 @@ func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	brk, err := p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "Berkshire", "", "", []db.IdentifierInput{
+	brk, _, err := p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "Berkshire", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "BRK.B", Domain: "XNYS"},
 			Canonical: true,
@@ -1464,7 +1490,7 @@ func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
 	}
 
 	// A ticker with no separator at all still matches itself.
-	aapl, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
+	aapl, _, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -1482,7 +1508,7 @@ func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
 	}
 
 	// Two instruments collapsing to one spelling is ambiguous, not a match.
-	if _, err = p.EnsureInstrument(ctx, "STOCK", "XBUE", "ARS", "Berkshire CEDEAR", "", "", []db.IdentifierInput{
+	if _, _, err = p.EnsureInstrument(ctx, "STOCK", "XBUE", "ARS", "Berkshire CEDEAR", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "BRKB", Domain: "XBUE"},
 			Canonical: true,
@@ -1502,6 +1528,9 @@ func day(y int, m time.Month, d int) *time.Time {
 }
 
 // findIdentifier returns the identifier with the given type and value, or nil.
+// findIdentifier looks among the security's own names. A listing-grain type is
+// deliberately not found here -- which line it names is the point -- so a test
+// after a ticker asks findListingIdentifier.
 func findIdentifier(row *db.InstrumentRow, idType, value string) *db.IdentifierInput {
 	for i := range row.Identifiers {
 		if row.Identifiers[i].Ref.Type == idType && row.Identifiers[i].Ref.Value == value {
@@ -1509,6 +1538,20 @@ func findIdentifier(row *db.InstrumentRow, idType, value string) *db.IdentifierI
 		}
 	}
 	return nil
+}
+
+// findListingIdentifier looks among the names of every line of the security, and
+// returns the line as well: a ticker that landed on the wrong listing is a
+// different failure from one that was never written.
+func findListingIdentifier(row *db.InstrumentRow, idType, value string) (*db.IdentifierInput, *db.Listing) {
+	for _, l := range row.Listings {
+		for i := range l.Identifiers {
+			if l.Identifiers[i].Ref.Type == idType && l.Identifiers[i].Ref.Value == value {
+				return &l.Identifiers[i], l
+			}
+		}
+	}
+	return nil, nil
 }
 
 // TestInstrumentIdentifiers_OverlapExcluded pins the constraint that replaced the
@@ -1519,7 +1562,7 @@ func TestInstrumentIdentifiers_OverlapExcluded(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	idA, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	idA, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:         db.InstrumentRef{Type: "OCC", Value: "XYZ250117C00100000"},
 			Canonical:   true,
@@ -1528,7 +1571,7 @@ func TestInstrumentIdentifiers_OverlapExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
-	idB, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	idB, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000001"},
 			Canonical: true,
@@ -1539,7 +1582,7 @@ func TestInstrumentIdentifiers_OverlapExcluded(t *testing.T) {
 
 	// B takes the name up where A gave it up. The intervals abut, so they do not
 	// overlap and both rows stand.
-	if err := p.InsertInstrumentIdentifier(ctx, idB, db.IdentifierInput{
+	if err := p.InsertInstrumentIdentifier(ctx, idB, "", db.IdentifierInput{
 		Ref:       db.InstrumentRef{Type: "OCC", Value: "XYZ250117C00100000"},
 		Canonical: true,
 		ValidFrom: day(2024, 6, 10),
@@ -1548,7 +1591,7 @@ func TestInstrumentIdentifiers_OverlapExcluded(t *testing.T) {
 	}
 
 	// A third claim overlapping either of them is refused.
-	err = p.InsertInstrumentIdentifier(ctx, idA, db.IdentifierInput{
+	err = p.InsertInstrumentIdentifier(ctx, idA, "", db.IdentifierInput{
 		Ref:       db.InstrumentRef{Type: "OCC", Value: "XYZ250117C00100000"},
 		Canonical: true,
 		ValidFrom: day(2024, 8, 1),
@@ -1572,7 +1615,7 @@ func TestFindInstrumentByIdentifier_PrefersNameInForce(t *testing.T) {
 	// The two holders are built directly rather than through EnsureInstrument,
 	// which resolves a value to whoever has ever held it and so would hand the
 	// second one back the first. Telling them apart by date is issue 0122.
-	past, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	past, pastListing, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000003"},
 			Canonical: true,
@@ -1580,7 +1623,7 @@ func TestFindInstrumentByIdentifier_PrefersNameInForce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure past holder: %v", err)
 	}
-	if err := p.InsertInstrumentIdentifier(ctx, past, db.IdentifierInput{
+	if err := p.InsertInstrumentIdentifier(ctx, past, pastListing, db.IdentifierInput{
 		Ref:         db.InstrumentRef{Type: "MIC_TICKER", Value: "REUSED", Domain: "XNAS"},
 		Canonical:   true,
 		ValidBefore: day(2020, 1, 1),
@@ -1597,7 +1640,7 @@ func TestFindInstrumentByIdentifier_PrefersNameInForce(t *testing.T) {
 		t.Errorf("find with only a closed row = %q, want %q", got, past)
 	}
 
-	current, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	current, currentListing, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000004"},
 			Canonical: true,
@@ -1605,7 +1648,7 @@ func TestFindInstrumentByIdentifier_PrefersNameInForce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure current holder: %v", err)
 	}
-	if err := p.InsertInstrumentIdentifier(ctx, current, db.IdentifierInput{
+	if err := p.InsertInstrumentIdentifier(ctx, current, currentListing, db.IdentifierInput{
 		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "REUSED", Domain: "XNAS"},
 		Canonical: true,
 		ValidFrom: day(2020, 1, 1),
@@ -1642,7 +1685,7 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 	// first sort key. The rows are written in one transaction and `created_at`
 	// defaults to now(), which is transaction time, so a tie on the count would
 	// tie on the age as well and leave the winner to the id.
-	survivor, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000002"},
 			Canonical: true,
@@ -1658,7 +1701,7 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
-	loser, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	loser, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "000000001"},
 			Canonical: true,
@@ -1677,7 +1720,7 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 
 	// Naming both instruments at once merges them; the survivor is the row
 	// holding more identifiers.
-	got, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000002"},
 			Canonical: true,
@@ -1714,7 +1757,7 @@ func TestRecomputeInstrumentName_IgnoresClosedIdentifier(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	id, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:         db.InstrumentRef{Type: "MIC_TICKER", Value: "GONE", Domain: "XNAS"},
 			Canonical:   true,

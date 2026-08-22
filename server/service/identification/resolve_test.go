@@ -166,7 +166,7 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	database.EXPECT().
@@ -196,7 +196,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
@@ -215,7 +215,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("new-id", nil)
+		Return("new-id", "listing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
@@ -242,7 +242,7 @@ func TestResolveWithPlugins_DatesNamesOnPluginSuccess(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD", Name: "Apple Inc."},
@@ -257,7 +257,7 @@ func TestResolveWithPlugins_DatesNamesOnPluginSuccess(t *testing.T) {
 	// The assertion: the name the plugin gave back is written dated today.
 	now := time.Now()
 	database.EXPECT().EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			if len(idns) != 1 {
 				t.Fatalf("identifiers = %v, want just the ISIN", idns)
 			}
@@ -267,7 +267,7 @@ func TestResolveWithPlugins_DatesNamesOnPluginSuccess(t *testing.T) {
 			if idns[0].ValidBefore != nil {
 				t.Errorf("ISIN valid_before = %v, want the name left in force", idns[0].ValidBefore)
 			}
-			return "new-id", nil
+			return "new-id", "listing-id", nil
 		}).Times(1)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -290,7 +290,7 @@ func TestResolveWithPlugins_DatesNamesFromTheHintVintage(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "OPTION", Currency: "USD"},
@@ -307,7 +307,7 @@ func TestResolveWithPlugins_DatesNamesFromTheHintVintage(t *testing.T) {
 
 	validAt := time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)
 	database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "", gomock.Any(), gomock.Any(), "", nil, nil, gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			if len(idns) != 2 {
 				t.Fatalf("identifiers = %v, want the OCC and the ticker", idns)
 			}
@@ -316,7 +316,7 @@ func TestResolveWithPlugins_DatesNamesFromTheHintVintage(t *testing.T) {
 					t.Errorf("%s valid_from = %v, want the hint vintage %v", idn.Ref.Type, idn.ValidFrom, validAt)
 				}
 			}
-			return "new-id", nil
+			return "new-id", "listing-id", nil
 		}).Times(1)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -366,7 +366,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
@@ -414,7 +414,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("slow", &fakePlugin{err: context.DeadlineExceeded})
 
@@ -453,7 +453,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
@@ -485,7 +485,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	desc := "APPLE INC COM"
@@ -506,7 +506,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			hasSource := false
 			for _, idn := range idns {
 				if idn.Ref.Type == "BROKER_DESCRIPTION" && idn.Ref.Domain == source && idn.Ref.Value == desc && !idn.Canonical {
@@ -516,7 +516,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 			if !hasSource {
 				t.Errorf("expected BROKER_DESCRIPTION identifier for (source=%q, desc=%q)", source, desc)
 			}
-			return "id", nil
+			return "id", "listing-id", nil
 		})
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -537,7 +537,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("bad", &fakePlugin{err: errors.New("connection refused")})
 
@@ -785,7 +785,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Plugin A (higher precedence): XNAS/USD with ISIN
@@ -814,13 +814,13 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 		}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			for _, idn := range idns {
 				if idn.Ref.Type == "OPENFIGI_SHARE_CLASS" {
 					t.Errorf("OPENFIGI_GLOBAL from inconsistent plugin should not be merged, got %q", idn.Ref.Value)
 				}
 			}
-			return "id", nil
+			return "id", "listing-id", nil
 		})
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -1005,7 +1005,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Plugin A (higher precedence): XNAS/USD with ISIN
@@ -1034,7 +1034,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 		}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			hasFIGI := false
 			for _, idn := range idns {
 				if idn.Ref.Type == "OPENFIGI_SHARE_CLASS" && idn.Ref.Value == "BBG000B9XRY4" {
@@ -1044,7 +1044,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 			if !hasFIGI {
 				t.Error("expected OPENFIGI_GLOBAL from consistent plugin to be merged")
 			}
-			return "id", nil
+			return "id", "listing-id", nil
 		})
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -1183,7 +1183,7 @@ func resolveWithPluginsTestSetup(t *testing.T) (*gomock.Controller, *mock.MockDB
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, mic string) (string, error) { return mic, nil },
 	).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	return ctrl, database
 }
 
@@ -1219,7 +1219,7 @@ func TestResolveWithPlugins_HintMatchPrefersLowerPrecedence(t *testing.T) {
 	// Expect the lower-precedence plugin's data (XLON/GBX/BAE Systems).
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XLON", "GBX", "BAE Systems", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("id-bae", nil)
+		Return("id-bae", "listing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
@@ -1270,7 +1270,7 @@ func TestResolveWithPlugins_NoHintMatch_FallsBackToPrecedence(t *testing.T) {
 	// Highest precedence (pluginA) should win.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("id-apple", nil)
+		Return("id-apple", "listing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "GBX"}},
@@ -1317,7 +1317,7 @@ func TestResolveWithPlugins_NoHints_PurePrecedence(t *testing.T) {
 	// No hints: highest precedence wins.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("id-apple", nil)
+		Return("id-apple", "listing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
@@ -1361,7 +1361,7 @@ func TestResolveWithPlugins_AllMatch_HighestPrecedenceWins(t *testing.T) {
 	// Both match, highest precedence (pluginA) wins.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XLON", "GBX", "BAE Systems A", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("id-bae-a", nil)
+		Return("id-bae-a", "listing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
@@ -1407,7 +1407,7 @@ func TestResolveWithPlugins_SparseResultDoesNotVacuouslyMatch(t *testing.T) {
 	// Sparse result should not beat rich result; pluginA wins by precedence.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("id-apple", nil)
+		Return("id-apple", "listing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
@@ -1514,7 +1514,7 @@ func TestResolveWithPlugins_WinnerBlanksFilledFromConsistentLoser(t *testing.T) 
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	// Highest precedence: a composite answer. No venue, no currency, no CIK.
 	registry.Register("composite", &fakePlugin{
@@ -1536,7 +1536,7 @@ func TestResolveWithPlugins_WinnerBlanksFilledFromConsistentLoser(t *testing.T) 
 	// The winner still supplies the name it gave; only the blanks are filled.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNYS", "USD", "BERKSHIRE HATHAWAY INC-CL B", "0001067983", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("new-id", nil)
+		Return("new-id", "listing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
@@ -1557,7 +1557,7 @@ func TestResolveWithPlugins_WinnerValuesNotOverwrittenByLoser(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("winner", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBP", Name: "Winner Plc"},
@@ -1578,7 +1578,7 @@ func TestResolveWithPlugins_WinnerValuesNotOverwrittenByLoser(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "winner", Precedence: 20}, {PluginID: "loser", Precedence: 10}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XLON", "GBP", "Winner Plc", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("new-id", nil)
+		Return("new-id", "listing-id", nil)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
@@ -1595,7 +1595,7 @@ func TestResolveWithPlugins_InconsistentLoserFillsNothing(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("winner", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Currency: "GBP", Name: "Winner Plc"},
@@ -1616,7 +1616,7 @@ func TestResolveWithPlugins_InconsistentLoserFillsNothing(t *testing.T) {
 	// Exchange stays empty: XSTO came from a result excluded from the merge.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "", "GBP", "Winner Plc", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("new-id", nil)
+		Return("new-id", "listing-id", nil)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
@@ -1636,7 +1636,7 @@ func TestResolveWithPlugins_ForeignVenueContradictsTheWinnersMarket(t *testing.T
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("composite", &fakePlugin{
 		inst: &identifier.Instrument{
@@ -1664,13 +1664,13 @@ func TestResolveWithPlugins_ForeignVenueContradictsTheWinnersMarket(t *testing.T
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "", "", "US LISTED CO", "", "",
 			gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			for _, id := range ids {
 				if id.Ref.Type == "ISIN" {
 					t.Errorf("ISIN %q merged from a listing outside the market the winner named", id.Ref.Value)
 				}
 			}
-			return "new-id", nil
+			return "new-id", "listing-id", nil
 		})
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -1687,7 +1687,7 @@ func TestResolveWithPlugins_VenueInsideTheMarketIsAdopted(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("composite", &fakePlugin{
 		inst: &identifier.Instrument{
@@ -1710,7 +1710,7 @@ func TestResolveWithPlugins_VenueInsideTheMarketIsAdopted(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "composite", Precedence: 20}, {PluginID: "venue", Precedence: 10}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNYS", "USD", "BERKSHIRE HATHAWAY INC-CL B", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("new-id", nil)
+		Return("new-id", "listing-id", nil)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
@@ -1748,7 +1748,7 @@ func TestResolveWithPlugins_ProposalNeverSatisfiesTheDBLookup(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Real Co"},
@@ -1764,7 +1764,7 @@ func TestResolveWithPlugins_ProposalNeverSatisfiesTheDBLookup(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Real Co", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("new-id", nil)
+		Return("new-id", "listing-id", nil)
 
 	ident := identifier.Identity{
 		Stated:   []identifier.Identifier{{Type: "MIC_TICKER", Value: "REAL"}},
@@ -1790,7 +1790,7 @@ func TestResolveWithPlugins_ProposalIsNeverPersisted(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Real Co"},
@@ -1805,13 +1805,13 @@ func TestResolveWithPlugins_ProposalIsNeverPersisted(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Real Co", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			for _, id := range ids {
 				if id.Ref.Type == "ISIN" {
 					t.Errorf("proposed ISIN %q reached EnsureInstrument", id.Ref.Value)
 				}
 			}
-			return "new-id", nil
+			return "new-id", "listing-id", nil
 		})
 
 	ident := identifier.Identity{
@@ -1842,7 +1842,7 @@ func resolveWinnerTiers(t *testing.T, ident identifier.Identity) string {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	// Each returns a distinct ticker, so a result matches a tier only by the
 	// thing that tier is about -- otherwise every plugin agrees with every
@@ -1878,9 +1878,9 @@ func resolveWinnerTiers(t *testing.T, ident identifier.Identity) string {
 	var chosen string
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, name, _, _ string, _ []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, name, _, _ string, _ []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			chosen = name
-			return "id", nil
+			return "id", "listing-id", nil
 		})
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -1935,7 +1935,7 @@ func TestResolveWithPlugins_ProposalDoesNotPromoteAResultContradictingTheSource(
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	// Highest precedence. Says nothing about the currency, so it confirms
 	// nothing and contradicts nothing.
@@ -1959,9 +1959,9 @@ func TestResolveWithPlugins_ProposalDoesNotPromoteAResultContradictingTheSource(
 	var chosen string
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, name, _, _ string, _ []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, name, _, _ string, _ []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			chosen = name
-			return "id", nil
+			return "id", "listing-id", nil
 		})
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -2080,7 +2080,7 @@ func TestResolveWithPlugins_AStatedKeyIsNotSubjectToTheRoundTrip(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", "", "", nil).AnyTimes()
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
@@ -2094,7 +2094,7 @@ func TestResolveWithPlugins_AStatedKeyIsNotSubjectToTheRoundTrip(t *testing.T) {
 	})
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "Says nothing",
 		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return("kept-id", nil)
+		Return("kept-id", "listing-id", nil)
 
 	fallback := func(context.Context, db.DB) (string, error) {
 		t.Fatal("the fallback ran: a stated key was subjected to the round-trip gate")
@@ -2378,7 +2378,7 @@ func claimsFromResolve(t *testing.T, a, b identifier.Plugin, onStore ...func([]d
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").Return("", "", "", "", nil)
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
@@ -2392,12 +2392,12 @@ func claimsFromResolve(t *testing.T, a, b identifier.Plugin, onStore ...func([]d
 	var got []db.IdentityClaim
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, claims []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, ids []db.IdentifierInput, claims []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 			got = claims
 			for _, f := range onStore {
 				f(ids)
 			}
-			return "inst-1", nil
+			return "inst-1", "listing-id", nil
 		})
 
 	registry := identifier.NewRegistry()
@@ -2599,7 +2599,7 @@ func TestResolveWithPlugins_AVenueSilentResultDoesNotSupplyTheCurrency(t *testin
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("venue", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Venue: identifier.Venue{MIC: "XNAS"}, Name: "Apple Inc"},
@@ -2620,7 +2620,7 @@ func TestResolveWithPlugins_AVenueSilentResultDoesNotSupplyTheCurrency(t *testin
 	// the result was consistent, it just did not say where the GBP was measured.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "", "Apple Inc", "0000320193", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("new-id", nil)
+		Return("new-id", "listing-id", nil)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},

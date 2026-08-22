@@ -180,7 +180,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tel := mock.NewMockTelemetryDB(ctrl)
 	spy := newAttemptSpy(t, tel)
 
@@ -215,7 +215,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 		}, nil)
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return("inst-1", nil)
+		Return("inst-1", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "USD"}},
@@ -342,7 +342,7 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tel := mock.NewMockTelemetryDB(ctrl)
 	spy := newAttemptSpy(t, tel)
 
@@ -367,7 +367,7 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 		Return([]db.PluginConfigRow{{PluginID: "opt", Precedence: 10}}, nil)
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-id", gomock.Any(), gomock.Any(), gomock.Any()).
-		Return("opt-id", nil)
+		Return("opt-id", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "OCC", Value: "AAPL240315C00100000"}}, Hints: identifier.Hints{}},
@@ -409,7 +409,7 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tel := mock.NewMockTelemetryDB(ctrl)
 	spy := newAttemptSpy(t, tel)
 
@@ -442,7 +442,7 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 		}, nil)
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return("inst-1", nil)
+		Return("inst-1", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "USD"}},

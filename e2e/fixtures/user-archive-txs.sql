@@ -35,11 +35,19 @@ ON CONFLICT (instrument_id, currency_family(currency)) WHERE currency IS NOT NUL
 INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
 VALUES
   ('e2e00000-0000-0000-0000-000000000401', 'ISIN', 'US0231351067', true),
-  ('e2e00000-0000-0000-0000-000000000401', 'MIC_TICKER', 'AMZN', true),
   ('e2e00000-0000-0000-0000-000000000402', 'ISIN', 'US67066G1040', true),
-  ('e2e00000-0000-0000-0000-000000000402', 'MIC_TICKER', 'NVDA', true),
-  ('e2e00000-0000-0000-0000-000000000403', 'ISIN', 'US88160R1014', true),
-  ('e2e00000-0000-0000-0000-000000000403', 'MIC_TICKER', 'TSLA', true)
+  ('e2e00000-0000-0000-0000-000000000403', 'ISIN', 'US88160R1014', true)
+ON CONFLICT DO NOTHING;
+
+-- A ticker names one line of a security, so it goes on the listing above rather
+-- than beside the ISIN. Which table a row belongs in follows from its type; see
+-- docs/spec/identifiers.md.
+INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, value, canonical)
+SELECT l.id, 'MIC_TICKER', v.ticker, true
+FROM (VALUES ('e2e00000-0000-0000-0000-000000000401', 'AMZN'),
+             ('e2e00000-0000-0000-0000-000000000402', 'NVDA'),
+             ('e2e00000-0000-0000-0000-000000000403', 'TSLA')) AS v(instrument_id, ticker)
+JOIN instrument_listings l ON l.instrument_id = v.instrument_id::uuid
 ON CONFLICT DO NOTHING;
 
 -- Every posting belongs to a group, and the ids are explicit because the

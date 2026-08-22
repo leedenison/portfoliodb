@@ -1311,12 +1311,17 @@ func ResolveWithPlugins(
 			return ResolveResult{InstrumentID: fb, Unconfirmed: true, HintDiffs: diffs,
 				ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, inst, mergedIds, normMIC)}, nil
 		}
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Venue.MIC, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingID, validFrom, validBefore, optFields)
+		// The listing is the line the result named, and it is where every
+		// identifier of listing grain has just been written. The provider
+		// identifiers follow the same routing, so it is passed on rather than
+		// discarded; carrying it out of Resolve to the caller is 0147's third
+		// step.
+		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Venue.MIC, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingID, validFrom, validBefore, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}
 		if len(providerIDs) > 0 {
-			if err := database.SaveProviderIdentifiers(ctx, id, providerIDs); err != nil {
+			if err := database.SaveProviderIdentifiers(ctx, id, listingID, providerIDs); err != nil {
 				l.WarnContext(ctx, "save provider identifiers failed", "instrument_id", id, "err", err)
 			}
 		}

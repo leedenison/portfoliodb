@@ -36,7 +36,7 @@ func TestCreateHoldingDeclaration(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl1", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -62,7 +62,7 @@ func TestCreateHoldingDeclaration_ManyPerHolding(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl2", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GOOG", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -90,11 +90,11 @@ func TestListHoldingDeclarations_DerivesKind(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-kind", "U", "u@k.com")
-	instA, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instA, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "KA", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
-	instB, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instB, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "KB", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -154,7 +154,7 @@ func TestUpdateHoldingDeclaration(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl3", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "MSFT", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -179,7 +179,7 @@ func TestDeleteHoldingDeclaration(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl4", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "TSLA", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -210,11 +210,11 @@ func TestListHoldingDeclarations(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl5", "U", "u@u.com")
-	inst1, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	inst1, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "A1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
-	inst2, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	inst2, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "A2", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -251,7 +251,7 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	}
 
 	// Add a tx
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SD1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -278,7 +278,7 @@ func TestComputeRunningBalance(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl7", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "RB1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -309,7 +309,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl8", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UI1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -399,7 +399,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|init-grp", "U", "u@init.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "IG1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -469,7 +469,7 @@ func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|init-equity", "U", "u@eq.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "EQ1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -520,7 +520,7 @@ func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-acct-type", "U", "u@rb.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "RB2", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -553,7 +553,7 @@ func TestCreateHoldingDeclaration_DefaultsShareCountBasis(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-basis-default", "U", "u@b.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BD1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -597,7 +597,7 @@ func TestComputeRunningBalance_ConvertsToDeclarationBasis(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-basis-conv", "U", "u@b.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BC1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -649,7 +649,7 @@ func TestListHoldingDeclarations_ChecksAgainstTheHolding(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-verify", "U", "u@v.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "VF1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -719,7 +719,7 @@ func TestListHoldingDeclarations_ChecksAcrossASplit(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-verify-split", "U", "u@v.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "VS1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -776,7 +776,7 @@ func TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors(t *testing.T)
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-del-pad", "U", "u@d.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "DP1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -824,7 +824,7 @@ func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|init-basis", "U", "u@b.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "IB1", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -871,7 +871,7 @@ func TestUpsertHoldingDeclaration_RestatesRatherThanColliding(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-upsert", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -908,7 +908,7 @@ func TestUpsertHoldingDeclaration_LetsTheTriggerDefaultTheBasis(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-basis", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, nil, nil)
@@ -941,7 +941,7 @@ func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-export", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
+	instID, _, _ := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "APPLE INC", Domain: "IBKR"},
 			Canonical: false,

@@ -139,7 +139,7 @@ func TestSettle(t *testing.T) {
 	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, usd := balanceSeed(t, p, "sub|settle")
-	aapl, err := p.EnsureInstrument(ctx, "STOCK", "", "AAPL", "USD", "", "",
+	aapl, _, err := p.EnsureInstrument(ctx, "STOCK", "", "AAPL", "USD", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "TICKER", Value: "AAPL"},
 			Canonical: true,
@@ -409,7 +409,7 @@ func priceRoundingSeed(t *testing.T, sub, qty, price, cash string) string {
 	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	userID, usd := balanceSeed(t, p, sub)
 	ctx := context.Background()
-	inst, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "INRG", "", "",
+	inst, _, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "INRG", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "INRG", Domain: "F"},
 			Canonical: false,

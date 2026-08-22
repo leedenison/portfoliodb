@@ -316,3 +316,46 @@ func TestExportSystemArchive_Instruments_NonAdmin_PermissionDenied(t *testing.T)
 func instrumentExportReq() *apiv1.ExportSystemArchiveRequest {
 	return &apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_INSTRUMENTS}}
 }
+
+// A security's currency lines reach the wire. The unknown listing arrives with
+// an empty currency, as every other nullable string on the message does, and it
+// is the absence of a currency that tells a caller the line is unknown rather
+// than the absence of a listing.
+func TestInstrumentRowToProto_CarriesListings(t *testing.T) {
+	from := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	row := &dbpkg.InstrumentRow{
+		ID: "id-1",
+		Listings: []*dbpkg.Listing{
+			{ID: "lst-1", InstrumentID: "id-1", Currency: strPtr("GBX"), ValidFrom: &from, ValidBefore: &before},
+			{ID: "lst-2", InstrumentID: "id-1"},
+		},
+	}
+
+	got := instrumentRowToProto(row)
+	if len(got.GetListings()) != 2 {
+		t.Fatalf("listings = %+v, want 2", got.GetListings())
+	}
+	first := got.GetListings()[0]
+	if first.GetId() != "lst-1" || first.GetCurrency() != "GBX" {
+		t.Errorf("first listing = %+v, want lst-1 in GBX", first)
+	}
+	if first.GetValidFrom() != "2020-01-01" || first.GetValidBefore() != "2024-06-01" {
+		t.Errorf("first listing interval = [%s, %s), want [2020-01-01, 2024-06-01)", first.GetValidFrom(), first.GetValidBefore())
+	}
+	second := got.GetListings()[1]
+	if second.GetCurrency() != "" {
+		t.Errorf("unknown listing currency = %q, want empty", second.GetCurrency())
+	}
+	if second.ValidFrom != nil || second.ValidBefore != nil {
+		t.Errorf("unknown listing interval = [%v, %v), want both unset", second.ValidFrom, second.ValidBefore)
+	}
+}
+
+// A security with no listings sends none rather than an empty message.
+func TestInstrumentRowToProto_NoListings(t *testing.T) {
+	got := instrumentRowToProto(&dbpkg.InstrumentRow{ID: "id-1"})
+	if got.GetListings() != nil {
+		t.Errorf("listings = %+v, want nil", got.GetListings())
+	}
+}

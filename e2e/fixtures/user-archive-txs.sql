@@ -19,6 +19,17 @@ VALUES
   ('e2e00000-0000-0000-0000-000000000403', 'STOCK', 'USD', 'Tesla Inc.')
 ON CONFLICT (id) DO NOTHING;
 
+-- Listings. Every security has at least one currency line, and these are all
+-- single-line US securities, so each gets one USD listing.
+INSERT INTO instrument_listings (instrument_id, currency)
+SELECT id, currency FROM instruments
+WHERE id IN (
+  'e2e00000-0000-0000-0000-000000000401',
+  'e2e00000-0000-0000-0000-000000000402',
+  'e2e00000-0000-0000-0000-000000000403'
+)
+ON CONFLICT (instrument_id, currency_family(currency)) WHERE currency IS NOT NULL DO NOTHING;
+
 -- Two identifiers each, so the export has a priority order to apply: MIC_TICKER
 -- outranks ISIN, and bestIdentifierJoin is what decides.
 INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)

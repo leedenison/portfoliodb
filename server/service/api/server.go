@@ -142,6 +142,28 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 		out.PutCall = *row.PutCall
 	}
 	out.ContractMultiplier = decStrPtr(&row.ContractMultiplier)
+	out.Listings = listingsToProto(row.Listings)
+	return out
+}
+
+// listingsToProto converts a security's currency lines. A nil Currency is the
+// unknown listing and becomes an empty string, as every other nullable string on
+// this message does.
+func listingsToProto(listings []*db.Listing) []*apiv1.Listing {
+	if len(listings) == 0 {
+		return nil
+	}
+	out := make([]*apiv1.Listing, 0, len(listings))
+	for _, l := range listings {
+		pl := &apiv1.Listing{Id: l.ID, Currency: derefStr(l.Currency)}
+		if l.ValidFrom != nil {
+			pl.ValidFrom = proto.String(l.ValidFrom.Format("2006-01-02"))
+		}
+		if l.ValidBefore != nil {
+			pl.ValidBefore = proto.String(l.ValidBefore.Format("2006-01-02"))
+		}
+		out = append(out, pl)
+	}
 	return out
 }
 

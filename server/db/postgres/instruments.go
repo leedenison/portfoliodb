@@ -21,6 +21,11 @@ var errIdentifierExists = errors.New("identifier already exists for another inst
 
 // mergeInstruments merges mergedAway into survivor inside the same transaction: updates all txs pointing at mergedAway to survivor, moves identifier rows to survivor (or keeps survivor's if duplicate), then deletes mergedAway. exec must be a transaction.
 // The delete is deliberate and lossy: mergedAway's canonical fields and its cascaded prices, splits, dividends and coverage rows go with it, and nothing records the prior identity. See docs/adr/0004-instrument-resolution-and-merge.md.
+//
+// mergedAway's listings cascade away with it, which is the same loss and is safe
+// only while nothing points at a listing. Unioning two securities' listing sets
+// by currency family, so that two listings of one currency merge rather than one
+// being discarded, is adr/0071.
 func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
 	if survivor == mergedAway {
 		return nil
@@ -389,6 +394,9 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	if err := loadProviderIdentifiers(ctx, p.q, instIDs, instRows); err != nil {
 		return nil, fmt.Errorf("get instrument provider identifiers: %w", err)
 	}
+	if err := loadListings(ctx, p.q, instIDs, instRows); err != nil {
+		return nil, fmt.Errorf("get instrument listings: %w", err)
+	}
 	return row, nil
 }
 
@@ -468,6 +476,9 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	if err := loadProviderIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, fmt.Errorf("list provider identifiers for export: %w", err)
 	}
+	if err := loadListings(ctx, p.q, ids, results); err != nil {
+		return nil, fmt.Errorf("list listings for export: %w", err)
+	}
 	return results, nil
 }
 
@@ -517,6 +528,9 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	}
 	if err := loadProviderIdentifiers(ctx, p.q, resultIDs, results); err != nil {
 		return nil, fmt.Errorf("list provider identifiers for instruments: %w", err)
+	}
+	if err := loadListings(ctx, p.q, resultIDs, results); err != nil {
+		return nil, fmt.Errorf("list listings for instruments: %w", err)
 	}
 	return results, nil
 }
@@ -660,6 +674,12 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 			RETURNING id
 		`, nullStr(assetClass), nullStr(exchangeMIC), nullStr(currency), nullStr(name), nullStr(cik), nullStr(sicCode), nullUUID(underlyingUUID), nullTime(validFrom), nullTime(validBefore), strike, expiry, putCall).Scan(&newID)
 		if err != nil {
+			return err
+		}
+		// Every security has at least one currency line, and a security created
+		// without a stated currency gets the unknown one rather than none: how
+		// many lines it has is what is unknown, not whether it has any.
+		if err := ensureListing(ctx, exec, newID, currency); err != nil {
 			return err
 		}
 		for _, idn := range identifiers {
@@ -819,6 +839,9 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	if err := loadProviderIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, 0, "", fmt.Errorf("list instrument provider identifiers: %w", err)
 	}
+	if err := loadListings(ctx, p.q, ids, results); err != nil {
+		return nil, 0, "", fmt.Errorf("list instrument listings: %w", err)
+	}
 	return results, total, nextToken, nil
 }
 
@@ -939,7 +962,11 @@ func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in d
 	if err != nil {
 		return fmt.Errorf("merge instrument columns: %w", err)
 	}
-	return nil
+	// A currency filling a blank names the line the security was already
+	// trading on, so its unknown listing moves onto that currency rather than
+	// gaining a sibling. The guard against rewriting a stored value lives in
+	// ensureListing: a security already quoted in this family keeps what it has.
+	return ensureListing(ctx, exec, id, in.Currency)
 }
 
 // UpdateInstrumentStrike implements db.InstrumentDB.

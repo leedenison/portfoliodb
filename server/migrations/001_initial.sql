@@ -515,6 +515,90 @@ CREATE TRIGGER trg_recompute_instrument_name_on_inst
   AFTER INSERT OR UPDATE OF exchange_mic ON instruments
   FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
 
+-- currency_family collapses a minor-unit currency onto the unit it is a prefix
+-- of. GBX is pence sterling: the same currency as GBP under a different prefix,
+-- so a provider quoting the London line in pence and another quoting it in
+-- pounds name one listing, not two.
+--
+-- It governs the listing uniqueness index below and nothing else. It never
+-- rewrites a stored code -- not a CURRENCY identifier, not an FX_PAIR, not
+-- trading_currency, not a price -- because GBX and GBP are separately seeded
+-- CASH instruments, GBX/USD and GBP/USD separately seeded FX instruments, and
+-- valuation compares a currency to the display currency directly. Normalising
+-- codes would collapse instruments that are deliberately distinct.
+--
+-- The body is a literal rather than a lookup because an index expression must be
+-- IMMUTABLE. server/currency.MinorUnits is the declaration this restates, and
+-- TestCurrencyFamily_matchesGoTable holds the two in lockstep.
+-- See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+CREATE FUNCTION currency_family(code TEXT) RETURNS TEXT
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT CASE code WHEN 'GBX' THEN 'GBP' ELSE code END
+$$;
+
+-- A listing is one currency a security trades in. Currency and exchange are
+-- facts about a listing rather than about the security above it: a security
+-- listed in GBP and in USD may carry one ISIN, and one instruments row cannot
+-- hold both, so a holding in one line becomes indistinguishable from a holding
+-- in the other and the portfolio is wrong by an FX rate.
+--
+-- Venue is an attribute of a listing rather than part of its identity. Two
+-- venues quoting one security in one currency differ by a spread, so holdings on
+-- them are fungible and distinguishing them would be spurious; two currencies
+-- differ by an FX rate, and only that makes two holdings non-fungible. A
+-- listing's venues live in listing_venues below.
+--
+-- valid_from and valid_before are the half-open interval the line was tradeable
+-- in: a delisting closes one, and the security above has no interval of its own.
+-- Descriptive for now -- nothing filters on them and nothing closes a listing
+-- yet. See docs/spec/bitemporality.md and
+-- docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+CREATE TABLE instrument_listings (
+  id            UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  instrument_id UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  -- The code the line is actually quoted in, not its family: GBX stays GBX so
+  -- price magnitudes and the existing scaling logic are untouched. NULL is the
+  -- unknown listing described by the partial index below.
+  currency      TEXT,
+  valid_from    DATE,
+  valid_before  DATE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_instrument_listings_interval CHECK (
+    valid_from IS NULL OR valid_before IS NULL OR valid_from < valid_before
+  )
+);
+
+-- One listing per security per currency family, and at most one whose currency
+-- is unknown. Two partial indexes rather than one index with NULLS NOT
+-- DISTINCT, which would put this on a PostgreSQL 15 dependency.
+--
+-- The NULL row is not a default: it says how many lines the security has is
+-- unknown, which is a different claim from "exactly one line, and it is this
+-- currency". A listing with no currency is never priceable and never
+-- event-bearing, since a price with no stated currency asserts nothing.
+CREATE UNIQUE INDEX uq_instrument_listings_currency ON instrument_listings (instrument_id, currency_family(currency)) WHERE currency IS NOT NULL;
+CREATE UNIQUE INDEX uq_instrument_listings_unknown ON instrument_listings (instrument_id) WHERE currency IS NULL;
+
+-- Neither partial index above serves a plain lookup by instrument_id: the
+-- planner cannot use a partial index without matching its predicate, and the
+-- read path selects a security's listings without knowing which kind it wants.
+CREATE INDEX idx_instrument_listings_instrument_id ON instrument_listings (instrument_id);
+
+-- The venues a listing is admitted to. A set rather than a column, because a
+-- venue migration is a change to this set rather than an event, and because two
+-- venues quoting one line are one listing. Derived from the listing's
+-- listing-grain identifiers by trigger, in the pattern recompute_instrument_name
+-- follows, which keeps a real foreign key to exchanges while making divergence
+-- between the two unrepresentable. Declared here and populated when there are
+-- listing-grain identifiers to derive it from.
+CREATE TABLE listing_venues (
+  listing_id UUID NOT NULL REFERENCES instrument_listings (id) ON DELETE CASCADE,
+  mic        TEXT NOT NULL REFERENCES exchanges (mic),
+  PRIMARY KEY (listing_id, mic)
+);
+
+CREATE INDEX idx_listing_venues_mic ON listing_venues (mic);
+
 -- Provider-specific instrument identifiers. Mirrors instrument_identifiers but
 -- scoped to a data provider. Identifier types are free-form strings specific to
 -- the provider (e.g. "SEGMENT_MIC_TICKER", "EODHD_EXCH_CODE", "FIGI").

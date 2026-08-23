@@ -33,7 +33,7 @@ func ensureListing(ctx context.Context, exec queryable, instrumentID uuid.UUID, 
 	// ON CONFLICT names the unique index by restating its expression, so a
 	// security already quoted in this family is a no-op rather than an error --
 	// including when a provider states GBP for a line already stored in GBX.
-	_, err := exec.ExecContext(ctx, `
+	res, err := exec.ExecContext(ctx, `
 		INSERT INTO instrument_listings (instrument_id, currency)
 		VALUES ($1, $2)
 		ON CONFLICT (instrument_id, currency_family(currency)) DO NOTHING
@@ -43,7 +43,66 @@ func ensureListing(ctx context.Context, exec queryable, instrumentID uuid.UUID, 
 	}
 	// The statement above has just guaranteed the line exists, so this reads it
 	// back rather than looking for it.
-	return listingFor(ctx, exec, instrumentID, currency)
+	listingID, err := listingFor(ctx, exec, instrumentID, currency)
+	if err != nil || listingID == uuid.Nil {
+		return listingID, err
+	}
+	// A line that already existed has already claimed everything waiting for it,
+	// so only a minted one sweeps. That keeps the sweep off the path every
+	// resolution of an already-known security takes.
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return listingID, nil
+	}
+	return listingID, claimForLine(ctx, exec, instrumentID, listingID)
+}
+
+// claimForLine gives a newly minted line what was waiting for it: the postings of
+// its security that stated its currency and could not be placed, and the
+// listing-grain names that named no line.
+//
+// This is the fill-in adr/0071 describes, and it is a fill-in rather than a move:
+// nothing has to be taken off a row first, because a posting that could not say
+// which line it was on names none. A holding stops reporting unpriced the moment
+// something names the line it was always on.
+//
+// The two are claimed on different evidence. A posting carries the currency its
+// own figures are in, so it is matched on that; an unplaced name carries no
+// currency, so the only thing that can place it is the security having exactly
+// one line for it to mean. Neither is ever settled by picking among several.
+func claimForLine(ctx context.Context, exec queryable, instrumentID, listingID uuid.UUID) error {
+	// The guard is the two INITIALIZE partial unique indexes: a pad on no line and
+	// a pad already on the line are one holding's pad twice, and moving the first
+	// on to the line would collide with the second. The one already on the line
+	// wins, being the one something named.
+	if _, err := exec.ExecContext(ctx, `
+		UPDATE txs t SET listing_id = $2
+		FROM instrument_listings l
+		WHERE l.id = $2 AND t.instrument_id = $1 AND t.listing_id IS NULL
+		  AND currency_family(upper(t.trading_currency)) = currency_family(l.currency)
+		  AND NOT (t.synthetic_purpose = 'INITIALIZE' AND EXISTS (
+		    SELECT 1 FROM txs o
+		    WHERE o.synthetic_purpose = 'INITIALIZE' AND o.listing_id = $2
+		      AND o.user_id = t.user_id AND o.broker = t.broker
+		      AND o.account = t.account AND o.instrument_id = t.instrument_id
+		      AND o.account_type = t.account_type
+		  ))
+	`, instrumentID, listingID); err != nil {
+		return fmt.Errorf("claim postings for listing %s: %w", listingID, err)
+	}
+	// Only where the line is the security's only one. A name that could not be
+	// placed names some line of this security and nothing says which, so a second
+	// line leaves it where it is rather than settling it by arrival order.
+	for _, tbl := range []string{"instrument_listing_identifiers", "provider_listing_identifiers"} {
+		if _, err := exec.ExecContext(ctx, fmt.Sprintf(`
+			UPDATE %s SET listing_id = $2
+			WHERE instrument_id = $1 AND listing_id IS NULL
+			  AND NOT EXISTS (SELECT 1 FROM instrument_listings o
+			                  WHERE o.instrument_id = $1 AND o.id <> $2)
+		`, tbl), instrumentID, listingID); err != nil {
+			return fmt.Errorf("claim names for listing %s: %w", listingID, err)
+		}
+	}
+	return nil
 }
 
 // listingFor reads the line a currency names, writing nothing.

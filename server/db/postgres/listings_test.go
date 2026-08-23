@@ -9,7 +9,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
 )
@@ -914,6 +917,161 @@ func TestMergeInstruments_CarriesDeclarations(t *testing.T) {
 	// rather than on no line.
 	if gotLine == nil || *gotLine != survivorLine {
 		t.Errorf("declaration names line %v, want the survivor's GBP line %s", gotLine, survivorLine)
+	}
+}
+
+// A posting that stated a currency its security had no line for names no line at
+// ingest. When something names that line, the posting acquires it -- a fill-in
+// over txs.listing_id rather than a move off a row, and the holding stops
+// reporting unpriced. See
+// docs/adr/0071-listings-merge-by-currency-and-an-unknown-one-splits.md.
+func TestEnsureListing_ALineClaimsThePostingsThatStatedIt(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|claim-postings", "U", "u@claim-postings.com")
+	// Nothing stated a currency, so the security has no line and the posting below
+	// can name none.
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "C", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0001"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	from := timestamppb.New(time.Now().Add(-time.Hour))
+	to := timestamppb.New(time.Now().Add(time.Hour))
+	txs := []*apiv1.Tx{{
+		OrderDate: timestamppb.New(time.Now()), TradeDate: timestamppb.New(time.Now()),
+		InstrumentDescription: "C", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "3", Account: "ACC",
+		TradingCurrency: "GBP",
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs,
+		[]db.Resolution{{InstrumentID: instID}}, nil, nil); err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	// The line arrives, stored in the other unit of the same family.
+	listingID, err := p.EnsureListing(ctx, instID, "GBX")
+	if err != nil {
+		t.Fatalf("ensure listing: %v", err)
+	}
+
+	var got *string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT listing_id::text FROM txs WHERE instrument_description = 'C'
+	`).Scan(&got); err != nil {
+		t.Fatalf("read posting: %v", err)
+	}
+	if got == nil || *got != listingID {
+		t.Errorf("posting names line %v, want the GBX line %s it stated GBP for", got, listingID)
+	}
+}
+
+// A posting that stated a different currency is left alone: the line that arrived
+// is not the one it named.
+func TestEnsureListing_ALineClaimsOnlyWhatStatedIt(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|claim-other", "U", "u@claim-other.com")
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "O", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0002"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	from := timestamppb.New(time.Now().Add(-time.Hour))
+	to := timestamppb.New(time.Now().Add(time.Hour))
+	txs := []*apiv1.Tx{{
+		OrderDate: timestamppb.New(time.Now()), TradeDate: timestamppb.New(time.Now()),
+		InstrumentDescription: "O", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "3", Account: "ACC",
+		TradingCurrency: "USD",
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs,
+		[]db.Resolution{{InstrumentID: instID}}, nil, nil); err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+	if _, err := p.EnsureListing(ctx, instID, "GBP"); err != nil {
+		t.Fatalf("ensure listing: %v", err)
+	}
+	var got *string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT listing_id::text FROM txs WHERE instrument_description = 'O'
+	`).Scan(&got); err != nil {
+		t.Fatalf("read posting: %v", err)
+	}
+	if got != nil {
+		t.Errorf("posting names line %s, want none: it stated USD and the GBP line is not it", *got)
+	}
+}
+
+// An unplaced name carries no currency, so the only thing that can place it is the
+// security having exactly one line for it to mean. A second line leaves it where
+// it is rather than settling it by arrival order.
+func TestEnsureListing_ASoleLineClaimsTheNamesThatNamedNone(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0003"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "CLAM", Domain: "XLON"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	row, err := p.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if len(row.UnplacedIdentifiers) != 1 {
+		t.Fatalf("unplaced identifiers = %+v, want the ticker", row.UnplacedIdentifiers)
+	}
+
+	listingID, err := p.EnsureListing(ctx, instID, "GBX")
+	if err != nil {
+		t.Fatalf("ensure listing: %v", err)
+	}
+	row, err = p.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if len(row.UnplacedIdentifiers) != 0 {
+		t.Errorf("unplaced identifiers = %+v, want none: the sole line claimed it", row.UnplacedIdentifiers)
+	}
+	if tkr, lst := findListingIdentifier(row, "MIC_TICKER", "CLAM"); tkr == nil || lst.ID != listingID {
+		t.Errorf("the ticker did not land on the security's only line %s: %+v", listingID, row.Listings)
+	}
+	// And the venue derived from it followed, the trigger firing on the move.
+	if got := listingVenues(t, p, instID); len(got) != 1 || got[0] != "XLON" {
+		t.Errorf("venues = %v, want [XLON]", got)
+	}
+}
+
+// A second line leaves an unplaced name unplaced: it names some line of this
+// security and nothing says which.
+func TestEnsureListing_ASecondLineClaimsNoName(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0004"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
+		VALUES ($1::uuid, NULL, 'MIC_TICKER', 'XLON', 'CLAN', true)
+	`, instID); err != nil {
+		t.Fatalf("insert an unplaced ticker: %v", err)
+	}
+	if _, err := p.EnsureListing(ctx, instID, "GBP"); err != nil {
+		t.Fatalf("ensure second listing: %v", err)
+	}
+	row, err := p.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if len(row.UnplacedIdentifiers) != 1 {
+		t.Errorf("unplaced identifiers = %+v, want the ticker left where it is", row.UnplacedIdentifiers)
 	}
 }
 

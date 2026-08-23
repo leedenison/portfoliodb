@@ -363,17 +363,26 @@ export function parseOfxStatement(text: string): OfxParseResult {
         uniqueId ||
         tag;
 
-      // Currency: per-transaction CURRENCY element, or account default.
-      // UNITPRICE, COMMISSION and TOTAL are all quoted in CURSYM; CURRATE is the
-      // rate back to the account's base currency and no figure here is in it.
-      // So this is the settlement currency as well as the trading one, and a fee
-      // derived from these fields needs no conversion first.
+      // What the record's own figures are in. UNITPRICE, COMMISSION and TOTAL
+      // are all quoted in CURSYM; CURRATE is the rate back to the account's base
+      // currency and no figure here is in it. With no CURRENCY element they are
+      // in CURDEF. So this is what the record settled in, and a fee derived from
+      // these fields needs no conversion first.
       const currencyEl = one(inner.CURRENCY);
-      const tradingCurrency = str(currencyEl, "CURSYM") || acctCurrency;
-      if (!tradingCurrency) {
-        errors.push({ rowIndex: txIndex, field: "CURRENCY", message: "No trading currency on transaction or account" });
+      const figureCurrency = str(currencyEl, "CURSYM") || acctCurrency;
+      if (!figureCurrency) {
+        errors.push({ rowIndex: txIndex, field: "CURRENCY", message: "No currency on transaction or account" });
         continue;
       }
+      // What the security itself is quoted in, which is a different claim: it
+      // names the currency line the holding sits on, and trading_currency is
+      // defined as the instrument's own currency (proto/archive/v1/txs.proto).
+      // Only an explicit CURSYM says it. CURDEF is a fact about the account and
+      // a broker reporting in it may have converted, so falling back to it would
+      // file an account currency as an instrument one -- and HintsFromTx hands
+      // this to the identifier plugins, where a currency completes an identity
+      // (docs/adr/0068-a-listing-is-a-currency-of-a-security.md).
+      const quoteCurrency = str(currencyEl, "CURSYM");
 
       // Quantity and price depend on transaction category.
       let quantity: string;
@@ -392,8 +401,13 @@ export function parseOfxStatement(text: string): OfxParseResult {
       // so the ingestion layer resolves to the cash instrument rather than
       // creating a holding from the security description.
       const isCashTx = tag === "INCOME";
+      // A money posting's instrument is its currency, so the figures name the
+      // instrument outright. A security posting's own currency is whatever an
+      // explicit CURSYM said and stays unstated otherwise, rather than borrowing
+      // the account's.
+      const ownCurrency = isCashTx ? figureCurrency : quoteCurrency;
       const identifierHints = isCashTx
-        ? [{ type: IdentifierType.CURRENCY, value: tradingCurrency }]
+        ? [{ type: IdentifierType.CURRENCY, value: figureCurrency }]
         : buildIdentifierHints(uniqueId, uniqueIdType);
 
       // OFX states DTTRADE and no settlement date -- the tag does not appear in
@@ -417,8 +431,8 @@ export function parseOfxStatement(text: string): OfxParseResult {
         assetClassHint: def.hint,
         quantity,
         account: acctId,
-        tradingCurrency,
-        settlementCurrency: tradingCurrency,
+        ...(ownCurrency ? { tradingCurrency: ownCurrency } : {}),
+        settlementCurrency: figureCurrency,
         // The same id in three places, saying three different things: which
         // postings are one event, which statement record this one was
         // transcribed from, and what it is comparable with.
@@ -500,7 +514,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
           const cashHints = [
             create(InstrumentRefSchema, {
               type: IdentifierType.CURRENCY,
-              value: tradingCurrency,
+              value: figureCurrency,
             }),
           ];
           legs.push(
@@ -516,8 +530,8 @@ export function parseOfxStatement(text: string): OfxParseResult {
               quantity: total.plus(charge).toString(),
               unitPrice: "1",
               account: acctId,
-              tradingCurrency,
-              settlementCurrency: tradingCurrency,
+              tradingCurrency: figureCurrency,
+              settlementCurrency: figureCurrency,
                     ...(fitId ? { correlations: [fitIdCorrelation(fitId)] } : {}),
               identifierHints: cashHints,
             }),

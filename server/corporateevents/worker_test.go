@@ -2,6 +2,7 @@ package corporateevents
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -468,7 +469,7 @@ func TestRunCycle_SpecialDividendRoutedToUnhandled(t *testing.T) {
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
 
 	// Regular dividend goes to UpsertCashDividends.
-	mockDB.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Len(1)).Return(nil)
+	mockDB.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Len(1)).Return(nil, nil)
 	// Special dividend goes to InsertUnhandledCorporateEvent.
 	mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, e db.UnhandledCorporateEvent) error {
@@ -489,6 +490,75 @@ func TestRunCycle_SpecialDividendRoutedToUnhandled(t *testing.T) {
 	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	// The option pass runs once per cycle regardless of what landed.
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
+
+	_ = runCycle(ctx, mockDB, reg, nil, nil)
+}
+
+// A dividend the store could not attribute to a line comes back from the upsert
+// and is queued for review rather than dropped. Nothing about it says the
+// security is listed in that currency, so no line is minted for it. See
+// docs/adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
+func TestRunCycle_UnattributableDividendRoutedToUnhandled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "66666666-6666-6666-6666-666666666666"
+
+	plugin := &stubPlugin{
+		name:         "massive",
+		idTypes:      []string{"MIC_TICKER"},
+		assetClasses: map[string]bool{"STOCK": true, "ETF": true},
+		result: &Events{
+			CashDividends: []CashDividend{
+				{ExDate: d(2024, 2, 9), Amount: "0.31", Currency: "CAD", Type: "CD"},
+			},
+		},
+	}
+	reg := NewRegistry()
+	reg.Register("massive", plugin)
+
+	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return([]db.HeldInstrument{
+		{InstrumentID: instID, EarliestTxDate: d(2024, 1, 1)},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCorporateEvent).Return([]db.PluginConfigRow{
+		{PluginID: "massive", Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{{
+				Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
+			}},
+		},
+	}, nil)
+	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
+
+	// The store finds no line in that currency family and hands the row back.
+	mockDB.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Len(1)).DoAndReturn(
+		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
+			return divs, nil
+		})
+	mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e db.UnhandledCorporateEvent) error {
+			if e.EventType != "UNATTRIBUTABLE_DIVIDEND" {
+				t.Errorf("event type: got %q, want UNATTRIBUTABLE_DIVIDEND", e.EventType)
+			}
+			if e.InstrumentID != instID {
+				t.Errorf("instrument: got %q, want %q", e.InstrumentID, instID)
+			}
+			if e.ExDate == nil || !e.ExDate.Equal(d(2024, 2, 9)) {
+				t.Errorf("ex_date: got %v", e.ExDate)
+			}
+			if !strings.Contains(string(e.Data), `"currency":"CAD"`) {
+				t.Errorf("expected the stated currency in the payload, got %s", e.Data)
+			}
+			return nil
+		})
+	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
 	_ = runCycle(ctx, mockDB, reg, nil, nil)

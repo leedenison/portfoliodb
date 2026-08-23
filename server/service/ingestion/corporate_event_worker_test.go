@@ -114,7 +114,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 			return nil
 		})
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, divs []db.CashDividend) error {
+		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
 			if len(divs) != 1 {
 				t.Errorf("expected 1 dividend, got %d", len(divs))
 			}
@@ -131,7 +131,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 			if !divs[0].FirstKnownAt.Equal(exportedAt) {
 				t.Errorf("first known at: want %s, got %s", exportedAt, divs[0].FirstKnownAt)
 			}
-			return nil
+			return nil, nil
 		})
 	// Imported coverage is stamped with the file's knowledge time rather than
 	// claiming to have been confirmed at import time.
@@ -236,7 +236,7 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 	part := eventPart(g)
 
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
-	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).Return(nil)
+	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).Return(nil, nil)
 	// Critically: NO RecomputeSplitAdjustments call.
 
 	persisted, _, err := runEventPart(t, database, registry, part, nil)
@@ -245,6 +245,89 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 	}
 	if !persisted {
 		t.Error("expected persisted=true after a successful dividend upsert")
+	}
+}
+
+// An imported dividend whose currency names no line of its security is queued
+// for review and reported, rather than stored against a guess or dropped. With
+// nothing else in the part there is nothing to have persisted, and a file that
+// carried more dividends than were stored says so on the import.
+func TestProcessCorporateEventImport_UnattributableDividendIsQueuedAndReported(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	g := tickerGroup("MSFT", typev1.AssetClass_STOCK)
+	g.Events = []*archivev1.CorporateEvent{dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "0.75", Currency: "CAD"})}
+	part := eventPart(g)
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
+	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
+			return divs, nil
+		})
+	database.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e db.UnhandledCorporateEvent) error {
+			if e.EventType != "UNATTRIBUTABLE_DIVIDEND" {
+				t.Errorf("event type: got %q, want UNATTRIBUTABLE_DIVIDEND", e.EventType)
+			}
+			if e.InstrumentID != "inst-msft" {
+				t.Errorf("instrument: got %q", e.InstrumentID)
+			}
+			return nil
+		})
+
+	persisted, errs, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if persisted {
+		t.Error("nothing was filed, so the part persisted nothing")
+	}
+	if len(errs) != 1 {
+		t.Fatalf("expected the dividend reported once, got %d: %+v", len(errs), errs)
+	}
+	if !strings.Contains(errs[0].GetMessage(), "CAD") {
+		t.Errorf("the report should name the currency, got %q", errs[0].GetMessage())
+	}
+}
+
+// A dividend the store could file leaves the part having persisted something,
+// even when another dividend in the same batch went to the queue.
+func TestProcessCorporateEventImport_OneUnattributableDividendDoesNotUnsetPersisted(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	g := tickerGroup("MSFT", typev1.AssetClass_STOCK)
+	g.Events = []*archivev1.CorporateEvent{
+		dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "0.75", Currency: "USD"}),
+		dividendEvent(&archivev1.CashDividend{ExDate: "2024-05-15", Amount: "0.31", Currency: "CAD"}),
+	}
+	part := eventPart(g)
+
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
+	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
+			return divs[1:], nil
+		})
+	database.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).Return(nil)
+
+	persisted, errs, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if !persisted {
+		t.Error("the USD dividend was filed, so the part persisted something")
+	}
+	if len(errs) != 1 {
+		t.Errorf("expected only the CAD dividend reported, got %d: %+v", len(errs), errs)
 	}
 }
 
@@ -332,11 +415,11 @@ func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
 
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, divs []db.CashDividend) error {
+		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
 			if divs[0].Amount != "0.1" {
 				t.Errorf("expected raw string 0.1 stored, got %q", divs[0].Amount)
 			}
-			return nil
+			return nil, nil
 		})
 
 	persisted, _, err := runEventPart(t, database, registry, part, nil)

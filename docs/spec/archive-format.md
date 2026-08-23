@@ -334,6 +334,11 @@ security rather than the listing because coverage and splits are facts about the
 security; a dividend is paid in a currency, so its own `currency` field names
 the listing it belongs to.
 
+That field selects among the lines the importing instance already holds and
+mints none, so a dividend naming a currency the security is not quoted in is
+queued for review rather than stored, and reported on the import. See
+adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
+
 | Level | Field | Notes |
 | --- | --- | --- |
 | group | `instrument`, `asset_class` | |
@@ -443,7 +448,7 @@ an identifier.
 | Level | Field | Notes |
 | --- | --- | --- |
 | group | `instrument` | identifier triple |
-| event | `event_type` | `REVERSE_SPLIT`, `NON_WHOLE_SPLIT`, `SPECIAL_CASH_DIVIDEND`, ... |
+| event | `event_type` | `REVERSE_SPLIT`, `NON_WHOLE_SPLIT`, `SPECIAL_CASH_DIVIDEND`, `UNATTRIBUTABLE_DIVIDEND`, ... |
 | event | `ex_date` | optional; absent for the rare event with no date |
 | event | `detail` | the sentence shown in the review queue |
 | event | `data_json` | optional; the detector's own context, as JSON text |

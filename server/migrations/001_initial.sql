@@ -1210,11 +1210,25 @@ CREATE TABLE stock_splits (
 
 CREATE INDEX idx_stock_splits_instrument ON stock_splits (instrument_id);
 
--- Cash dividends per instrument. ex_date is the ex-dividend date. amount is per
--- share, denominated in currency (which may differ from the instrument currency
--- for cross-listed securities). frequency is provider-supplied and may be NULL.
+-- Cash dividends per listing. ex_date is the ex-dividend date. amount is per
+-- share. frequency is provider-supplied and may be NULL.
+--
+-- A dividend is paid in a currency, so it is a fact about one currency line
+-- rather than about the security above it. Keyed on the security it collides on
+-- its primary key the first time one ex-date pays in two currencies, and the
+-- second payment is lost. See
+-- docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+--
+-- currency is the code the amount is quoted in, not the line's own: a provider
+-- quoting the London line's dividend in pence files against a line stored as
+-- GBP, and deriving the unit from the listing would read that amount as pounds.
+-- It agrees with the listing's currency family by construction, the write path
+-- selecting the line from the stated currency rather than the other way round.
+-- A currency matching no line of the security names no line at all, and such a
+-- dividend is queued for review rather than filed here; see
+-- docs/adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
 CREATE TABLE cash_dividends (
-  instrument_id    UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  listing_id       UUID        NOT NULL REFERENCES instrument_listings (id) ON DELETE CASCADE,
   ex_date          DATE        NOT NULL,
   pay_date         DATE,
   record_date      DATE,
@@ -1227,10 +1241,10 @@ CREATE TABLE cash_dividends (
   -- When we first learned of this dividend. Only ever moves backwards, as for
   -- stock_splits.first_known_at.
   first_known_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (instrument_id, ex_date)
+  PRIMARY KEY (listing_id, ex_date)
 );
 
-CREATE INDEX idx_cash_dividends_instrument ON cash_dividends (instrument_id);
+CREATE INDEX idx_cash_dividends_listing ON cash_dividends (listing_id);
 
 -- Coverage tracking for corporate events. Events are sparse, so absence of an
 -- event for a (instrument, date) does not tell us whether the data was fetched.
@@ -1279,8 +1293,9 @@ CREATE TABLE corporate_event_fetch_blocks (
 );
 
 -- Corporate events that cannot be automatically processed (reverse splits,
--- non-whole splits, mergers, extraordinary dividends on options, futures
--- adjustments). Surfaced to admin users for manual review.
+-- non-whole splits, mergers, extraordinary dividends on options, dividends in a
+-- currency no line of the security is quoted in, futures adjustments). Surfaced
+-- to admin users for manual review.
 CREATE TABLE unhandled_corporate_events (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   instrument_id UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,

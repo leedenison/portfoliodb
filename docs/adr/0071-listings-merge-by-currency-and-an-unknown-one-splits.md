@@ -1,51 +1,34 @@
+---
+status: partly superseded by ADR-0075
+---
+
 # Listings merge by currency and an unknown one splits
 
-A security merge has to merge listing sets, and a security whose unknown listing
-turns out to be several real ones has to divide one -- an operation nothing in
-the system had.
+A security merge has to merge listing sets.
 
 Merging unions the listing sets keyed by currency family. Two listings of one
 currency merge, taking the union of their venues, identifiers, prices and
-dividends, and two unknown listings merge into one. Because currency is the key
-rather than an attribute, a collision *is* a merge: there is no case where two
+dividends. Because currency is the key rather than an attribute, a collision *is*
+a merge: there is no case where two
 survivors have to coexist and nothing says which wins.
 [0064](0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md) still applies
 to a collision inside a merged listing's identifiers.
-
-The split is possible because an unknown listing holds nothing that has to be
-divided. It is not priceable and not event-bearing
-([0068](0068-a-listing-is-a-currency-of-a-security.md)), so there are no prices,
-no coverage rows, no dividends and no fetch blocks against it. Nor does it hold
-postings: a posting that could not say which line it is on names no line at all
-([0072](0072-a-posting-names-a-security-and-a-line.md)). So an unknown listing
-that turns out to be several is deleted or renamed, and the postings of its
-security acquire a line as one comes to name them -- a fill-in rather than an
-apportionment, and nothing has to be taken off the row first.
-
-Under a venue-keyed listing this would not have worked. Prices would have
-accumulated against whichever line the plugin picked, their currency unknowable
-after the fact, and dividing them would have meant discarding them. Declining to
-price an unknown listing at all is what turns a loss into a relabelling.
 
 A merge is the same shape one level up: it moves the loser's postings onto the
 survivor's line of the same currency family, and onto no line where the survivor
 has none to match, which is exactly what is true of them once the line they named
 is gone.
 
-## Completion in place
+## The split
 
-An unknown listing that learns its currency is completed in place, as
-[0067](0067-an-instrument-with-no-identity-is-completed-in-place.md) completes
-an instrument holding no identity, and merges into any sibling already holding
-that currency. Both refusals 0067 answers are answered the same way one level
-down: nothing is replaced, because the column filled was null, and nothing is
-associated that a source did not state, because the currency comes from the
-postings' own evidence rather than from an identifier set the resolver
-assembled.
+Superseded by [0075](0075-a-name-that-could-not-be-placed-names-no-line.md),
+which deletes the unknown listing rather than dividing it. There is no longer a
+row to rename, and the names it used to hold name no line until a security has
+exactly one for them to mean.
 
 ## Consequences
 
-A holding on no line, or on an unknown listing, is unvaluable rather than valued
-wrongly, and surfaces as a repair. That is the visible cost of declining to guess a line, and
-it is preferred to the alternative this whole change exists to remove: a holding
-valued confidently against the wrong currency.
+A holding on no line is unvaluable rather than valued wrongly, and surfaces as a
+repair. That is the visible cost of declining to guess a line, and it is preferred
+to the alternative this whole change exists to remove: a holding valued
+confidently against the wrong currency.

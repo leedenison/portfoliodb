@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Identifiers are stored at their grain
 milestone: M25
 dependencies: [0146]

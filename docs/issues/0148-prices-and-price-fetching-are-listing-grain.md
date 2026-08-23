@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Prices and price fetching are listing-grain
 milestone: M25
 dependencies: [0146]
@@ -39,3 +39,18 @@ fact.
 
 Expect this to run past the PR size guidance; the bulk is mechanical
 re-pointing across roughly a hundred SQL literals.
+
+## Outcome
+
+The valuation movement lands one step earlier than this issue predicted. A
+non-cash holding on a security that states no currency stops being priced when
+the bars move onto the listing, not when the shortcut is deleted: an unpriceable
+line holds no bars, so the holding falls to the missing-price branch before the
+currency test is reached. The shortcut only still caught cash, whose currency
+test runs first.
+
+Counted before the change, on 385 dev instruments: 7 carry a null currency, 6 of
+them held, none of them cash. Five have no bars and were already unpriced; the
+sixth has one bar and a net position of zero. No total on that data moves, and
+the zero cash instruments is the "cash never reaches the branch" claim confirmed
+rather than assumed.

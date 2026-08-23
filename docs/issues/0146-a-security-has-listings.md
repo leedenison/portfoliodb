@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A security has listings
 milestone: M25
 dependencies: [0137]

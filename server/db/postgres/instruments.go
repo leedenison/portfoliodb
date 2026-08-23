@@ -52,12 +52,13 @@ func splitProviderByGrain(ids []db.ProviderIdentifierInput) (security, listing [
 // mergeInstruments merges mergedAway into survivor inside the same transaction: updates all txs pointing at mergedAway to survivor, moves identifier rows to survivor (or keeps survivor's if duplicate), then deletes mergedAway. exec must be a transaction.
 // The delete is deliberate and lossy: mergedAway's canonical fields and its cascaded prices, splits, dividends and coverage rows go with it, and nothing records the prior identity. See docs/adr/0004-instrument-resolution-and-merge.md.
 //
-// mergedAway's listing rows cascade away with it, so the names they carry are
-// moved across first, onto the survivor's line of the same currency family. That
-// much of adr/0071's union is required here rather than deferred: a MIC_TICKER
-// now lives on a listing, and without the move every eager merge would silently
-// drop the ticker it moves today. Carrying the loser's prices and coverage across
-// rather than letting them cascade is the rest of that union, and is issue 0152.
+// mergedAway's listing rows cascade away with it, so the listing sets are unioned
+// by currency family first: the survivor is given a line in every family the loser
+// holds, and everything hanging off the loser's line -- its postings, names,
+// prices, coverage, fetch blocks, dividends and declarations -- moves on to it.
+// Two lines of one currency are one line, so a collision is a merge and there is
+// no case where nothing says which of two survives. See
+// docs/adr/0071-listings-merge-by-currency-and-an-unknown-one-splits.md.
 func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
 	if survivor == mergedAway {
 		return nil
@@ -205,6 +206,48 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 			return fmt.Errorf("move unplaced names from %s: %w", tbl, err)
 		}
 	}
+	if err := mergeListingContents(ctx, exec, from, to); err != nil {
+		return err
+	}
+	// A declaration is a statement about a holding, so it moves with the postings
+	// it describes and on to the same line. Left behind it would point at an
+	// instrument the delete below removes, and its foreign key has no ON DELETE,
+	// so the merge would fail outright rather than quietly cascade.
+	//
+	// The survivor's row wins a collision, as the dividend above does: two
+	// declarations of one holding at one date are the same statement made twice
+	// while the duplicate existed. The delete runs first because the partial
+	// unique indexes would otherwise reject the update.
+	//
+	// IS NOT DISTINCT FROM, because the line the loser's row is moving to is null
+	// where it named none: a declaration that could not say which line stays on
+	// none, exactly as a posting does, and two of those are still the same
+	// statement twice.
+	if _, err := exec.ExecContext(ctx, `
+		DELETE FROM holding_declarations d
+		WHERE d.instrument_id = $2::uuid
+		  AND EXISTS (
+		    SELECT 1 FROM holding_declarations s
+		    WHERE s.instrument_id = $1::uuid AND s.user_id = d.user_id
+		      AND s.broker = d.broker AND s.account = d.account
+		      AND s.as_of_date = d.as_of_date
+		      AND s.listing_id IS NOT DISTINCT FROM (
+		        SELECT m.to_id FROM unnest($3::uuid[], $4::uuid[]) AS m(from_id, to_id)
+		        WHERE m.from_id = d.listing_id)
+		  )
+	`, survivor, mergedAway, pq.Array(from), pq.Array(to)); err != nil {
+		return fmt.Errorf("drop superseded declarations: %w", err)
+	}
+	if _, err := exec.ExecContext(ctx, `
+		UPDATE holding_declarations
+		SET instrument_id = $1::uuid,
+		    listing_id = (SELECT m.to_id
+		                  FROM unnest($3::uuid[], $4::uuid[]) AS m(from_id, to_id)
+		                  WHERE m.from_id = holding_declarations.listing_id)
+		WHERE instrument_id = $2::uuid
+	`, survivor, mergedAway, pq.Array(from), pq.Array(to)); err != nil {
+		return fmt.Errorf("update holding declarations: %w", err)
+	}
 	// Update any instruments that referenced mergedAway as their underlying.
 	// A derivative names a line of its underlying, so the loser's derivatives move
 	// over the same pairing the postings and dividends use rather than by
@@ -302,6 +345,115 @@ func mergeListingIdentifiers(ctx context.Context, exec queryable, survivor uuid.
 					continue
 				}
 				return fmt.Errorf("insert listing identifier: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// mergeListingContents moves what hangs off each of the loser's lines on to the
+// survivor's line of the same currency family: the prices quoted for it, the
+// spans a plugin has answered for, the plugins that refuse to answer, and the
+// provider-scoped names it is addressed by. Without this they cascade away with
+// the loser and a merge loses history it will only get back by re-fetching, which
+// costs quota for data nobody doubted. See
+// docs/adr/0071-listings-merge-by-currency-and-an-unknown-one-splits.md.
+//
+// The survivor's row wins every collision, as the dividend move above has it:
+// two rows describing one thing on one line are one row, and the loser's is the
+// copy made while the duplicate existed. Each delete-then-update pair runs in that
+// order because the primary key would otherwise reject the update.
+//
+// Coverage is the exception and goes through upsertCoverageSpan, because two spans
+// of one line are not duplicates to be dropped: [Jan, Mar) and [Feb, Jun) are one
+// answer covering [Jan, Jun), and keeping only the survivor's would silently
+// un-fetch March to June.
+func mergeListingContents(ctx context.Context, exec queryable, from, to []uuid.UUID) error {
+	for _, t := range []struct{ name, key string }{
+		{"eod_prices", "price_date"},
+		{"price_fetch_blocks", "plugin_id"},
+	} {
+		if _, err := exec.ExecContext(ctx, fmt.Sprintf(`
+			DELETE FROM %[1]s r
+			USING unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
+			WHERE r.listing_id = m.from_id
+			  AND EXISTS (SELECT 1 FROM %[1]s s
+			              WHERE s.listing_id = m.to_id AND s.%[2]s = r.%[2]s)
+		`, t.name, t.key), pq.Array(from), pq.Array(to)); err != nil {
+			return fmt.Errorf("drop superseded %s: %w", t.name, err)
+		}
+		if _, err := exec.ExecContext(ctx, fmt.Sprintf(`
+			UPDATE %s r SET listing_id = m.to_id
+			FROM unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
+			WHERE r.listing_id = m.from_id
+		`, t.name), pq.Array(from), pq.Array(to)); err != nil {
+			return fmt.Errorf("update %s: %w", t.name, err)
+		}
+	}
+	// A provider name the survivor's line already holds is the two rows saying the
+	// same thing, so it is left to cascade rather than moved. Guarded rather than
+	// deleted first, because these rows carry no interval and nothing distinguishes
+	// the copies.
+	if _, err := exec.ExecContext(ctx, `
+		UPDATE provider_listing_identifiers r
+		SET instrument_id = l.instrument_id, listing_id = m.to_id
+		FROM unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
+		JOIN instrument_listings l ON l.id = m.to_id
+		WHERE r.listing_id = m.from_id
+		  AND NOT EXISTS (
+		    SELECT 1 FROM provider_listing_identifiers s
+		    WHERE s.listing_id = m.to_id AND s.provider = r.provider
+		      AND s.identifier_type = r.identifier_type AND s.value = r.value
+		      AND COALESCE(s.domain, '') = COALESCE(r.domain, '')
+		  )
+	`, pq.Array(from), pq.Array(to)); err != nil {
+		return fmt.Errorf("update provider listing identifiers: %w", err)
+	}
+	return mergeCoverage(ctx, exec, from, to)
+}
+
+// mergeCoverage moves each of the loser's price coverage spans on to the
+// survivor's line, through the same merge an ordinary fetch records with, so a
+// span that abuts or overlaps one already there becomes one span rather than two
+// rows the table's own invariant forbids.
+func mergeCoverage(ctx context.Context, exec queryable, from, to []uuid.UUID) error {
+	type span struct {
+		plugin       string
+		from, before time.Time
+		fetched      time.Time
+	}
+	for i, source := range from {
+		rows, err := exec.QueryContext(ctx, `
+			SELECT plugin_id, covered_from, covered_before, last_fetched_at
+			FROM price_coverage WHERE listing_id = $1
+		`, source)
+		if err != nil {
+			return fmt.Errorf("read merged coverage: %w", err)
+		}
+		var spans []span
+		for rows.Next() {
+			var sp span
+			if err := rows.Scan(&sp.plugin, &sp.from, &sp.before, &sp.fetched); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan merged coverage: %w", err)
+			}
+			spans = append(spans, sp)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if len(spans) == 0 {
+			continue
+		}
+		if _, err := exec.ExecContext(ctx, `DELETE FROM price_coverage WHERE listing_id = $1`, source); err != nil {
+			return fmt.Errorf("delete merged coverage: %w", err)
+		}
+		for _, sp := range spans {
+			fetched := sp.fetched
+			if err := upsertCoverageSpan(ctx, exec, priceCoverage, to[i].String(), sp.plugin, sp.from, sp.before, &fetched); err != nil {
+				return err
 			}
 		}
 	}

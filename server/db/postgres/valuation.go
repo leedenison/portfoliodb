@@ -198,7 +198,6 @@ held_listings AS (
     SELECT DISTINCT l.id AS listing_id, l.currency
     FROM instrument_listings l
     WHERE l.id = ANY(SELECT DISTINCT listing_id FROM cumulative WHERE listing_id IS NOT NULL)
-      AND l.currency IS NOT NULL
 ),
 -- Map each held line's currency to the listing of its FX pair (currencies != display).
 -- FX_PAIR names the security, so the pair's own line is reached through it, and a
@@ -345,10 +344,11 @@ valued AS (
             -- of 1 -- a number nobody could state, reported as though it were
             -- known. A value nobody can state is reported as missing instead.
             --
-            -- Cash does not reach here: a cash instrument resolves through a
-            -- CURRENCY identifier, so it always has exactly one line and that
-            -- line always has a currency. See
-            -- docs/adr/0068-a-listing-is-a-currency-of-a-security.md and
+            -- pl is a LEFT JOIN on the holding's own line, so a null currency
+            -- here is a holding on no line rather than a line without one --
+            -- every line has a currency. Cash does not reach it: a cash
+            -- instrument resolves through a CURRENCY identifier, so it has
+            -- exactly one line and its postings are on it. See
             -- docs/adr/0072-a-posting-names-a-security-and-a-line.md.
             WHEN pl.currency IS NULL THEN NULL
             -- Cash in display currency: implicit price 1.0, no FX needed.

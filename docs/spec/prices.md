@@ -35,9 +35,10 @@ The price cache.
 A price is quoted in a currency, so a bar belongs to a listing rather than to the
 security above it. Two currency lines of one security differ by an FX rate, and a
 cache keyed on the security would hold whichever line the plugin happened to
-fetch. A listing whose currency is unknown is never priceable and so never
-appears here: a price with no stated currency asserts nothing. See
-adr/0068-a-listing-is-a-currency-of-a-security.md.
+fetch. Every listing carries a currency, so every bar here is in one somebody
+stated; a security nobody has named a line for has nowhere to put a bar and is
+unpriced. See adr/0068-a-listing-is-a-currency-of-a-security.md and
+adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
 
 The `numeric` columns are exact decimals and cross the wire as decimal strings,
 not `double` -- `EODPriceProto`, `ExportPriceRow` and `ImportPriceRow` all carry
@@ -164,7 +165,7 @@ Compute the date ranges during which any user held a non-zero position in each i
 1. Aggregate daily net quantity changes per listing from the transaction history (system-wide, all users). A listing with no currency is skipped, being unpriceable.
 
    A posting on a known line contributes to that line alone. One that named none
-   contributes to every currency-bearing line of its security instead, so the
+   contributes to every line of its security instead, so the
    history is there for whichever line it turns out to be on: it costs requests
    for a line nobody holds and no correctness, the bars landing on the line they
    were quoted for. Valuation makes the opposite trade, reporting such a holding

@@ -331,8 +331,8 @@ func TestTelemetryVocabulariesAreClosed(t *testing.T) {
 		// fixes, so the vocabulary names which.
 		if _, err := p.q.ExecContext(context.Background(), `
 			INSERT INTO telemetry.price_gap
-				(run_id, instrument_id, is_fx, days_outstanding, outcome)
-			VALUES ($1::uuid, gen_random_uuid(), FALSE, 10, 'skipped')
+				(run_id, listing_id, instrument_id, is_fx, days_outstanding, outcome)
+			VALUES ($1::uuid, gen_random_uuid(), gen_random_uuid(), FALSE, 10, 'skipped')
 		`, runID); err == nil {
 			t.Error("price gap accepted an outcome outside its vocabulary")
 		}
@@ -364,9 +364,9 @@ func seedPriceGap(t *testing.T, p *Postgres, runID, outcome string, days int) st
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
 		INSERT INTO telemetry.price_gap
-			(run_id, instrument_id, is_fx, asset_class, currency, exchange,
+			(run_id, listing_id, instrument_id, is_fx, asset_class, currency, exchange,
 			 days_outstanding, outcome)
-		VALUES ($1::uuid, gen_random_uuid(), FALSE, 'STOCK', 'USD', 'XNAS', $2, $3)
+		VALUES ($1::uuid, gen_random_uuid(), gen_random_uuid(), FALSE, 'STOCK', 'USD', 'XNAS', $2, $3)
 		RETURNING id
 	`, runID, days, oc).Scan(&id)
 	if err != nil {
@@ -725,7 +725,7 @@ func TestTelemetryViews_Settled(t *testing.T) {
 		{"settled_empty", true},
 		{"no_eligible_plugin", false},
 		{"all_plugins_failed", false},
-		{"instrument_missing", false},
+		{"listing_missing", false},
 		// A gap the cycle died before reaching. Not settled, and it must not
 		// vanish from both the column and its negation.
 		{"", false},

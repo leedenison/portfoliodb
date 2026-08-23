@@ -19,7 +19,8 @@ func TestListPriceFetchBlocks(t *testing.T) {
 	blocked := time.Date(2025, 5, 4, 8, 0, 0, 0, time.UTC)
 	name := "APPLE INC"
 	mockDB.EXPECT().ListPriceFetchBlocks(gomock.Any()).Return([]db.PriceFetchBlock{
-		{InstrumentID: "i1", PluginID: "eodhd", Reason: "not found", FirstBlockedAt: blocked},
+		{ListingID: "l1", InstrumentID: "i1", Currency: "USD", PluginID: "eodhd",
+			Reason: "not found", FirstBlockedAt: blocked},
 	}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{"i1"}).Return([]*db.InstrumentRow{
 		{ID: "i1", Name: &name},
@@ -36,6 +37,10 @@ func TestListPriceFetchBlocks(t *testing.T) {
 	if b.GetInstrumentId() != "i1" || b.GetPluginId() != "eodhd" || b.GetReason() != "not found" {
 		t.Errorf("block: got %+v", b)
 	}
+	// The line, which is what a block is about and what lifting it names.
+	if b.GetListingId() != "l1" || b.GetCurrency() != "USD" {
+		t.Errorf("listing: got %q %q, want l1 USD", b.GetListingId(), b.GetCurrency())
+	}
 	if b.GetInstrumentDisplayName() != name {
 		t.Errorf("instrument name: got %q, want %q", b.GetInstrumentDisplayName(), name)
 	}
@@ -49,7 +54,7 @@ func TestListPriceFetchBlocks(t *testing.T) {
 func TestListPriceFetchBlocks_UnnamedInstrumentFallsBackToItsID(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
 	mockDB.EXPECT().ListPriceFetchBlocks(gomock.Any()).Return([]db.PriceFetchBlock{
-		{InstrumentID: "i1", PluginID: "eodhd"},
+		{ListingID: "l1", InstrumentID: "i1", Currency: "USD", PluginID: "eodhd"},
 	}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{"i1"}).Return(nil, nil)
 
@@ -87,10 +92,12 @@ func TestListPriceFetchBlocks_StoreError(t *testing.T) {
 
 func TestDeletePriceFetchBlock(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
-	mockDB.EXPECT().DeletePriceFetchBlock(gomock.Any(), "i1", "eodhd").Return(nil)
+	// The line, not the security: lifting a block on one currency line says
+	// nothing about the security's others.
+	mockDB.EXPECT().DeletePriceFetchBlock(gomock.Any(), "l1", "eodhd").Return(nil)
 
 	_, err := srv.DeletePriceFetchBlock(adminCtx("admin-1", "sub|admin"), &apiv1.DeletePriceFetchBlockRequest{
-		InstrumentId: "i1", PluginId: "eodhd",
+		ListingId: "l1", PluginId: "eodhd",
 	})
 	if err != nil {
 		t.Fatalf("DeletePriceFetchBlock: %v", err)
@@ -103,8 +110,8 @@ func TestDeletePriceFetchBlock_NeedsBothHalvesOfThePair(t *testing.T) {
 		name string
 		req  *apiv1.DeletePriceFetchBlockRequest
 	}{
-		{"no instrument", &apiv1.DeletePriceFetchBlockRequest{PluginId: "eodhd"}},
-		{"no plugin", &apiv1.DeletePriceFetchBlockRequest{InstrumentId: "i1"}},
+		{"no listing", &apiv1.DeletePriceFetchBlockRequest{PluginId: "eodhd"}},
+		{"no plugin", &apiv1.DeletePriceFetchBlockRequest{ListingId: "l1"}},
 		{"neither", &apiv1.DeletePriceFetchBlockRequest{}},
 	}
 	for _, tt := range tests {
@@ -124,7 +131,7 @@ func TestPriceFetchBlocks_AdminOnly(t *testing.T) {
 		testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 	})
 	t.Run("DeletePriceFetchBlock", func(t *testing.T) {
-		_, err := srv.DeletePriceFetchBlock(ctx, &apiv1.DeletePriceFetchBlockRequest{InstrumentId: "i1", PluginId: "eodhd"})
+		_, err := srv.DeletePriceFetchBlock(ctx, &apiv1.DeletePriceFetchBlockRequest{ListingId: "l1", PluginId: "eodhd"})
 		testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 	})
 }

@@ -24,7 +24,7 @@ run
 │     └── identification_attempt       one ResolveWithPlugins call
 │           └── identifier_plugin_call one plugin invocation
 ├── candidate_plugin_call              one plugin invocation over a batch
-└── price_gap                          one instrument a cycle set out to fill
+└── price_gap                          one listing a cycle set out to fill
       └── price_plugin_call            one outstanding range put to one plugin
 
 candidate_field                        one proposed field, naming both
@@ -265,18 +265,19 @@ plugin was skipped, which is how a filtered-out identifier plugin already reads.
 
 ### price_gap
 
-One instrument a price fetch cycle set out to fill, which is one entry in the gap list
+One listing a price fetch cycle set out to fill, which is one entry in the gap list
 `PriceGaps` and `FXGaps` produce between them. Created before its children and stamped
-when the instrument is done with.
+when the listing is done with.
 
 | column | notes |
 | --- | --- |
 | `run_id` | |
-| `instrument_id` | not a foreign key, for the reason `run.job_id` is not one |
+| `listing_id` | the line the gap is on, which is the unit the fetcher works on |
+| `instrument_id` | the security above it, which is what a panel groups by; not a foreign key, for the reason `run.job_id` is not one |
 | `is_fx` | the gap came from `FXGaps` rather than `PriceGaps` |
-| `asset_class`, `currency`, `exchange` | the three fields plugin filtering reads |
+| `asset_class`, `currency`, `exchange` | the three fields plugin filtering reads. The asset class is the security's; the currency and the venue set are the line's own, the venues comma-joined because a plugin carrying any one of them accepts the line |
 | `days_outstanding` | days the gap covered when the cycle picked it up, summed over its ranges |
-| `outcome` | `filled`, `settled_empty`, `no_eligible_plugin`, `all_plugins_failed`, `instrument_missing`; null while in flight |
+| `outcome` | `filled`, `settled_empty`, `no_eligible_plugin`, `all_plugins_failed`, `listing_missing`; null while in flight |
 
 Not one price row and not one provider call: a single instrument's outstanding history is
 put to several plugins over several ranges. `days_outstanding` is the size of that ask and

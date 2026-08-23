@@ -526,8 +526,10 @@ func TestWritePriceGapNest(t *testing.T) {
 
 	runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
 	instID := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+	lstID := "6ba7b811-9dad-11d1-80b4-00c04fd430c8"
 	gapID := tel.StartPriceGap(ctx, db.TelemetryPriceGap{
 		RunID:           runID,
+		ListingID:       lstID,
 		InstrumentID:    instID,
 		AssetClass:      "STOCK",
 		Currency:        "USD",
@@ -619,6 +621,7 @@ func TestWritePricePluginCallNullDuration(t *testing.T) {
 	runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
 	gapID := tel.StartPriceGap(ctx, db.TelemetryPriceGap{
 		RunID:           runID,
+		ListingID:       "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
 		InstrumentID:    "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
 		DaysOutstanding: 30,
 	})
@@ -651,6 +654,7 @@ func TestUnstampedPriceGapIsNotSettled(t *testing.T) {
 	runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
 	gapID := tel.StartPriceGap(ctx, db.TelemetryPriceGap{
 		RunID:           runID,
+		ListingID:       "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
 		InstrumentID:    "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
 		DaysOutstanding: 30,
 	})

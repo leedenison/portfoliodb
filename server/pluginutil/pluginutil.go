@@ -11,6 +11,10 @@ import (
 
 // PluginAccepts checks whether an instrument matches the given asset class,
 // exchange, and currency filter maps. Empty or nil maps accept all values.
+//
+// This is the security-grain test, for the corporate event fetcher: a corporate
+// event is an action on the security. The price fetcher uses PluginAcceptsListing
+// below, its unit of work being one currency line.
 func PluginAccepts(ac, ex, cu map[string]bool, inst *db.InstrumentRow) bool {
 	if len(ac) > 0 && inst.AssetClass != nil && *inst.AssetClass != "" {
 		if !ac[*inst.AssetClass] {
@@ -24,6 +28,45 @@ func PluginAccepts(ac, ex, cu map[string]bool, inst *db.InstrumentRow) bool {
 	}
 	if len(cu) > 0 && inst.Currency != nil && *inst.Currency != "" {
 		if !cu[strings.ToUpper(*inst.Currency)] {
+			return false
+		}
+	}
+	return true
+}
+
+// PluginAcceptsListing is the same test at the grain a price is quoted at: the
+// asset class still comes from the security, while the currency and the venues
+// are the listing's own. Empty or nil maps accept all values.
+//
+// A listing with no venue passes the exchange filter, as a null exchange does
+// above: nothing named a venue, so there is nothing to fail on -- a composite
+// identifier names a market and stores no MIC. Where a line is admitted to
+// several venues, carrying any one of them is enough, the venues of one listing
+// quoting one line differing by a spread rather than by anything a provider
+// would hold separate data for.
+//
+// A listing with no currency does not reach here: it is not priceable, so it is
+// never in a gap.
+func PluginAcceptsListing(ac, ex, cu map[string]bool, assetClass *string, lst *db.Listing) bool {
+	if len(ac) > 0 && assetClass != nil && *assetClass != "" {
+		if !ac[*assetClass] {
+			return false
+		}
+	}
+	if len(ex) > 0 && len(lst.Venues) > 0 {
+		matched := false
+		for _, mic := range lst.Venues {
+			if ex[mic] {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if len(cu) > 0 && lst.Currency != nil && *lst.Currency != "" {
+		if !cu[strings.ToUpper(*lst.Currency)] {
 			return false
 		}
 	}

@@ -124,8 +124,9 @@ The Massive price plugin is extended to support FX:
 - `SupportedIdentifierTypes()` adds `'FX_PAIR'`
 - `tickerForAssetClass` formats the FX_PAIR identifier value with a `C:`
   prefix for the Polygon.io forex endpoint (e.g. `C:EURUSD`)
-- `AcceptableCurrencies()` remains `{"USD": true}` -- FX instruments have
-  `currency = 'USD'` (the quote currency) so they pass this filter
+- `AcceptableCurrencies()` remains `{"USD": true}`, tested against the listing's
+  own currency -- an FX pair's listing is quoted in USD (the quote currency), so
+  it passes this filter
 
 ## Conversion in valuation
 

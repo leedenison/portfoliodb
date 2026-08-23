@@ -133,8 +133,8 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 	}
 
 	// The lines the gaps are on, and the securities above them. A gap names a
-	// listing; asset class, the eligibility test and the fetch block are still
-	// read from the security, and moving those down is 0148's second step.
+	// listing and so does its block; the asset class is the security's, a
+	// security being one kind of thing whichever currency it trades in.
 	listingIDs := extractListingIDs(allGaps)
 	listingByID, err := database.ListingsByIDs(ctx, listingIDs)
 	if err != nil {
@@ -152,8 +152,8 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 		}
 	}
 
-	// Batch-load blocked (instrument, plugin) pairs.
-	blocked, err := database.BlockedPluginsForInstruments(ctx, instIDs)
+	// Batch-load blocked (listing, plugin) pairs.
+	blocked, err := database.BlockedPluginsForListings(ctx, listingIDs)
 	if err != nil {
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: load blocks", "err", err)
@@ -211,7 +211,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 			if log != nil {
 				log.WarnContext(ctx, "price fetch: listing or instrument not found", "listing", ig.ListingID)
 			}
-			gapsTel.end(ctx, i, db.TelemetryGapInstrumentMissing)
+			gapsTel.end(ctx, i, db.TelemetryGapListingMissing)
 			continue
 		}
 
@@ -222,19 +222,18 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 		reached := false
 		bars := 0
 		for _, pe := range plugins {
-			if !pluginutil.PluginAccepts(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst) {
+			if !pluginutil.PluginAcceptsListing(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst.AssetClass, lst) {
 				continue
 			}
-			if blocked[lst.InstrumentID][pe.id] {
+			if blocked[ig.ListingID][pe.id] {
 				continue
 			}
-			// Both grains, because a price request is keyed on a ticker as
-			// often as on an ISIN and the ticker now lives on the listing. The
-			// fetch unit is still the security here; moving the key, the
-			// eligibility test and the coverage row down to the listing is 0148.
-			ids := pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.AllIdentifiers())
+			// This line's identifiers and its security's, not a sibling line's:
+			// a price request is keyed on a ticker as often as on an ISIN, and
+			// the GBP and USD lines of one security carry different tickers.
+			ids := pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.IdentifiersFor(ig.ListingID))
 			// Merge provider-specific identifiers for this plugin.
-			for _, pi := range inst.AllProviderIdentifiers() {
+			for _, pi := range inst.ProviderIdentifiersFor(ig.ListingID) {
 				if pi.Provider == pe.id {
 					ids = append(ids, db.IdentifierInput{
 						Ref: db.InstrumentRef{Type: pi.Type, Value: pi.Value, Domain: pi.Domain},
@@ -298,7 +297,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				if err != nil {
 					var permErr *ErrPermanent
 					if errors.As(err, &permErr) {
-						_ = database.CreatePriceFetchBlock(ctx, lst.InstrumentID, pe.id, permErr.Reason)
+						_ = database.CreatePriceFetchBlock(ctx, ig.ListingID, pe.id, permErr.Reason)
 						if log != nil {
 							log.WarnContext(ctx, "price fetch: permanent block",
 								"plugin", pe.id, "listing", ig.ListingID, "reason", permErr.Reason)

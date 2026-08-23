@@ -354,6 +354,11 @@ func (s *Server) sendFetchBlockPart(ctx context.Context, stream apiv1.ApiService
 
 // fetchBlockGroups merges the two tables into one group per instrument.
 //
+// The group is the instrument even though a price block is a fact about one of
+// its lines: the currency varies per block -- a corporate event block has none --
+// so it sits on the block, under the rule that a field varying per row lives on
+// the row rather than on the group.
+//
 // Each query is ordered by identifier, but the two orders interleave rather
 // than concatenate, so this is a merge by key rather than the scan the
 // single-table exports use. Groups come out in the order their instrument was
@@ -375,6 +380,7 @@ func fetchBlockGroups(price, events []db.ExportFetchBlock) []*archivev1.FetchBlo
 		}
 		g.Blocks = append(g.Blocks, &archivev1.FetchBlock{
 			Category:       category,
+			Currency:       b.Currency,
 			PluginId:       b.PluginID,
 			Reason:         b.Reason,
 			FirstBlockedAt: timestamppb.New(b.FirstBlockedAt),

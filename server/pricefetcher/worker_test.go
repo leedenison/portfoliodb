@@ -16,6 +16,90 @@ import (
 
 func strPtr(s string) *string { return &s }
 
+// The price fetcher's eligibility test runs at the grain a price is quoted at:
+// the security's asset class, and the line's own currency and venue set.
+func TestPluginAcceptsListing(t *testing.T) {
+	tests := []struct {
+		name       string
+		plugin     *filterStub
+		assetClass *string
+		listing    *db.Listing
+		want       bool
+	}{
+		{
+			name:       "all nil filters accept anything",
+			plugin:     &filterStub{},
+			assetClass: strPtr("STOCK"),
+			listing:    &db.Listing{Currency: strPtr("USD"), Venues: []string{"XNAS"}},
+			want:       true,
+		},
+		{
+			name:       "asset class mismatch",
+			plugin:     &filterStub{assetClasses: map[string]bool{"STOCK": true}},
+			assetClass: strPtr("OPTION"),
+			listing:    &db.Listing{},
+			want:       false,
+		},
+		{
+			name:    "unknown asset class passes",
+			plugin:  &filterStub{assetClasses: map[string]bool{"STOCK": true}},
+			listing: &db.Listing{},
+			want:    true,
+		},
+		{
+			name:    "currency is the line's own",
+			plugin:  &filterStub{currencies: map[string]bool{"USD": true}},
+			listing: &db.Listing{Currency: strPtr("EUR")},
+			want:    false,
+		},
+		{
+			name:    "currency match case insensitive",
+			plugin:  &filterStub{currencies: map[string]bool{"USD": true}},
+			listing: &db.Listing{Currency: strPtr("usd")},
+			want:    true,
+		},
+		{
+			// The GBP and the USD line of one security are two listings, and a
+			// plugin carrying only one of them refuses the other rather than the
+			// security. This is the case the grain exists for.
+			name:    "one line of a security is refused while the other is not",
+			plugin:  &filterStub{currencies: map[string]bool{"USD": true}},
+			listing: &db.Listing{Currency: strPtr("GBP"), Venues: []string{"XLON"}},
+			want:    false,
+		},
+		{
+			name:    "no venue in the plugin's set",
+			plugin:  &filterStub{exchanges: map[string]bool{"XNAS": true}},
+			listing: &db.Listing{Venues: []string{"XNYS", "ARCX"}},
+			want:    false,
+		},
+		{
+			// Two venues quoting one line differ by a spread, so carrying either
+			// is carrying the line.
+			name:    "any venue in the plugin's set is enough",
+			plugin:  &filterStub{exchanges: map[string]bool{"XNAS": true}},
+			listing: &db.Listing{Venues: []string{"XNYS", "XNAS"}},
+			want:    true,
+		},
+		{
+			name:    "a line with no venue passes",
+			plugin:  &filterStub{exchanges: map[string]bool{"XNAS": true}},
+			listing: &db.Listing{},
+			want:    true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pluginutil.PluginAcceptsListing(tc.plugin.AcceptableAssetClasses(), tc.plugin.AcceptableExchanges(), tc.plugin.AcceptableCurrencies(), tc.assetClass, tc.listing)
+			if got != tc.want {
+				t.Errorf("PluginAcceptsListing = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// PluginAccepts stays as it is for the corporate event fetcher, which works at
+// the security.
 func TestPluginAccepts(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -137,7 +221,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{fxLstID}).Return(
 		map[string]*db.Listing{fxLstID: {ID: fxLstID, InstrumentID: fxInstID, Currency: strPtr("USD")}}, nil)
-	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{fxInstID}).Return(nil, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{fxLstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{fxLstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{fxInstID}).Return([]*db.InstrumentRow{
 		{
@@ -183,6 +267,9 @@ type fetchStub struct {
 	calls   int
 	result  *FetchResult
 	err     error
+	// What the last call was given, for the tests about which line's names a
+	// plugin is offered.
+	gotIdentifiers []identifier.Identifier
 }
 
 func d(year int, month time.Month, day int) time.Time {
@@ -190,8 +277,9 @@ func d(year int, month time.Month, day int) time.Time {
 }
 
 func (s *fetchStub) SupportedIdentifierTypes() []string { return s.idTypes }
-func (s *fetchStub) FetchPrices(_ context.Context, _ []byte, _ []identifier.Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
+func (s *fetchStub) FetchPrices(_ context.Context, _ []byte, ids []identifier.Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
 	s.calls++
+	s.gotIdentifiers = ids
 	return s.result, s.err
 }
 
@@ -221,11 +309,11 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
-	// Return blocked for this (instrument, plugin) pair.
+	// Return blocked for this (listing, plugin) pair.
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
 		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
-	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(
-		map[string]map[string]bool{instID: {pluginID: true}}, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(
+		map[string]map[string]bool{lstID: {pluginID: true}}, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
@@ -242,6 +330,66 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 
 	if stub.calls != 0 {
 		t.Errorf("expected 0 FetchPrices calls for blocked plugin, got %d", stub.calls)
+	}
+}
+
+// The case the grain exists for: one security with a GBP line and a USD line, and
+// a plugin that carries only USD. The GBP line is refused and the USD one is
+// fetched, where a filter reading the security's own currency would have made one
+// answer stand for both -- and the identifiers put to the plugin are the fetched
+// line's, never its sibling's, the two lines carrying different tickers.
+func TestRunCycle_OneLineOfASecurityIsRefusedAndTheOtherFetched(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "inst-1"
+	gbpID, usdID := "listing-gbp", "listing-usd"
+	pluginID := "test-plugin"
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	// A plugin that carries USD and nothing else, which is the only non-nil
+	// currency filter any real plugin declares.
+	stub := &fetchStub{
+		filterStub: filterStub{currencies: map[string]bool{"USD": true}},
+		idTypes:    []string{"MIC_TICKER"},
+		result:     &FetchResult{Bars: []DailyBar{{Date: from, Close: decimal.RequireFromString("100")}}},
+	}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
+
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: gbpID, Ranges: []db.DateRange{{From: from, Before: to}}},
+		{ListingID: usdID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
+		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	gbp := &db.Listing{ID: gbpID, InstrumentID: instID, Currency: strPtr("GBP"),
+		Identifiers: []db.IdentifierInput{{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VODL", Domain: "XLON"}}}}
+	usd := &db.Listing{ID: usdID, InstrumentID: instID, Currency: strPtr("USD"),
+		Identifiers: []db.IdentifierInput{{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VODU", Domain: "XNAS"}}}}
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{gbpID, usdID}).Return(
+		map[string]*db.Listing{gbpID: gbp, usdID: usd}, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{gbpID, usdID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{gbpID, usdID}).Return(nil, nil)
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{ID: instID, AssetClass: strPtr("STOCK"), Listings: []*db.Listing{gbp, usd}},
+	}, nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), usdID, pluginID, gomock.Any(), from, to, gomock.Any()).Return(nil)
+
+	if err := runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, ""); err != nil {
+		t.Fatalf("runCycle: %v", err)
+	}
+
+	if stub.calls != 1 {
+		t.Fatalf("expected the USD line to be fetched once and the GBP line not at all, got %d calls", stub.calls)
+	}
+	if len(stub.gotIdentifiers) != 1 || stub.gotIdentifiers[0].Value != "VODU" {
+		t.Errorf("plugin was given %+v, want the fetched line's own ticker", stub.gotIdentifiers)
 	}
 }
 
@@ -273,7 +421,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
 		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
-	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
@@ -285,7 +433,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 				}},
 		},
 	}, nil)
-	mockDB.EXPECT().CreatePriceFetchBlock(gomock.Any(), instID, pluginID, "ticker not found").Return(nil)
+	mockDB.EXPECT().CreatePriceFetchBlock(gomock.Any(), lstID, pluginID, "ticker not found").Return(nil)
 
 	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
@@ -327,7 +475,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
 		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
-	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
@@ -383,7 +531,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
 		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
-	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
@@ -431,7 +579,7 @@ func TestRunCycle_NoDataRecordsCoverage(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
 		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
-	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{
@@ -472,7 +620,7 @@ func TestRunCycle_CoveredRangeNotRefetched(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
 		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
-	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(
 		map[string]map[string][]db.DateRange{lstID: {pluginID: {{From: from, Before: to}}}}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
@@ -517,7 +665,7 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
 		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
-	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(
 		map[string]map[string][]db.DateRange{lstID: {coveredID: {{From: from, Before: to}}}}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{

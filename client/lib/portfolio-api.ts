@@ -376,9 +376,10 @@ export async function listPriceFetchBlocks(): Promise<PriceFetchBlock[]> {
 }
 
 /** Delete a price fetch block (admin only). */
-export async function deletePriceFetchBlock(instrumentId: string, pluginId: string): Promise<void> {
+/** Lifts a block on one currency line, which says nothing about the security's others. */
+export async function deletePriceFetchBlock(listingId: string, pluginId: string): Promise<void> {
   const base = getBaseUrl();
-  const req = create(DeletePriceFetchBlockRequestSchema, { instrumentId, pluginId });
+  const req = create(DeletePriceFetchBlockRequestSchema, { listingId, pluginId });
   await unaryFetch(base, ApiServicePrefix + "DeletePriceFetchBlock", toBinary(DeletePriceFetchBlockRequestSchema, req), {
     credentials: "include",
   });

@@ -240,6 +240,21 @@ For each listing, compute the date ranges that are **needed** (from Component 1)
 
 A range answered with no bars is not a gap. The fetcher additionally subtracts each plugin's own coverage before asking it, and records the negative answers it used to drop: `ErrNoData`, and any part of a gap outside the plugin's `max_history_days`. Without that, a delisted or pre-IPO range is rediscovered and refetched on every cycle for ever.
 
+### Fetch blocks
+
+A plugin that fails permanently for a listing -- an HTTP 403 or 404, a provider
+saying it has never heard of the symbol -- gets a row in `price_fetch_blocks`,
+keyed `(listing_id, plugin_id)`, and is never asked about that line again until
+the block is lifted.
+
+The block is on the line rather than on the security, matching the unit that was
+fetched. A provider carrying the USD line of a security and refusing its GBP one
+has answered about each, and a block keyed on the security would either lose a
+line the provider carries or stop asking about every line of one it does not.
+
+`first_blocked_at` records when the pair was first blocked and is never
+overwritten; re-blocking replaces only the reason.
+
 ---
 
 ## Component 4: Request Optimiser
@@ -322,6 +337,27 @@ process the resulting gaps through the same plugin loop. FX instruments have
 `asset_class = 'FX'`, so only plugins whose `AcceptableAssetClasses` includes
 `'FX'` will handle them.
 
+## Plugin eligibility
+
+The unit of work is a listing, so the filters test what belongs to each grain:
+
+- `AcceptableAssetClasses` tests the **security's** asset class. A security is
+  one kind of thing whichever currency it trades in.
+- `AcceptableCurrencies` tests the **listing's** currency, which is what its bars
+  will be denominated in. A listing with no currency never reaches the test,
+  being unpriceable.
+- `AcceptableExchanges` tests the **listing's** venue set. A line admitted to no
+  venue passes, as a null exchange did before: nothing named a venue, so there is
+  nothing to fail on. A line admitted to several passes when the plugin carries
+  any of them, two venues quoting one line differing by a spread rather than by
+  anything a provider holds separately.
+
+Empty or nil filter maps accept everything.
+
+The identifiers put to a plugin are the fetched listing's own and its security's,
+never a sibling line's: a price request is keyed on a ticker as often as on an
+ISIN, and the GBP and USD lines of one security carry different tickers.
+
 ### Plugin extension: Massive
 
 The Massive price plugin is extended to fetch FX data:
@@ -331,8 +367,9 @@ The Massive price plugin is extended to fetch FX data:
 - `tickerForAssetClass` handles asset class `FX` by formatting the `FX_PAIR`
   identifier value with a `C:` prefix (e.g. `C:EURUSD`), matching the
   Polygon.io forex ticker convention.
-- `AcceptableCurrencies()` remains `{"USD": true}`. An FX pair's listing is
-  quoted in USD (the quote currency), so it passes this filter.
+- `AcceptableCurrencies()` remains `{"USD": true}`, tested against the listing's
+  currency. An FX pair's listing is quoted in USD (the quote currency), so it
+  passes this filter.
 
 The same `DailyBars` endpoint is used -- Polygon.io returns OHLCV data for
 forex pairs in the same format as equities.

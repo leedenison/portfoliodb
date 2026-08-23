@@ -374,15 +374,28 @@ CREATE INDEX idx_telemetry_candidate_field_field_outcome
 CREATE TABLE telemetry.price_gap (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   run_id        UUID NOT NULL REFERENCES telemetry.run (id) ON DELETE CASCADE,
-  -- Not a foreign key, for the reason run.job_id is not one: telemetry outlives the
-  -- work it describes, and a deleted instrument must not take the diagnostics
-  -- explaining it. v_instrument_label is where a panel turns this into a name.
-  instrument_id UUID NOT NULL,
+  -- The currency line the gap is on, which is the unit the fetcher works on, and
+  -- the security above it, which is what a panel groups by. Neither is a foreign
+  -- key, for the reason run.job_id is not one: telemetry outlives the work it
+  -- describes, and a deleted instrument must not take the diagnostics explaining
+  -- it. v_instrument_label is where a panel turns the security into a name.
+  --
+  -- The security is nullable and the line is not, because a gap always names a
+  -- line and the security is reached by looking that line up. A cycle that
+  -- cannot find the line records the gap with no security, which is the
+  -- listing_missing outcome below and the one row where the two differ.
+  listing_id    UUID NOT NULL,
+  instrument_id UUID,
   -- Price gaps and FX gaps are fetched by one loop over a concatenated list, and are
   -- indistinguishable from there on. The flag is what keeps them apart, and they are
   -- not the same size of problem: a missing rate breaks valuation for every instrument
   -- denominated in that currency, not for one.
   is_fx         BOOLEAN NOT NULL,
+  -- The inputs to the eligibility decision this row explains. The asset class is
+  -- the security's; the currency and the exchange are the line's own, the
+  -- exchange being its whole venue set comma-joined because that is what the
+  -- comparison now runs against -- a plugin carrying any one of them accepts the
+  -- line.
   asset_class   TEXT,
   currency      TEXT,
   exchange      TEXT,
@@ -399,7 +412,7 @@ CREATE TABLE telemetry.price_gap (
   -- hunting: every plugin had already covered every range, so the gap recurs in the
   -- gap list every cycle forever while no plugin will ever fill it.
   outcome       TEXT CHECK (outcome IN ('filled', 'settled_empty', 'no_eligible_plugin',
-                                        'all_plugins_failed', 'instrument_missing'))
+                                        'all_plugins_failed', 'listing_missing'))
 );
 
 CREATE INDEX idx_telemetry_price_gap_run ON telemetry.price_gap (run_id);
@@ -776,6 +789,7 @@ CREATE VIEW telemetry.v_price_gap AS
 SELECT
   g.id,
   g.run_id,
+  g.listing_id,
   g.instrument_id,
   g.is_fx,
   g.asset_class,

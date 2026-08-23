@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Trading currency names the instrument's currency
 milestone: M25
 dependencies: []

@@ -5,8 +5,10 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -766,6 +768,152 @@ func TestListingIdentifiers_UnplacedSurvivesAListingDelete(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("names after the listing delete = %d, want the unplaced one kept", n)
+	}
+}
+
+// The union carries the loser's prices and coverage on to the survivor's line
+// rather than letting them cascade away with it. A merge that lost them would
+// cost a re-fetch of data nobody doubted. See
+// docs/adr/0071-listings-merge-by-currency-and-an-unknown-one-splits.md.
+func TestMergeInstruments_UnionsListingContents(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	loser, loserUSD, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNION", Domain: "XNAS"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure loser: %v", err)
+	}
+	// A second line the survivor does not hold at all, so the union has to give
+	// the survivor one and carry this line's rows on to it.
+	loserGBP, err := p.EnsureListing(ctx, loser, "GBP")
+	if err != nil {
+		t.Fatalf("loser GBP line: %v", err)
+	}
+	survivor, survivorUSD, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00UNION001"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "CUSIP", Value: "00UNION01"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+
+	// Prices and coverage on each of the loser's lines, and a span on the
+	// survivor's USD line that abuts the loser's so the two have to become one.
+	price := func(listingID string, day int, close string) db.EODPrice {
+		return db.EODPrice{ListingID: listingID, PriceDate: d(2024, 1, day),
+			Close: decimal.RequireFromString(close), DataProvider: "test"}
+	}
+	if err := p.UpsertPricesForRange(ctx, loserUSD, "test",
+		[]db.EODPrice{price(loserUSD, 10, "100")}, d(2024, 1, 8), d(2024, 1, 15), nil); err != nil {
+		t.Fatalf("loser usd prices: %v", err)
+	}
+	if err := p.UpsertPricesForRange(ctx, loserGBP, "test",
+		[]db.EODPrice{price(loserGBP, 10, "80")}, d(2024, 1, 8), d(2024, 1, 15), nil); err != nil {
+		t.Fatalf("loser gbp prices: %v", err)
+	}
+	if err := p.UpsertPricesForRange(ctx, survivorUSD, "test",
+		nil, d(2024, 1, 15), d(2024, 1, 20), nil); err != nil {
+		t.Fatalf("survivor usd coverage: %v", err)
+	}
+
+	if err := p.runInTx(ctx, func(exec queryable) error {
+		return mergeInstruments(ctx, exec, uuid.MustParse(survivor), uuid.MustParse(loser))
+	}); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	if got := listingCurrencies(t, p, survivor); len(got) != 2 || got[0] != "GBP" || got[1] != "USD" {
+		t.Fatalf("listings = %v, want the union [GBP USD]", got)
+	}
+	var gbp string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT id::text FROM instrument_listings WHERE instrument_id = $1::uuid AND currency = 'GBP'
+	`, survivor).Scan(&gbp); err != nil {
+		t.Fatalf("read the survivor GBP line: %v", err)
+	}
+
+	// Both lines' bars are on the survivor, each still on the line it was quoted
+	// for -- the whole point of keying a price on a line.
+	for _, c := range []struct {
+		listingID, close string
+	}{{survivorUSD, "100"}, {gbp, "80"}} {
+		var close decimal.Decimal
+		if err := p.q.QueryRowContext(ctx, `
+			SELECT close FROM eod_prices WHERE listing_id = $1::uuid AND price_date = $2
+		`, c.listingID, d(2024, 1, 10)).Scan(&close); err != nil {
+			t.Fatalf("read the bar on %s: %v", c.listingID, err)
+		}
+		if close.String() != c.close {
+			t.Errorf("close on %s = %s, want %s", c.listingID, close, c.close)
+		}
+	}
+
+	// The abutting spans became one, rather than the loser's being dropped or
+	// stored beside the survivor's.
+	var from, before time.Time
+	var n int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*), min(covered_from), max(covered_before)
+		FROM price_coverage WHERE listing_id = $1::uuid
+	`, survivorUSD).Scan(&n, &from, &before); err != nil {
+		t.Fatalf("read coverage: %v", err)
+	}
+	if n != 1 || !from.Equal(d(2024, 1, 8)) || !before.Equal(d(2024, 1, 20)) {
+		t.Errorf("coverage = %d span(s) [%s, %s), want one [2024-01-08, 2024-01-20)",
+			n, from.Format("2006-01-02"), before.Format("2006-01-02"))
+	}
+}
+
+// A declaration is a statement about a holding, so it moves with the postings it
+// describes. Its instrument_id foreign key has no ON DELETE, so a merge that left
+// it behind failed outright rather than quietly cascading -- which is what the
+// merge did before the union.
+func TestMergeInstruments_CarriesDeclarations(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|merge-decl", "U", "u@merge-decl.com")
+
+	loser, loserLine, err := p.EnsureInstrument(ctx, "STOCK", "", "GBX", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "DECL", Domain: "XLON"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure loser: %v", err)
+	}
+	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00DECL0001"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BDECL01"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	asOf := d(2025, 6, 1)
+	decl := held(userID, "acct1", loser)
+	decl.ListingID = loserLine
+	if err := p.UpsertHoldingDeclaration(ctx, decl, "100", asOf, asOf); err != nil {
+		t.Fatalf("declare on the loser: %v", err)
+	}
+
+	if err := p.runInTx(ctx, func(exec queryable) error {
+		return mergeInstruments(ctx, exec, uuid.MustParse(survivor), uuid.MustParse(loser))
+	}); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	var gotInst string
+	var gotLine *string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT instrument_id::text, listing_id::text FROM holding_declarations WHERE user_id = $1::uuid
+	`, userID).Scan(&gotInst, &gotLine); err != nil {
+		t.Fatalf("read declaration: %v", err)
+	}
+	if gotInst != survivor {
+		t.Errorf("declaration names security %s, want the survivor %s", gotInst, survivor)
+	}
+	// GBX and GBP are one family, so the declaration lands on the survivor's line
+	// rather than on no line.
+	if gotLine == nil || *gotLine != survivorLine {
+		t.Errorf("declaration names line %v, want the survivor's GBP line %s", gotLine, survivorLine)
 	}
 }
 

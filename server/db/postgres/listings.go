@@ -246,6 +246,51 @@ func (p *Postgres) ListingsByInstrument(ctx context.Context, instrumentIDs []str
 	return out, nil
 }
 
+// EnsureListing implements db.ListingDB.
+func (p *Postgres) EnsureListing(ctx context.Context, instrumentID, currency string) (string, error) {
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return "", fmt.Errorf("ensure listing: invalid instrument id %q: %w", instrumentID, err)
+	}
+	var listingID uuid.UUID
+	err = p.runInTx(ctx, func(exec queryable) error {
+		var err error
+		listingID, err = ensureListing(ctx, exec, id, currency)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return nilUUIDToString(listingID), nil
+}
+
+// ListingsByIDs implements db.ListingDB.
+func (p *Postgres) ListingsByIDs(ctx context.Context, listingIDs []string) (map[string]*db.Listing, error) {
+	out := make(map[string]*db.Listing, len(listingIDs))
+	if len(listingIDs) == 0 {
+		return out, nil
+	}
+	ids := make([]uuid.UUID, 0, len(listingIDs))
+	for _, s := range listingIDs {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return nil, fmt.Errorf("listings by id: invalid id %q: %w", s, err)
+		}
+		ids = append(ids, id)
+	}
+	listings, err := queryListingsBy(ctx, p.q, "id", ids)
+	if err != nil {
+		return nil, err
+	}
+	if err := loadListingDetail(ctx, p.q, listings); err != nil {
+		return nil, err
+	}
+	for _, l := range listings {
+		out[l.ID] = l
+	}
+	return out, nil
+}
+
 // loadListings batch-loads listings for the given instrument IDs and attaches
 // them to the corresponding rows, in the pattern loadIdentifiers follows.
 func loadListings(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.InstrumentRow) error {
@@ -379,13 +424,21 @@ func loadListingDetail(ctx context.Context, q queryable, listings []*db.Listing)
 // default-versus-unknown conflation this level removes -- so the order is for
 // reproducibility and not a ranking.
 func queryListings(ctx context.Context, q queryable, ids []uuid.UUID) ([]*db.Listing, error) {
+	return queryListingsBy(ctx, q, "instrument_id", ids)
+}
+
+// queryListingsBy is queryListings keyed on col, which is instrument_id for a
+// caller holding securities and id for one holding listings. The price fetcher
+// is the second kind: its unit of work is the line, and it arrives holding
+// nothing else.
+func queryListingsBy(ctx context.Context, q queryable, col string, ids []uuid.UUID) ([]*db.Listing, error) {
 	inClause, args := inClauseUUIDs(ids)
 	rows, err := q.QueryContext(ctx, fmt.Sprintf(`
 		SELECT id, instrument_id, currency, valid_from, valid_before, created_at
 		FROM instrument_listings
-		WHERE instrument_id IN (%s)
+		WHERE %s IN (%s)
 		ORDER BY instrument_id, currency IS NULL, currency
-	`, inClause), args...)
+	`, col, inClause), args...)
 	if err != nil {
 		return nil, fmt.Errorf("query listings: %w", err)
 	}

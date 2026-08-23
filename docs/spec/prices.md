@@ -16,7 +16,7 @@ The price cache.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `instrument_id` | `UUID` NOT NULL | FK to `instruments` |
+| `listing_id` | `UUID` NOT NULL | FK to `instrument_listings` |
 | `price_date` | `date` NOT NULL | The trading date |
 | `open` | `numeric` | Opening price (nullable -- not all providers supply this) |
 | `high` | `numeric` | High price (nullable) |
@@ -28,9 +28,16 @@ The price cache.
 | `last_fetched_at` | `timestamptz` NOT NULL DEFAULT now() | When the row was last fetched. Staleness only; see [bitemporality.md](bitemporality.md#knowledge-time) |
 | `share_count_basis` | `date` NOT NULL | The share count the raw OHLCV is denominated in. Defaults to `price_date` |
 
-**Primary key:** `(instrument_id, price_date)`
+**Primary key:** `(listing_id, price_date)`
 
 **Index:** A TimescaleDB hypertable on `price_date`.
+
+A price is quoted in a currency, so a bar belongs to a listing rather than to the
+security above it. Two currency lines of one security differ by an FX rate, and a
+cache keyed on the security would hold whichever line the plugin happened to
+fetch. A listing whose currency is unknown is never priceable and so never
+appears here: a price with no stated currency asserts nothing. See
+adr/0068-a-listing-is-a-currency-of-a-security.md.
 
 The `numeric` columns are exact decimals and cross the wire as decimal strings,
 not `double` -- `EODPriceProto`, `ExportPriceRow` and `ImportPriceRow` all carry
@@ -51,21 +58,28 @@ valuation carries the last close forward over them at read time, bounded by
 
 ### Table: `price_coverage`
 
-Which date ranges have been answered for, per `(instrument, plugin)`.
+Which date ranges have been answered for, per `(listing, plugin)`.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `instrument_id` | `UUID` NOT NULL | FK to `instruments`, `ON DELETE CASCADE` |
+| `listing_id` | `UUID` NOT NULL | FK to `instrument_listings`, `ON DELETE CASCADE` |
 | `plugin_id` | `text` NOT NULL | Which plugin answered; `import` for coverage declared by an import |
 | `covered_from` | `date` NOT NULL | Inclusive |
 | `covered_before` | `date` NOT NULL | Exclusive; `CHECK (covered_before > covered_from)` |
 | `last_fetched_at` | `timestamptz` NOT NULL | Staleness only. A merged span keeps the oldest constituent value |
 
-**Primary key:** `(instrument_id, plugin_id, covered_from)`
+**Primary key:** `(listing_id, plugin_id, covered_from)`
 
-Overlapping or abutting spans for one `(instrument, plugin)` are merged on
+Overlapping or abutting spans for one `(listing, plugin)` are merged on
 insert, so the table never holds two spans that touch. This mirrors
-`corporate_event_coverage` exactly, and the merge is shared between them.
+`corporate_event_coverage` exactly, and the merge is shared between them --
+which is why the shared implementation takes the owning column as a parameter:
+coverage of a price is per listing and coverage of a corporate event is per
+security, a corporate event being an action on the security.
+
+The grain matches the bars it bounds. A provider that carries the USD line of a
+security and not its GBP one has answered for one and not the other, and a span
+keyed on the security could not say so.
 
 A span covers a range whether or not any bars came back: a provider that
 answered "nothing here" -- a delisted, pre-IPO or untraded range -- has covered
@@ -74,7 +88,7 @@ express that, which is why coverage is stored rather than inferred. See
 adr/0023-price-coverage-is-stored-not-inferred.md.
 
 **Invariant.** Every `eod_prices` row lies within some `price_coverage` span for
-its instrument. The converse deliberately does not hold. Coverage is written in
+its listing. The converse deliberately does not hold. Coverage is written in
 the same transaction as the rows, so no write path can store a price without
 recording what it covers.
 
@@ -110,10 +124,10 @@ type DateRange struct {
     Before time.Time // exclusive
 }
 
-// InstrumentDateRanges groups date ranges by instrument.
-type InstrumentDateRanges struct {
-    InstrumentID string
-    Ranges       []DateRange
+// ListingDateRanges groups date ranges by listing.
+type ListingDateRanges struct {
+    ListingID string
+    Ranges    []DateRange
 }
 
 // HeldRangesOpts controls holdings range calculation.
@@ -126,14 +140,16 @@ type HeldRangesOpts struct {
 
 ```go
 type PriceCacheDB interface {
-    HeldRanges(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
-    PriceCoverage(ctx context.Context, instrumentIDs []string) ([]InstrumentDateRanges, error)
-    PriceCoverageByPlugin(ctx context.Context, instrumentIDs []string) (map[string]map[string][]DateRange, error)
-    PriceGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
+    HeldRanges(ctx context.Context, opts HeldRangesOpts) ([]ListingDateRanges, error)
+    PriceCoverage(ctx context.Context, listingIDs []string) ([]ListingDateRanges, error)
+    PriceCoverageByPlugin(ctx context.Context, listingIDs []string) (map[string]map[string][]DateRange, error)
+    PriceGaps(ctx context.Context, opts HeldRangesOpts) ([]ListingDateRanges, error)
     UpsertPrices(ctx context.Context, prices []EODPrice) error
-    UpsertPricesForRange(ctx context.Context, instrumentID, provider string, bars []EODPrice, from, before time.Time, fetchedAt *time.Time) error
+    UpsertPricesForRange(ctx context.Context, listingID, provider string, bars []EODPrice, from, before time.Time, fetchedAt *time.Time) error
 }
 ```
+
+Every method keys on the listing.
 
 ---
 
@@ -145,12 +161,19 @@ Compute the date ranges during which any user held a non-zero position in each i
 
 ### Behaviour
 
-1. Aggregate daily net quantity changes per listing from the transaction history (system-wide, all users). Only transactions with a non-NULL `listing_id` are included; a listing with no currency is skipped, being unpriceable.
+1. Aggregate daily net quantity changes per listing from the transaction history (system-wide, all users). A listing with no currency is skipped, being unpriceable.
+
+   Until a posting names a listing, the position is aggregated per security and
+   attributed to each of its currency-bearing listings. A security with two lines
+   yields both, and both are fetched: it costs requests for a line nobody holds
+   and no correctness, and the history is then already cached when a transaction
+   can say which line it is on. Valuation makes the opposite trade -- see
+   [display-currency.md](display-currency.md).
 2. Compute the cumulative position per listing using SQL window functions.
 3. In Go, iterate the daily positions and detect zero-crossings:
    - `held_from` = the date the position first becomes non-zero.
    - `held_before` = the date the position returns to zero, OR today + 1 day (exclusive) if `ExtendToToday` is true and the position is still open.
-4. Return the result as a slice of `InstrumentDateRanges`.
+4. Return the result as a slice of `ListingDateRanges`.
 
 ---
 
@@ -162,24 +185,24 @@ For each instrument, return the date ranges some plugin has answered for, as max
 
 ### Behaviour
 
-1. For each instrument (or specific instruments if `instrumentIDs` is non-empty), use PostgreSQL's `range_agg` to merge the stored spans across plugins.
+1. For each listing (or specific listings if `listingIDs` is non-empty), use PostgreSQL's `range_agg` to merge the stored spans across plugins.
 2. Extract the lower and upper bounds as plain DATE values.
-3. Return as a slice of `InstrumentDateRanges`.
+3. Return as a slice of `ListingDateRanges`.
 
 Merging across plugins is right for "has anyone answered for this range". `PriceCoverageByPlugin` keeps the distinction, which is what the fetcher needs: a range one plugin declined must still be offered to another, and to a plugin configured later with deeper history.
 
 ### SQL approach
 
 ```sql
-SELECT instrument_id, lower(r) AS range_from, upper(r) AS range_before
+SELECT listing_id, lower(r) AS range_from, upper(r) AS range_before
 FROM (
-    SELECT instrument_id,
+    SELECT listing_id,
         unnest(range_agg(daterange(covered_from, covered_before))) AS r
     FROM price_coverage
-    WHERE ($1::uuid[] IS NULL OR instrument_id = ANY($1))
-    GROUP BY instrument_id
+    WHERE ($1::uuid[] IS NULL OR listing_id = ANY($1))
+    GROUP BY listing_id
 ) sub
-ORDER BY instrument_id, range_from
+ORDER BY listing_id, range_from
 ```
 
 ### Read-time carry-forward
@@ -206,13 +229,13 @@ past defeats chunk exclusion. See adr/0023-price-coverage-is-stored-not-inferred
 
 ### Purpose
 
-For each instrument, compute the date ranges that are **needed** (from Component 1) but **not yet cached** (from Component 2). The result is the set of date ranges that must be fetched.
+For each listing, compute the date ranges that are **needed** (from Component 1) but **not yet cached** (from Component 2). The result is the set of date ranges that must be fetched.
 
 ### Behaviour
 
 1. Call `HeldRanges` to get needed ranges.
-2. Call `PriceCoverage` to get what has been answered for (filtered to instruments from step 1).
-3. For each instrument, compute the set difference using `SubtractRanges` (Go utility in `server/db/daterange.go`).
+2. Call `PriceCoverage` to get what has been answered for (filtered to listings from step 1).
+3. For each listing, compute the set difference using `SubtractRanges` (Go utility in `server/db/daterange.go`).
 4. Return the resulting gap ranges.
 
 A range answered with no bars is not a gap. The fetcher additionally subtracts each plugin's own coverage before asking it, and records the negative answers it used to drop: `ErrNoData`, and any part of a gap outside the plugin's `max_history_days`. Without that, a delisted or pre-IPO range is rediscovered and refetched on every cycle for ever.
@@ -242,10 +265,10 @@ Each component should be independently testable:
 
 - **Range Utilities:** Table-driven unit tests for `MergeRanges` and `SubtractRanges`. No database required.
 - **Holdings Calculator:** Insert a known set of transactions (buy, sell, buy again), verify the output ranges match expectations. Test edge cases: position goes to zero and reopens the same day; position never closes; transactions with NULL instrument_id are excluded.
-- **Coverage Inventory:** Insert known spans and verify they merge correctly. Test: abutting and overlapping spans merging, a one-day hole staying unmerged, a span with no bars in it surviving, per-plugin spans staying separate, filter by instrument_id.
+- **Coverage Inventory:** Insert known spans and verify they merge correctly. Test: abutting and overlapping spans merging, a one-day hole staying unmerged, a span with no bars in it surviving, per-plugin spans staying separate, filter by listing_id.
 - **Gap Analysis:** Combine known holdings and known coverage, verify the gaps are correct. Test: fully covered (no gaps), no coverage at all (gaps = holdings), partial overlap, and a range covered with no bars producing no gap.
 - **Carry-forward:** Verify the read-time fill spans non-trading days, stops at `covered_before`, does not bleed between two disjoint covered periods, and seeds a window that opens mid-span from the bar before it.
-- **Containment invariant:** After every write path, assert no `eod_prices` row lies outside its instrument's coverage.
+- **Containment invariant:** After every write path, assert no `eod_prices` row lies outside its listing's coverage.
 
 ---
 
@@ -254,9 +277,10 @@ Each component should be independently testable:
 FX rates are stored in `eod_prices` using synthetic FX pair instruments with
 `asset_class = 'FX'` and identifier type `FX_PAIR` (value like `EURUSD`).
 The `close` column stores the exchange rate (how many USD per 1 unit of base
-currency). An FX pair is just another instrument with prices, so
-`PriceCoverage`, `UpsertPrices`, and the range utilities work without
-modification for FX data. See `display-currency.md` for the full design and
+currency). An FX pair is a security with one listing, quoted in USD -- its
+quote currency under the pivot in adr/0006-fx-as-synthetic-instruments.md --
+and its rates hang off that listing like any other bars, so `PriceCoverage`,
+`UpsertPrices`, and the range utilities work without modification for FX data. See `display-currency.md` for the full design and
 adr/0006-fx-as-synthetic-instruments.md for the rationale.
 
 ---
@@ -273,7 +297,7 @@ from when instruments in foreign currencies are held.
 ### Interface
 
 ```go
-FXGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
+FXGaps(ctx context.Context, opts HeldRangesOpts) ([]ListingDateRanges, error)
 ```
 
 ### Behaviour
@@ -281,16 +305,15 @@ FXGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
 1. Call `HeldRanges(ctx, opts)` to get instrument held ranges.
 2. For each held listing, look up its currency.
 3. For each currency C where C != `"USD"`, look up the corresponding FX pair
-   instrument ID (by querying `instrument_identifiers` for type `FX_PAIR`
-   and value `CUSD`).
+   (by querying `instrument_identifiers` for type `FX_PAIR` and value `CUSD`,
+   `FX_PAIR` naming the security) and then that pair's own listing.
 4. Compute the union of held ranges across all listings sharing currency C.
-   This is the "needed" range for the C/USD FX pair instrument. Use
+   This is the "needed" range for the C/USD FX pair listing. Use
    `MergeRanges` to consolidate overlapping ranges.
-5. Call `PriceCoverage(ctx, fxInstrumentIDs)` to get existing FX rate coverage.
-6. For each FX pair instrument, call `SubtractRanges(needed, cached)` to
+5. Call `PriceCoverage(ctx, fxListingIDs)` to get existing FX rate coverage.
+6. For each FX pair listing, call `SubtractRanges(needed, cached)` to
    compute gaps.
-7. Return the resulting gaps as `[]InstrumentDateRanges` with FX pair
-   instrument IDs.
+7. Return the resulting gaps as `[]ListingDateRanges` with FX pair listing IDs.
 
 ### Worker integration
 
@@ -308,8 +331,8 @@ The Massive price plugin is extended to fetch FX data:
 - `tickerForAssetClass` handles asset class `FX` by formatting the `FX_PAIR`
   identifier value with a `C:` prefix (e.g. `C:EURUSD`), matching the
   Polygon.io forex ticker convention.
-- `AcceptableCurrencies()` remains `{"USD": true}`. FX instruments have
-  `currency = 'USD'` (the quote currency), so they pass this filter.
+- `AcceptableCurrencies()` remains `{"USD": true}`. An FX pair's listing is
+  quoted in USD (the quote currency), so it passes this filter.
 
 The same `DailyBars` endpoint is used -- Polygon.io returns OHLCV data for
 forex pairs in the same format as equities.

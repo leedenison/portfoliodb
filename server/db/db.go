@@ -104,10 +104,15 @@ type DateRange struct {
 	Before time.Time // exclusive
 }
 
-// InstrumentDateRanges groups date ranges by instrument.
-type InstrumentDateRanges struct {
-	InstrumentID string
-	Ranges       []DateRange
+// ListingDateRanges groups date ranges by listing.
+//
+// The listing rather than the security, because a price is quoted in a currency:
+// what is held, what has been answered for and what is still missing are all
+// facts about one currency line. See
+// docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+type ListingDateRanges struct {
+	ListingID string
+	Ranges    []DateRange
 }
 
 // HeldRangesOpts controls holdings range calculation.
@@ -117,7 +122,7 @@ type HeldRangesOpts struct {
 
 // EODPrice is a single end-of-day price row for UpsertPrices.
 type EODPrice struct {
-	InstrumentID string
+	ListingID    string
 	PriceDate    time.Time
 	Open         *decimal.Decimal
 	High         *decimal.Decimal
@@ -136,24 +141,29 @@ type EODPrice struct {
 }
 
 // PriceCacheDB provides price cache management.
+//
+// Every method keys on the listing. A currency-unknown listing never appears:
+// it is not priceable, so it is neither held for pricing purposes nor answered
+// for. See docs/spec/prices.md.
 type PriceCacheDB interface {
 	// HeldRanges computes system-wide date ranges during which any user held
-	// a non-zero position in each identified instrument.
-	HeldRanges(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
+	// a non-zero position in each priceable listing.
+	HeldRanges(ctx context.Context, opts HeldRangesOpts) ([]ListingDateRanges, error)
 	// PriceCoverage returns the date ranges some plugin has answered for, merged
 	// across plugins. A range covered with no bars counts: it records that a
 	// provider was asked and had nothing, which row presence cannot express.
-	// If instrumentIDs is non-empty, only those instruments are returned.
-	PriceCoverage(ctx context.Context, instrumentIDs []string) ([]InstrumentDateRanges, error)
-	// PriceCoverageByPlugin returns the same spans keyed instrument -> plugin ->
+	// If listingIDs is non-empty, only those listings are returned.
+	PriceCoverage(ctx context.Context, listingIDs []string) ([]ListingDateRanges, error)
+	// PriceCoverageByPlugin returns the same spans keyed listing -> plugin ->
 	// ranges, for deciding what to ask each plugin rather than whether anyone has
 	// answered at all.
-	PriceCoverageByPlugin(ctx context.Context, instrumentIDs []string) (map[string]map[string][]DateRange, error)
-	// PriceGaps computes needed ranges minus covered ranges per instrument.
-	PriceGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
-	// FXGaps computes date ranges where FX rates are needed (non-USD instruments
-	// are held) but not yet cached. Returns gaps keyed by FX pair instrument ID.
-	FXGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
+	PriceCoverageByPlugin(ctx context.Context, listingIDs []string) (map[string]map[string][]DateRange, error)
+	// PriceGaps computes needed ranges minus covered ranges per listing.
+	PriceGaps(ctx context.Context, opts HeldRangesOpts) ([]ListingDateRanges, error)
+	// FXGaps computes date ranges where FX rates are needed (listings in a
+	// currency other than USD are held) but not yet cached. Returns gaps keyed by
+	// the FX pair instrument's own listing.
+	FXGaps(ctx context.Context, opts HeldRangesOpts) ([]ListingDateRanges, error)
 	// UpsertPrices inserts or updates EOD prices, each covering its own date.
 	// Use it when the caller has no range to declare beyond the days it names.
 	UpsertPrices(ctx context.Context, prices []EODPrice) error
@@ -161,7 +171,7 @@ type PriceCacheDB interface {
 	// one transaction, whether or not any bars came back. Days in the range with
 	// no bar stay absent: the carry-forward is applied at read time and bounded
 	// by this coverage, so it is never stored.
-	UpsertPricesForRange(ctx context.Context, instrumentID, provider string, bars []EODPrice, from, before time.Time, fetchedAt *time.Time) error
+	UpsertPricesForRange(ctx context.Context, listingID, provider string, bars []EODPrice, from, before time.Time, fetchedAt *time.Time) error
 }
 
 // PluginConfigDB provides unified plugin config CRUD for all categories.
@@ -767,8 +777,11 @@ type PriceFetchBlock struct {
 
 // EODPriceRow is a single end-of-day price row for the admin price list.
 type EODPriceRow struct {
+	// The security the priced listing belongs to, which is what the admin UI
+	// links to. Currency is what says which of its lines the bar is on.
 	InstrumentID          string
 	InstrumentDisplayName string
+	Currency              string
 	PriceDate             time.Time
 	Open                  *decimal.Decimal
 	High                  *decimal.Decimal
@@ -781,7 +794,10 @@ type EODPriceRow struct {
 	ShareCountBasis       time.Time
 }
 
-// ExportPriceRow is a single price row with the best instrument identifier for export.
+// ExportPriceRow is a single price row with the best instrument identifier for
+// export. Ref names the security and Currency names which of its listings, an
+// identifier alone no longer picking one out. See
+// docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
 type ExportPriceRow struct {
 	Ref        InstrumentRef
 	AssetClass string
@@ -801,13 +817,14 @@ type ExportPriceRow struct {
 }
 
 // ExportPriceCoverageRow is one half-open [From, Before) price coverage span
-// with the best instrument identifier, and the instrument context an archive
-// group needs.
+// with the best identifier of the security, and the context an archive group
+// needs.
 //
-// AssetClass and Currency travel with the span rather than being taken from the
-// rows because an instrument that was covered and has no rows is still a group,
-// and those two fields are what route the identifier plugins when the importing
-// instance has never seen it.
+// Currency names which listing of that security the span belongs to; AssetClass
+// travels with it rather than being taken from the rows because a listing that
+// was covered and has no rows is still a group, and the asset class is what
+// routes the identifier plugins when the importing instance has never seen the
+// security.
 type ExportPriceCoverageRow struct {
 	Ref        InstrumentRef
 	AssetClass string
@@ -836,12 +853,13 @@ type EODPriceListDB interface {
 	// open-ended. Returns (rows, totalCount, nextPageToken, error).
 	ListPrices(ctx context.Context, search string, dateFrom, dateBefore time.Time,
 		dataProvider string, pageSize int32, pageToken string) ([]EODPriceRow, int32, string, error)
-	// ListPricesForExport returns all EOD prices with the best identifier per instrument.
-	// Instruments with no identifiers are excluded.
+	// ListPricesForExport returns all EOD prices with the best identifier of the
+	// security and the currency naming the listing. Securities with no
+	// identifiers are excluded.
 	ListPricesForExport(ctx context.Context) ([]ExportPriceRow, error)
 	// ListPriceCoverageForExport returns the merged date spans from
-	// price_coverage per instrument, with the best identifier and the
-	// instrument's asset class and currency. A span with no rows inside it is
+	// price_coverage per listing, with the best identifier of its security and
+	// that listing's asset class and currency. A span with no rows inside it is
 	// the only way an export can say a provider was asked and had nothing.
 	ListPriceCoverageForExport(ctx context.Context) ([]ExportPriceCoverageRow, error)
 }
@@ -1283,6 +1301,20 @@ type ListingDB interface {
 	// ListingsByInstrument returns each instrument's listings, keyed by instrument ID.
 	// Instruments with no listings are absent from the map rather than present and empty.
 	ListingsByInstrument(ctx context.Context, instrumentIDs []string) (map[string][]*Listing, error)
+	// EnsureListing returns the line the given currency names on a security,
+	// minting it where the security does not hold that currency family yet and
+	// relabelling its unknown line where it has one. Idempotent.
+	//
+	// An empty currency names no line, and the answer is the security's unknown
+	// listing, or "" where it has more than one line and nothing said which. A
+	// caller that must have a priceable line treats "" as a refusal rather than
+	// picking one.
+	EnsureListing(ctx context.Context, instrumentID, currency string) (string, error)
+	// ListingsByIDs reads listings by their own ids, with the identifiers and
+	// venues that hang off them. For a caller whose unit of work is the line
+	// rather than the security: the price fetcher arrives holding a listing id
+	// and reaches the security through the row it gets back.
+	ListingsByIDs(ctx context.Context, listingIDs []string) (map[string]*Listing, error)
 	// FindListingByIdentifier looks a listing up by a listing-grain identifier
 	// triple, returning the listing and the security it belongs to. Both are ""
 	// when nothing matches. Passing a security-grain type is a programming

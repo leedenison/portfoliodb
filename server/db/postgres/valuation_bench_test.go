@@ -92,7 +92,10 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 	// other instrument, so they need real bars and real coverage, not just a row.
 	fxIDs := make(map[string]string, len(foreignCurrencies))
 	for _, cur := range foreignCurrencies {
-		id, _, err := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
+		// USD is the FX pair's own quote currency under the pivot in
+		// docs/adr/0006-fx-as-synthetic-instruments.md, and its listing is what
+		// its bars hang off.
+		id, _, err := p.EnsureInstrument(ctx, "FX", "", "USD", "", "", "", []db.IdentifierInput{
 			{
 				Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: cur + "USD", Domain: ""},
 				Canonical: true,
@@ -257,17 +260,18 @@ func seedMatchedTransfers(t testing.TB, p *Postgres, userID string, n int, from,
 // is a date the provider answered for, and the carry-forward is what fills it.
 func seedWeekdayBars(t testing.TB, p *Postgres, instrumentID string, from, before time.Time, base decimal.Decimal) {
 	t.Helper()
+	listingID := pricedListing(t, p, instrumentID)
 	var bars []db.EODPrice
 	for day := from; day.Before(before); day = day.Add(db.Day) {
 		if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
 			continue
 		}
 		bars = append(bars, db.EODPrice{
-			InstrumentID: instrumentID, PriceDate: day,
+			ListingID: listingID, PriceDate: day,
 			Close: base.Add(decimal.NewFromInt(int64(day.YearDay() % 50))), DataProvider: "bench",
 		})
 	}
-	if err := p.UpsertPricesForRange(context.Background(), instrumentID, "bench", bars, from, before, nil); err != nil {
+	if err := p.UpsertPricesForRange(context.Background(), listingID, "bench", bars, from, before, nil); err != nil {
 		t.Fatalf("upsert bars: %v", err)
 	}
 }

@@ -8,18 +8,29 @@ import (
 	"github.com/google/uuid"
 )
 
-// Coverage tables share a shape: (instrument_id, plugin_id, covered_from,
+// coverageTable names one of the two coverage tables and the column its spans
+// hang off. They share a shape -- (owner, plugin_id, covered_from,
 // covered_before, last_fetched_at) with the half-open [covered_from,
-// covered_before) convention and non-overlapping spans per (instrument,
-// plugin). price_coverage and corporate_event_coverage both use it, so the
-// merge below is written once and named by table.
-const (
-	priceCoverageTable          = "price_coverage"
-	corporateEventCoverageTable = "corporate_event_coverage"
+// covered_before) convention and non-overlapping spans per (owner, plugin) --
+// so the merge below is written once and named by table.
+//
+// The owner differs because the grains do. A price is quoted in a currency, so
+// price coverage is per listing; a corporate event is an action on the security,
+// so its coverage is per instrument. See
+// docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+type coverageTable struct {
+	name  string
+	owner string
+}
+
+var (
+	priceCoverage          = coverageTable{name: "price_coverage", owner: "listing_id"}
+	corporateEventCoverage = coverageTable{name: "corporate_event_coverage", owner: "instrument_id"}
 )
 
 // upsertCoverageSpan merges [from, before) into the coverage spans already
-// recorded for (instrumentID, pluginID) in table. Every existing row whose
+// recorded for (ownerID, pluginID) in t. ownerID is a listing for prices and an
+// instrument for corporate events, as t.owner says. Every existing row whose
 // interval touches the new one is deleted and replaced by a single row spanning
 // the union, so the table never holds overlapping or abutting spans.
 //
@@ -29,13 +40,13 @@ const (
 //
 // exec must be a transaction: the compute, delete and insert are three
 // statements and are only safe together.
-func upsertCoverageSpan(ctx context.Context, exec queryable, table, instrumentID, pluginID string, from, before time.Time, lastFetchedAt *time.Time) error {
+func upsertCoverageSpan(ctx context.Context, exec queryable, t coverageTable, ownerID, pluginID string, from, before time.Time, lastFetchedAt *time.Time) error {
 	if !before.After(from) {
-		return fmt.Errorf("upsert %s: covered_before %s not after covered_from %s", table, before, from)
+		return fmt.Errorf("upsert %s: covered_before %s not after covered_from %s", t.name, before, from)
 	}
-	id, err := uuid.Parse(instrumentID)
+	id, err := uuid.Parse(ownerID)
 	if err != nil {
-		return fmt.Errorf("upsert %s: invalid instrument id %q: %w", table, instrumentID, err)
+		return fmt.Errorf("upsert %s: invalid %s %q: %w", t.name, t.owner, ownerID, err)
 	}
 
 	// Half-open [a,b) and [c,d) touch or overlap iff a <= d AND c <= b, so
@@ -46,7 +57,7 @@ func upsertCoverageSpan(ctx context.Context, exec queryable, table, instrumentID
 	// LEAST ignores NULL, so with no touching rows the merged fetch time is just
 	// the supplied one (or now()).
 	touching := `
-		WHERE instrument_id = $1
+		WHERE ` + t.owner + ` = $1
 		  AND plugin_id     = $2
 		  AND covered_from   <= $4::date
 		  AND covered_before >= $3::date`
@@ -57,19 +68,19 @@ func upsertCoverageSpan(ctx context.Context, exec queryable, table, instrumentID
 			LEAST($3::date,    COALESCE(MIN(covered_from),   $3::date)),
 			GREATEST($4::date, COALESCE(MAX(covered_before), $4::date)),
 			LEAST(COALESCE($5::timestamptz, now()), MIN(last_fetched_at))
-		FROM `+table+touching,
+		FROM `+t.name+touching,
 		id, pluginID, from, before, lastFetchedAt).Scan(&newFrom, &newBefore, &newFetched)
 	if err != nil {
-		return fmt.Errorf("upsert %s: compute merge: %w", table, err)
+		return fmt.Errorf("upsert %s: compute merge: %w", t.name, err)
 	}
-	if _, err := exec.ExecContext(ctx, `DELETE FROM `+table+touching, id, pluginID, from, before); err != nil {
-		return fmt.Errorf("upsert %s: delete overlapping: %w", table, err)
+	if _, err := exec.ExecContext(ctx, `DELETE FROM `+t.name+touching, id, pluginID, from, before); err != nil {
+		return fmt.Errorf("upsert %s: delete overlapping: %w", t.name, err)
 	}
 	if _, err := exec.ExecContext(ctx, `
-		INSERT INTO `+table+` (instrument_id, plugin_id, covered_from, covered_before, last_fetched_at)
+		INSERT INTO `+t.name+` (`+t.owner+`, plugin_id, covered_from, covered_before, last_fetched_at)
 		VALUES ($1, $2, $3, $4, $5)
 	`, id, pluginID, newFrom, newBefore, newFetched); err != nil {
-		return fmt.Errorf("upsert %s: insert merged: %w", table, err)
+		return fmt.Errorf("upsert %s: insert merged: %w", t.name, err)
 	}
 	return nil
 }

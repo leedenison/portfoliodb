@@ -112,22 +112,35 @@ func newTelRecorder(ctrl *gomock.Controller) (*mock.MockTelemetryDB, *telRecorde
 	return tel, r
 }
 
+// lstIDOf names the single line of a security in these fixtures. A gap is a
+// listing and the telemetry row it produces names the security above it, so both
+// ids have to exist even where the test is about neither.
+func lstIDOf(instrumentID string) string { return instrumentID + "-lst" }
+
 // gapCycle wires the reads a cycle makes so a test states only what it is about.
 // The instrument list is derived from the gaps, so a caller supplying an
-// instrument row for every gap gets a cycle that reaches the plugins.
+// instrument row for every gap gets a cycle that reaches the plugins. The
+// listings are derived from the instrument rows, one line each.
 type gapCycle struct {
-	priceGaps []db.InstrumentDateRanges
-	fxGaps    []db.InstrumentDateRanges
+	priceGaps []db.ListingDateRanges
+	fxGaps    []db.ListingDateRanges
 	configs   []db.PluginConfigRow
 	insts     []*db.InstrumentRow
 	coverage  map[string]map[string][]db.DateRange
 }
 
 func (c gapCycle) expect(m *mock.MockDB) {
+	listings := make(map[string]*db.Listing, len(c.insts))
+	for _, inst := range c.insts {
+		listings[lstIDOf(inst.ID)] = &db.Listing{
+			ID: lstIDOf(inst.ID), InstrumentID: inst.ID, Currency: inst.Currency,
+		}
+	}
 	m.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(c.priceGaps, nil)
 	m.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(c.fxGaps, nil)
 	m.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).
 		Return(c.configs, nil).AnyTimes()
+	m.EXPECT().ListingsByIDs(gomock.Any(), gomock.Any()).Return(listings, nil).AnyTimes()
 	m.EXPECT().BlockedPluginsForInstruments(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	m.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(c.insts, nil).AnyTimes()
 	m.EXPECT().PriceCoverageByPlugin(gomock.Any(), gomock.Any()).Return(c.coverage, nil).AnyTimes()
@@ -148,11 +161,11 @@ func TestCycleRecordsWhatItWasAskedFor(t *testing.T) {
 	tel, rec := newTelRecorder(ctrl)
 
 	gapCycle{
-		priceGaps: []db.InstrumentDateRanges{
-			{InstrumentID: "inst-1", Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 11)}}},
+		priceGaps: []db.ListingDateRanges{
+			{ListingID: lstIDOf("inst-1"), Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 11)}}},
 		},
-		fxGaps: []db.InstrumentDateRanges{
-			{InstrumentID: "fx-1", Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 4)}}},
+		fxGaps: []db.ListingDateRanges{
+			{ListingID: lstIDOf("fx-1"), Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 4)}}},
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 10, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{
@@ -225,8 +238,8 @@ func TestCycleRecordsAFilledGap(t *testing.T) {
 	reg.Register("eodhd", stub)
 
 	gapCycle{
-		priceGaps: []db.InstrumentDateRanges{
-			{InstrumentID: "inst-1", Ranges: []db.DateRange{{From: from, Before: to}}},
+		priceGaps: []db.ListingDateRanges{
+			{ListingID: lstIDOf("inst-1"), Ranges: []db.DateRange{{From: from, Before: to}}},
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 70, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{{
@@ -282,8 +295,8 @@ func TestCycleRecordsAnEmptyAnswerAsSettled(t *testing.T) {
 	reg.Register("eodhd", stub)
 
 	gapCycle{
-		priceGaps: []db.InstrumentDateRanges{
-			{InstrumentID: "inst-1", Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}},
+		priceGaps: []db.ListingDateRanges{
+			{ListingID: lstIDOf("inst-1"), Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}},
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 70, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{{
@@ -326,8 +339,8 @@ func TestCycleRecordsAHistoryLimitWithoutADuration(t *testing.T) {
 	maxHist := 30
 	gapCycle{
 		// Long before any 30 day reach, so the whole range is settled without a call.
-		priceGaps: []db.InstrumentDateRanges{
-			{InstrumentID: "inst-1", Ranges: []db.DateRange{{From: d(2019, 1, 1), Before: d(2019, 2, 1)}}},
+		priceGaps: []db.ListingDateRanges{
+			{ListingID: lstIDOf("inst-1"), Ranges: []db.DateRange{{From: d(2019, 1, 1), Before: d(2019, 2, 1)}}},
 		},
 		configs: []db.PluginConfigRow{
 			{PluginID: "eodhd", Precedence: 70, Config: []byte("{}"), MaxHistoryDays: &maxHist},
@@ -372,8 +385,8 @@ func TestCycleRecordsAPluginFailure(t *testing.T) {
 	reg.Register("eodhd", stub)
 
 	gapCycle{
-		priceGaps: []db.InstrumentDateRanges{
-			{InstrumentID: "inst-1", Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}},
+		priceGaps: []db.ListingDateRanges{
+			{ListingID: lstIDOf("inst-1"), Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}},
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 70, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{{
@@ -408,9 +421,9 @@ func TestCycleWithNoPluginRecordsEveryGap(t *testing.T) {
 	tel, rec := newTelRecorder(ctrl)
 
 	gapCycle{
-		priceGaps: []db.InstrumentDateRanges{
-			{InstrumentID: "inst-1", Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}},
-			{InstrumentID: "inst-2", Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}},
+		priceGaps: []db.ListingDateRanges{
+			{ListingID: lstIDOf("inst-1"), Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}},
+			{ListingID: lstIDOf("inst-2"), Ranges: []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}},
 		},
 		configs: nil,
 	}.expect(mockDB)
@@ -450,9 +463,9 @@ func TestCancelledCycleStopsAndLeavesTheRestUnstamped(t *testing.T) {
 
 	rng := []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 3)}}
 	gapCycle{
-		priceGaps: []db.InstrumentDateRanges{
-			{InstrumentID: "inst-1", Ranges: rng},
-			{InstrumentID: "inst-2", Ranges: rng},
+		priceGaps: []db.ListingDateRanges{
+			{ListingID: lstIDOf("inst-1"), Ranges: rng},
+			{ListingID: lstIDOf("inst-2"), Ranges: rng},
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 70, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{

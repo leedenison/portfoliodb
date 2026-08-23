@@ -11,6 +11,21 @@ import (
 	"time"
 )
 
+// lstIDOf names the single line of a security in these fixtures, and listingsOf
+// derives one line per instrument row. A gap names a listing while the identifier,
+// the name and the asset class it is reported with belong to the security above it.
+func lstIDOf(instrumentID string) string { return instrumentID + "-lst" }
+
+func listingsOf(insts []*dbpkg.InstrumentRow) map[string]*dbpkg.Listing {
+	out := make(map[string]*dbpkg.Listing, len(insts))
+	for _, inst := range insts {
+		out[lstIDOf(inst.ID)] = &dbpkg.Listing{
+			ID: lstIDOf(inst.ID), InstrumentID: inst.ID, Currency: inst.Currency,
+		}
+	}
+	return out
+}
+
 func TestListPriceGaps_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
@@ -28,6 +43,7 @@ func TestListPriceGaps_Empty(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	db.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
+	db.EXPECT().ListingsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
 	db.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	resp, err := srv.ListPriceGaps(adminCtx("user-1", "sub|1"), &apiv1.ListPriceGapsRequest{})
@@ -49,17 +65,17 @@ func TestListPriceGaps_Success(t *testing.T) {
 	mic := "XNAS"
 	currency := "USD"
 	name := "Apple Inc"
-	priceGaps := []dbpkg.InstrumentDateRanges{
+	priceGaps := []dbpkg.ListingDateRanges{
 		{
-			InstrumentID: "inst-1",
+			ListingID: lstIDOf("inst-1"),
 			Ranges: []dbpkg.DateRange{
 				{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)},
 			},
 		},
 	}
-	fxGaps := []dbpkg.InstrumentDateRanges{
+	fxGaps := []dbpkg.ListingDateRanges{
 		{
-			InstrumentID: "inst-fx",
+			ListingID: lstIDOf("inst-fx"),
 			Ranges: []dbpkg.DateRange{
 				{From: time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)},
 			},
@@ -98,6 +114,7 @@ func TestListPriceGaps_Success(t *testing.T) {
 
 	db.EXPECT().PriceGaps(gomock.Any(), dbpkg.HeldRangesOpts{ExtendToToday: true}).Return(priceGaps, nil)
 	db.EXPECT().FXGaps(gomock.Any(), dbpkg.HeldRangesOpts{ExtendToToday: true}).Return(fxGaps, nil)
+	db.EXPECT().ListingsByIDs(gomock.Any(), gomock.Any()).Return(listingsOf(instruments), nil)
 	db.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(instruments, nil)
 
 	resp, err := srv.ListPriceGaps(adminCtx("user-1", "sub|1"), &apiv1.ListPriceGapsRequest{})
@@ -167,13 +184,14 @@ func TestListPriceGaps_AssetClassFilter(t *testing.T) {
 			}},
 		},
 	}
-	priceGaps := []dbpkg.InstrumentDateRanges{
-		{InstrumentID: "inst-stock", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
-		{InstrumentID: "inst-etf", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
+	priceGaps := []dbpkg.ListingDateRanges{
+		{ListingID: lstIDOf("inst-stock"), Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
+		{ListingID: lstIDOf("inst-etf"), Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
 	}
 
 	db.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(priceGaps, nil)
 	db.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
+	db.EXPECT().ListingsByIDs(gomock.Any(), gomock.Any()).Return(listingsOf(instruments), nil)
 	db.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(instruments, nil)
 
 	resp, err := srv.ListPriceGaps(adminCtx("user-1", "sub|1"), &apiv1.ListPriceGapsRequest{
@@ -204,12 +222,13 @@ func TestListPriceGaps_SkipsInstrumentsWithoutUsableIdentifier(t *testing.T) {
 				}},
 		},
 	}
-	priceGaps := []dbpkg.InstrumentDateRanges{
-		{InstrumentID: "inst-no-id", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
+	priceGaps := []dbpkg.ListingDateRanges{
+		{ListingID: lstIDOf("inst-no-id"), Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
 	}
 
 	db.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(priceGaps, nil)
 	db.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
+	db.EXPECT().ListingsByIDs(gomock.Any(), gomock.Any()).Return(listingsOf(instruments), nil)
 	db.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(instruments, nil)
 
 	resp, err := srv.ListPriceGaps(adminCtx("user-1", "sub|1"), &apiv1.ListPriceGapsRequest{})

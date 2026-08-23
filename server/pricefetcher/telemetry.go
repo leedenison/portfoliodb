@@ -35,11 +35,13 @@ type priceGaps struct {
 // the same size of problem: a missing rate breaks valuation for every instrument
 // denominated in that currency rather than for one.
 //
-// instByID may be nil, for the caller that has established there is no plugin to
-// put any of these to and has not loaded the instruments. The three attributes it
-// supplies explain plugin filtering, and no filtering happens on that path.
+// listingByID and instByID may be nil, for the caller that has established there
+// is no plugin to put any of these to and has not loaded them. The three
+// attributes they supply explain plugin filtering, and no filtering happens on
+// that path.
 func newPriceGaps(ctx context.Context, tel db.TelemetryDB, runID string,
-	gaps []db.InstrumentDateRanges, fxFrom int, instByID map[string]*db.InstrumentRow) *priceGaps {
+	gaps []db.ListingDateRanges, fxFrom int, listingByID map[string]*db.Listing,
+	instByID map[string]*db.InstrumentRow) *priceGaps {
 	if tel == nil || runID == "" {
 		return nil
 	}
@@ -52,11 +54,16 @@ func newPriceGaps(ctx context.Context, tel db.TelemetryDB, runID string,
 	for i, ig := range gaps {
 		row := db.TelemetryPriceGap{
 			RunID:           runID,
-			InstrumentID:    ig.InstrumentID,
 			IsFX:            i >= fxFrom,
 			DaysOutstanding: rangesDays(ig.Ranges),
 		}
-		if inst := instByID[ig.InstrumentID]; inst != nil {
+		// The gap is a line, and the panel asking whether an instrument ever
+		// prices reads by security, so both are recorded.
+		lst := listingByID[ig.ListingID]
+		if lst != nil {
+			row.InstrumentID = lst.InstrumentID
+		}
+		if inst := instByID[row.InstrumentID]; inst != nil {
 			if inst.AssetClass != nil {
 				row.AssetClass = *inst.AssetClass
 			}

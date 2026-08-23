@@ -899,26 +899,32 @@ message PurgeTelemetryResponse {
 
 // EODPriceProto is a single end-of-day price row for admin browsing.
 message EODPriceProto {
+  // The security the priced line belongs to, and its display name. The name is a
+  // label a security's listings share, so currency below is what tells two lines
+  // of one security apart.
   string instrument_id = 1;
   string instrument_display_name = 2;
+  // The currency the line is quoted in, which is the currency of the values
+  // below. Never empty: a listing with no currency is never priced.
+  string currency = 3;
   // Valid time: the trading date this bar describes.
-  string price_date = 3;               // "YYYY-MM-DD"
-  // OHLC are decimal strings in the instrument's own currency.
-  optional string open = 4 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional string high = 5 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional string low = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  string close = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string price_date = 4;               // "YYYY-MM-DD"
+  // OHLC are decimal strings in the listing's own currency.
+  optional string open = 5 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string high = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string low = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // The provider's own adjusted close, on the provider's basis and typically
   // including dividend adjustment. Never an input to valuation; see
   // docs/spec/bitemporality.md. Decimal string.
-  optional string adjusted_close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional int64 volume = 9;
+  optional string adjusted_close = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional int64 volume = 10;
   // The share count the raw values are denominated in, as "YYYY-MM-DD".
-  string share_count_basis = 10;
-  string data_provider = 11;
+  string share_count_basis = 11;
+  string data_provider = 12;
   // Knowledge time: when this row was last fetched. Staleness only -- it says
   // nothing about the prices themselves.
-  google.protobuf.Timestamp last_fetched_at = 12;
+  google.protobuf.Timestamp last_fetched_at = 13;
 }
 
 message ListPricesRequest {
@@ -1097,15 +1103,21 @@ message ListPriceGapsRequest {
   repeated portfoliodb.type.v1.AssetClass asset_classes = 1;
 }
 
-// PriceGap is one instrument with its missing price date ranges.
+// PriceGap is one listing with its missing price date ranges.
+//
+// A price is quoted in a currency, so a gap is a question about one currency
+// line. The security is named beside it because that is what a person recognises
+// -- and what the identifier and the name belong to -- while the currency is what
+// tells two lines of it apart.
 message PriceGap {
-  string instrument_id = 1;
-  InstrumentIdentifier identifier = 2;
-  portfoliodb.type.v1.AssetClass asset_class = 3;
-  string exchange = 4;
-  string currency = 5;
-  string name = 6;
-  repeated DateRange gaps = 7;
+  string listing_id = 1;
+  string currency = 2;
+  string instrument_id = 3;
+  InstrumentIdentifier identifier = 4;
+  portfoliodb.type.v1.AssetClass asset_class = 5;
+  string exchange = 6;
+  string name = 7;
+  repeated DateRange gaps = 8;
 }
 
 // DateRange is a half-open [from, before) date range. Every date interval in

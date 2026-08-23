@@ -44,21 +44,21 @@ func importPricePart(ctx context.Context, database db.DB, pluginRegistry *identi
 
 	var resolved []resolvedGroup
 	for i, g := range groups {
-		instID, err := resolveGroupInstrument(ctx, database, pluginRegistry, resolveCache, keys, g, pricesAsOf)
+		listingID, err := resolveGroupListing(ctx, database, pluginRegistry, resolveCache, keys, g, pricesAsOf)
 		if err != nil {
 			rep.Errf(i, "instrument", err.Error())
 			rep.Advance(ctx, len(g.GetRows()))
 			continue
 		}
 
-		bars, rowErrs := groupBars(g, i, instID, pricesAsOf)
+		bars, rowErrs := groupBars(g, i, listingID, pricesAsOf)
 		rep.Errs(rowErrs)
 		rep.Advance(ctx, len(g.GetRows()))
 		var covErrs []*apiv1.ValidationError
 		resolved = append(resolved, resolvedGroup{
-			instrumentID: instID,
-			coverage:     groupCoverage(g, i, &covErrs),
-			bars:         bars,
+			listingID: listingID,
+			coverage:  groupCoverage(g, i, &covErrs),
+			bars:      bars,
 		})
 		rep.Errs(covErrs)
 	}
@@ -90,34 +90,48 @@ func newResolveCache() map[string]*resolveEntry {
 // dateRange is a half-open [from, before) span of dates.
 type dateRange struct{ from, before time.Time }
 
-// resolvedGroup is one archive group after its instrument has been resolved.
+// resolvedGroup is one archive group after its listing has been resolved.
 type resolvedGroup struct {
-	instrumentID string
-	coverage     []dateRange
-	bars         []db.EODPrice
+	listingID string
+	coverage  []dateRange
+	bars      []db.EODPrice
 }
 
-// resolveGroupInstrument maps a group's identifier to an instrument id, going to
-// the identifier plugins at most once per identifier. The group's asset class
-// and currency are the hints that route them, which is why a group carrying no
-// rows is still worth writing: it is the only place they travel for an
-// instrument that was covered and had nothing.
-func resolveGroupInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
+// resolveGroupListing maps a group's identifier and currency to the listing its
+// bars belong to, going to the identifier plugins at most once per pair. The
+// group's asset class and currency are the hints that route them, which is why a
+// group carrying no rows is still worth writing: it is the only place they
+// travel for a listing that was covered and had nothing.
+//
+// The currency is part of the memo key, not just a hint: an identifier names the
+// security and the currency names which of its lines, so two groups sharing an
+// identifier and differing in currency are two listings and must not share an
+// answer. See docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+//
+// A group with no currency is refused. A price with no stated currency asserts
+// nothing, and the line it would land on -- the security's unknown one -- is not
+// priceable.
+func resolveGroupListing(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
 	cache map[string]*resolveEntry, keys *resolutionKeys, g *archivev1.PriceGroup, asOf *time.Time) (string, error) {
 	ref := g.GetInstrument()
 	idType := ref.GetType().String()
 	if !identifier.Known(idType) {
 		return "", fmt.Errorf("unknown identifier_type %q", idType)
 	}
+	currency := g.GetCurrency()
+	if currency == "" {
+		return "", fmt.Errorf("price group states no currency, so it names no listing")
+	}
 
 	r := identifier.Identifier{Type: idType, Domain: ref.GetDomain(), Value: ref.GetValue()}
-	entry, cached := cache[r.Key()]
+	key := r.Key() + "|" + currency
+	entry, cached := cache[key]
 	if !cached {
 		acStr := db.AssetClassToStr(g.GetAssetClass())
 		result, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-			idType, ref.GetDomain(), ref.GetValue(), acStr, g.GetCurrency(), asOf, keys, r.Key())
+			idType, ref.GetDomain(), ref.GetValue(), acStr, currency, asOf, keys, key)
 		entry = &resolveEntry{result: result, err: err}
-		cache[r.Key()] = entry
+		cache[key] = entry
 	}
 	if entry.err != nil {
 		return "", entry.err
@@ -125,14 +139,23 @@ func resolveGroupInstrument(ctx context.Context, database db.DB, pluginRegistry 
 	if len(entry.result.HintDiffs) > 0 {
 		return "", fmt.Errorf("resolved instrument differs from import data: %s", hintDiffsSummary(entry.result.HintDiffs))
 	}
-	return entry.result.InstrumentID, nil
+	// The resolution may have landed on a line already, but not every branch of
+	// it names one, and the group's currency is the authority here in any case.
+	listingID, err := database.EnsureListing(ctx, entry.result.InstrumentID, currency)
+	if err != nil {
+		return "", err
+	}
+	if listingID == "" {
+		return "", fmt.Errorf("no %s listing for the resolved security", currency)
+	}
+	return listingID, nil
 }
 
 // groupBars converts one group's rows into storable bars, reporting a bad row
 // against the group it came from and carrying on with the rest. Every row is
 // accounted for either as a bar or as an error, so the caller advances the
 // progress counter by the whole group and does not count rows itself.
-func groupBars(g *archivev1.PriceGroup, groupIndex int, instrumentID string, fetchedAt *time.Time) ([]db.EODPrice, []*apiv1.ValidationError) {
+func groupBars(g *archivev1.PriceGroup, groupIndex int, listingID string, fetchedAt *time.Time) ([]db.EODPrice, []*apiv1.ValidationError) {
 	rows := g.GetRows()
 	bars := make([]db.EODPrice, 0, len(rows))
 	var errs []*apiv1.ValidationError
@@ -157,7 +180,7 @@ func groupBars(g *archivev1.PriceGroup, groupIndex int, instrumentID string, fet
 			continue
 		}
 		p := db.EODPrice{
-			InstrumentID:  instrumentID,
+			ListingID:     listingID,
 			PriceDate:     priceDate,
 			Close:         dec.Close,
 			Open:          dec.Open,
@@ -265,27 +288,27 @@ func parsePriceDecimals(row *archivev1.PriceRow) (priceDecimals, string, error) 
 // inside them. Bars falling outside every declared span cover only their own
 // dates, which keeps the gaps between them gaps.
 //
-// Groups are folded by instrument first. Coverage is stored per instrument with
-// no basis dimension, and two groups naming one instrument would otherwise have
-// their spans applied against partial bar sets.
+// Groups are folded by listing first. Coverage is stored per listing with no
+// basis dimension, and two groups naming one listing would otherwise have their
+// spans applied against partial bar sets.
 func upsertGroups(ctx context.Context, database db.DB, groups []resolvedGroup) error {
-	byInst := make(map[string]*resolvedGroup, len(groups))
+	byListing := make(map[string]*resolvedGroup, len(groups))
 	order := make([]string, 0, len(groups))
 	for i := range groups {
 		g := groups[i]
-		cur, ok := byInst[g.instrumentID]
+		cur, ok := byListing[g.listingID]
 		if !ok {
 			c := g
-			byInst[g.instrumentID] = &c
-			order = append(order, g.instrumentID)
+			byListing[g.listingID] = &c
+			order = append(order, g.listingID)
 			continue
 		}
 		cur.coverage = append(cur.coverage, g.coverage...)
 		cur.bars = append(cur.bars, g.bars...)
 	}
 
-	for _, instID := range order {
-		g := byInst[instID]
+	for _, listingID := range order {
+		g := byListing[listingID]
 		if len(g.coverage) == 0 {
 			if len(g.bars) > 0 {
 				if err := database.UpsertPrices(ctx, g.bars); err != nil {
@@ -309,7 +332,7 @@ func upsertGroups(ctx context.Context, database db.DB, groups []resolvedGroup) e
 			}
 			// A declared range with no rows in it is not a no-op: it says the
 			// caller asked about those dates and there was nothing to report.
-			if err := database.UpsertPricesForRange(ctx, instID, db.PriceProviderImport, inRange, r.from, r.before, fetchedAt); err != nil {
+			if err := database.UpsertPricesForRange(ctx, listingID, db.PriceProviderImport, inRange, r.from, r.before, fetchedAt); err != nil {
 				return err
 			}
 		}

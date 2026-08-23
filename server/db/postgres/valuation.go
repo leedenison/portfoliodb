@@ -179,36 +179,46 @@ daily_holdings AS (
     JOIN date_series ds
         ON ds.val_date >= hs.from_date AND ds.val_date < hs.before_date
 ),
--- Map held instruments to their FX pair instrument IDs (for currencies != display).
-fx_instruments AS (
+-- The line each held security is valued at, and its currency. A price is quoted
+-- in a currency, so the bars, the coverage and the currency all belong to the
+-- listing; instrument_priced_listing is what carries a holding down to it while
+-- a transaction still names the security. A security with two currency lines has
+-- no row here and is unpriced, nothing having said which line the holding is on.
+-- Map each held line's currency to the listing of its FX pair (currencies != display).
+fx_listings AS (
     SELECT DISTINCT
-        inst.currency AS base_currency,
-        fx_ii.instrument_id AS fx_instrument_id
-    FROM instruments inst
+        pl.currency AS base_currency,
+        fx_pl.listing_id AS fx_listing_id
+    FROM instrument_priced_listing pl
     INNER JOIN instrument_identifiers fx_ii
         ON fx_ii.identifier_type = 'FX_PAIR'
-        AND fx_ii.value = inst.currency || 'USD'
+        AND fx_ii.value = pl.currency || 'USD'
         AND fx_ii.valid_before IS NULL
-    WHERE inst.id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
-      AND inst.currency IS NOT NULL
-      AND inst.currency != 'USD'
+    INNER JOIN instrument_priced_listing fx_pl
+        ON fx_pl.instrument_id = fx_ii.instrument_id
+    WHERE pl.instrument_id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
+      AND pl.currency != 'USD'
 ),
 -- The display currency's own pair (DISPLAY/USD), only when display != USD.
-display_fx_instrument AS (
-    SELECT ii.instrument_id
+-- FX_PAIR names the security, so its own line is reached through it.
+display_fx_listing AS (
+    SELECT pl.listing_id
     FROM instrument_identifiers ii
+    INNER JOIN instrument_priced_listing pl ON pl.instrument_id = ii.instrument_id
     WHERE ii.identifier_type = 'FX_PAIR'
       AND ii.value = $4 || 'USD'
       AND ii.valid_before IS NULL
       AND $4 != 'USD'
 ),
--- Every instrument this query needs a price series for.
-price_instruments AS (
-    SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL
+-- Every listing this query needs a price series for.
+price_listings AS (
+    SELECT pl.listing_id
+    FROM instrument_priced_listing pl
+    WHERE pl.instrument_id IN (SELECT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
     UNION
-    SELECT fx_instrument_id FROM fx_instruments
+    SELECT fx_listing_id FROM fx_listings
     UNION
-    SELECT instrument_id FROM display_fx_instrument
+    SELECT listing_id FROM display_fx_listing
 ),
 -- Only real bars are stored, so the days a market was shut have no row. The
 -- next four CTEs carry the last close forward over them.
@@ -220,21 +230,21 @@ price_instruments AS (
 -- used to filter. merged_price_coverage unions the per-plugin spans: for
 -- "should this day have a price" it does not matter which provider answered.
 covered_grid AS (
-    SELECT mc.instrument_id, ds.val_date, mc.covered_from AS span_from
+    SELECT mc.listing_id, ds.val_date, mc.covered_from AS span_from
     FROM merged_price_coverage mc
     JOIN date_series ds
         ON ds.val_date >= mc.covered_from AND ds.val_date < mc.covered_before
-    WHERE mc.instrument_id IN (SELECT instrument_id FROM price_instruments)
+    WHERE mc.listing_id IN (SELECT listing_id FROM price_listings)
 ),
 -- A window opening mid-span would otherwise read as unpriced until the first
--- bar inside it. One lookup per (instrument, span), not per day.
+-- bar inside it. One lookup per (listing, span), not per day.
 span_seeds AS (
-    SELECT g.instrument_id, g.span_from, s.close, s.split_adjusted_close
-    FROM (SELECT DISTINCT instrument_id, span_from FROM covered_grid) g
+    SELECT g.listing_id, g.span_from, s.close, s.split_adjusted_close
+    FROM (SELECT DISTINCT listing_id, span_from FROM covered_grid) g
     CROSS JOIN LATERAL (
         SELECT ep.close, ep.split_adjusted_close
         FROM eod_prices ep
-        WHERE ep.instrument_id = g.instrument_id
+        WHERE ep.listing_id = g.listing_id
           AND ep.price_date >= g.span_from
           AND ep.price_date < $2::date
         ORDER BY ep.price_date DESC
@@ -243,34 +253,34 @@ span_seeds AS (
 ),
 price_points AS (
     -- Virtual point before the window start, seeding the carry-forward.
-    SELECT instrument_id, span_from, ($2::date - 1) AS val_date, close, split_adjusted_close
+    SELECT listing_id, span_from, ($2::date - 1) AS val_date, close, split_adjusted_close
     FROM span_seeds
     UNION ALL
-    SELECT g.instrument_id, g.span_from, g.val_date, ep.close, ep.split_adjusted_close
+    SELECT g.listing_id, g.span_from, g.val_date, ep.close, ep.split_adjusted_close
     FROM covered_grid g
     LEFT JOIN eod_prices ep
-        ON ep.instrument_id = g.instrument_id AND ep.price_date = g.val_date
+        ON ep.listing_id = g.listing_id AND ep.price_date = g.val_date
 ),
 -- PostgreSQL window functions have no IGNORE NULLS, so count() labels each run
 -- that starts at a real bar and first_value() spreads that bar across the run.
 price_islands AS (
-    SELECT instrument_id, span_from, val_date, close, split_adjusted_close,
-        count(close) OVER (PARTITION BY instrument_id, span_from ORDER BY val_date) AS island
+    SELECT listing_id, span_from, val_date, close, split_adjusted_close,
+        count(close) OVER (PARTITION BY listing_id, span_from ORDER BY val_date) AS island
     FROM price_points
 ),
 filled_prices AS (
-    SELECT instrument_id, val_date,
+    SELECT listing_id, val_date,
         first_value(close) OVER w AS close,
         first_value(split_adjusted_close) OVER w AS split_adjusted_close
     FROM price_islands
-    WINDOW w AS (PARTITION BY instrument_id, span_from, island ORDER BY val_date)
+    WINDOW w AS (PARTITION BY listing_id, span_from, island ORDER BY val_date)
 ),
 prices AS (
     -- Adjusted quantity above pairs with adjusted close here: both are
     -- denominated in today's share count. Mixing one of each would scale the
     -- value by the split factor either side of an ex-date. See
     -- docs/spec/bitemporality.md.
-    SELECT instrument_id, val_date, split_adjusted_close AS close
+    SELECT listing_id, val_date, split_adjusted_close AS close
     FROM filled_prices
     WHERE val_date >= $2::date AND split_adjusted_close IS NOT NULL
 ),
@@ -279,15 +289,15 @@ prices AS (
 -- a share count, so it has no basis to adjust and never carries splits.
 fx_rates AS (
     SELECT fi.base_currency, fp.val_date, fp.close AS rate
-    FROM fx_instruments fi
-    JOIN filled_prices fp ON fp.instrument_id = fi.fx_instrument_id
+    FROM fx_listings fi
+    JOIN filled_prices fp ON fp.listing_id = fi.fx_listing_id
     WHERE fp.val_date >= $2::date AND fp.close IS NOT NULL
 ),
 -- Rate for the display currency (DISPLAY/USD), only when display != USD.
 display_fx_rate AS (
     SELECT fp.val_date, fp.close AS rate
-    FROM display_fx_instrument dfi
-    JOIN filled_prices fp ON fp.instrument_id = dfi.instrument_id
+    FROM display_fx_listing dfl
+    JOIN filled_prices fp ON fp.listing_id = dfl.listing_id
     WHERE fp.val_date >= $2::date AND fp.close IS NOT NULL
 ),
 -- Compute fx_rate per holding: converts from instrument currency to display currency.
@@ -313,7 +323,7 @@ valued AS (
             -- Unidentified instrument: always unpriced.
             WHEN dh.instrument_id IS NULL THEN NULL
             -- Cash in display currency: implicit price 1.0, no FX needed.
-            WHEN inst.asset_class = 'CASH' AND COALESCE(inst.currency, $4) = $4
+            WHEN inst.asset_class = 'CASH' AND COALESCE(pl.currency, $4) = $4
                 THEN dh.qty::double precision
             -- Cash in foreign currency: implicit price 1.0, convert via FX rate.
             WHEN inst.asset_class = 'CASH' THEN
@@ -325,7 +335,7 @@ valued AS (
                         END
                     ELSE
                         CASE WHEN dfr.rate IS NOT NULL
-                                AND (COALESCE(inst.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
+                                AND (COALESCE(pl.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
                             THEN dh.qty::double precision
                                 * COALESCE(fr.rate::double precision, 1.0)
                                 / dfr.rate::double precision
@@ -335,7 +345,7 @@ valued AS (
             -- Non-cash with no price: unpriced.
             WHEN gp.close IS NULL THEN NULL
             -- Instrument currency IS the display currency (or NULL): no conversion.
-            WHEN COALESCE(inst.currency, $4) = $4
+            WHEN COALESCE(pl.currency, $4) = $4
                 THEN dh.qty::double precision * gp.close::double precision
             -- Display = USD: fx_rate = BASEUSD_rate.
             WHEN $4 = 'USD' THEN
@@ -349,7 +359,7 @@ valued AS (
             -- For USD-denominated instruments, BASEUSD = 1.0 so fx_rate = 1.0 / DISPLAYUSD.
             ELSE
                 CASE WHEN dfr.rate IS NOT NULL
-                        AND (COALESCE(inst.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
+                        AND (COALESCE(pl.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
                     THEN dh.qty::double precision
                         * gp.close::double precision
                         * COALESCE(fr.rate::double precision, 1.0)
@@ -361,23 +371,26 @@ valued AS (
         CASE
             WHEN dh.instrument_id IS NOT NULL
                 AND (gp.close IS NOT NULL OR inst.asset_class = 'CASH')
-                AND COALESCE(inst.currency, $4) != $4
+                AND COALESCE(pl.currency, $4) != $4
                 AND (
                     ($4 = 'USD' AND fr.rate IS NULL)
                     OR ($4 != 'USD' AND (
                         dfr.rate IS NULL
-                        OR (fr.rate IS NULL AND COALESCE(inst.currency, 'USD') != 'USD')
+                        OR (fr.rate IS NULL AND COALESCE(pl.currency, 'USD') != 'USD')
                     ))
                 )
             THEN true
             ELSE false
         END AS fx_missing
     FROM daily_holdings dh
-    LEFT JOIN prices gp
-        ON gp.instrument_id = dh.instrument_id AND gp.val_date = dh.val_date
+    -- inst for what the security carries -- its asset class and its name -- and
+    -- pl for what the line does: the bars and the currency they are quoted in.
     LEFT JOIN instruments inst ON inst.id = dh.instrument_id
+    LEFT JOIN instrument_priced_listing pl ON pl.instrument_id = dh.instrument_id
+    LEFT JOIN prices gp
+        ON gp.listing_id = pl.listing_id AND gp.val_date = dh.val_date
     LEFT JOIN fx_rates fr
-        ON fr.base_currency = inst.currency AND fr.val_date = dh.val_date
+        ON fr.base_currency = pl.currency AND fr.val_date = dh.val_date
     LEFT JOIN display_fx_rate dfr ON dfr.val_date = dh.val_date
     WHERE NOT qty_is_zero(dh.qty, dh.inexact)
 )
@@ -406,6 +419,8 @@ ORDER BY val_date
 
 // GetPortfolioValuation computes daily portfolio values over the half-open
 // [dateFrom, dateBefore) range.
+// Prices are keyed on the listing, and a holding reaches its line through
+// instrument_priced_listing.
 // Only real bars are stored, so prices are carried forward over non-trading days
 // at read time, bounded by price_coverage. Holdings are forward-filled from the
 // last transaction date. Holdings are converted to displayCurrency via FX rates.

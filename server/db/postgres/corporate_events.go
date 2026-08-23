@@ -354,7 +354,7 @@ func (p *Postgres) DeleteCashDividend(ctx context.Context, instrumentID string, 
 // upsertCoverageSpan for the merge semantics, which price_coverage shares.
 func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, before time.Time, lastFetchedAt *time.Time) error {
 	return p.runInTx(ctx, func(exec queryable) error {
-		return upsertCoverageSpan(ctx, exec, corporateEventCoverageTable, instrumentID, pluginID, from, before, lastFetchedAt)
+		return upsertCoverageSpan(ctx, exec, corporateEventCoverage, instrumentID, pluginID, from, before, lastFetchedAt)
 	})
 }
 
@@ -801,10 +801,15 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 	}
 
 	return p.runInTx(ctx, func(exec queryable) error {
-		// Prices: compute the factor once per (instrument, date) in a LATERAL,
-		// then reference f.num and f.den in all SET clauses. LATERAL rather than
-		// a plain subquery selecting (split_factor_at(...)).*, which would call
-		// the function once per output column.
+		// Prices: compute the factor once per (listing, date) in a LATERAL, then
+		// reference f.num and f.den in all SET clauses. LATERAL rather than a
+		// plain subquery selecting (split_factor_at(...)).*, which would call the
+		// function once per output column.
+		//
+		// A split is an action on the security and every line splits with it, so
+		// the factor is looked up for the listing's instrument. That is the join
+		// the grain split costs here: bars hang off the listing, splits off the
+		// security above it.
 		//
 		// The factor is a rational and divides last: a price adjusts by its
 		// reciprocal, so the multiplication is by den and the division by num.
@@ -822,12 +827,13 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 				split_adjusted_volume  = CASE WHEN ep.volume IS NULL THEN NULL
 					ELSE round(ep.volume::numeric * f.num / f.den)::bigint END
 			FROM (
-				SELECT p.instrument_id, p.price_date, f.num, f.den
-				FROM eod_prices p,
-					LATERAL split_factor_at(p.instrument_id, p.share_count_basis) f
-				WHERE p.instrument_id %s
+				SELECT p.listing_id, p.price_date, f.num, f.den
+				FROM eod_prices p
+				JOIN instrument_listings l ON l.id = p.listing_id,
+					LATERAL split_factor_at(l.instrument_id, p.share_count_basis) f
+				WHERE l.instrument_id %s
 			) f
-			WHERE ep.instrument_id = f.instrument_id
+			WHERE ep.listing_id = f.listing_id
 			  AND ep.price_date = f.price_date
 		`, instFilter)
 		if _, err := exec.ExecContext(ctx, priceSQL, args...); err != nil {

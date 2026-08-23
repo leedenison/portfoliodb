@@ -33,7 +33,8 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 	// Count total matching rows.
 	countQ, countArgs, err := psql.Select("COUNT(*)").
 		From("eod_prices ep").
-		Join("instruments i ON i.id = ep.instrument_id").
+		Join("instrument_listings lst ON lst.id = ep.listing_id").
+		Join("instruments i ON i.id = lst.instrument_id").
 		Where(where).
 		ToSql()
 	if err != nil {
@@ -47,16 +48,19 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 		return nil, 0, "", nil
 	}
 
+	// The security and the line: the name is a label its listings share, so the
+	// currency is what tells two lines of one security apart in the list.
 	q, args, err := psql.Select(
-		"ep.instrument_id", "i.name AS display_name",
+		"lst.instrument_id", "i.name AS display_name", "COALESCE(lst.currency, '') AS currency",
 		"ep.price_date", "ep.open", "ep.high", "ep.low", "ep.close", "ep.adjusted_close",
 		"ep.volume", "ep.data_provider", "ep.last_fetched_at",
 		"ep.share_count_basis",
 	).
 		From("eod_prices ep").
-		Join("instruments i ON i.id = ep.instrument_id").
+		Join("instrument_listings lst ON lst.id = ep.listing_id").
+		Join("instruments i ON i.id = lst.instrument_id").
 		Where(where).
-		OrderBy("ep.price_date DESC", "lower(i.name)").
+		OrderBy("ep.price_date DESC", "lower(i.name)", "lst.currency").
 		Limit(uint64(pageSize + 1)).Offset(uint64(offset)).
 		ToSql()
 	if err != nil {
@@ -75,7 +79,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 		var open, high, low, adjClose decimal.NullDecimal
 		var volume sql.NullInt64
 		if err := rows.Scan(
-			&r.InstrumentID, &r.InstrumentDisplayName,
+			&r.InstrumentID, &r.InstrumentDisplayName, &r.Currency,
 			&r.PriceDate, &open, &high, &low, &r.Close, &adjClose,
 			&volume, &r.DataProvider, &r.LastFetchedAt, &r.ShareCountBasis,
 		); err != nil {
@@ -131,7 +135,7 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			COALESCE(i.asset_class, '') AS asset_class,
-			COALESCE(i.currency, '') AS currency,
+			lst.currency,
 			ep.price_date, ep.open, ep.high, ep.low, ep.close,
 			ep.adjusted_close, ep.volume,
 			-- A basis equal to the bar's own date is the as-traded convention
@@ -141,9 +145,10 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 			CASE WHEN ep.share_count_basis = ep.price_date THEN NULL
 				ELSE ep.share_count_basis END AS share_count_basis
 		FROM eod_prices ep
-		JOIN instruments i ON i.id = ep.instrument_id
+		JOIN instrument_listings lst ON lst.id = ep.listing_id
+		JOIN instruments i ON i.id = lst.instrument_id
 		` + bestIdentifierJoin + `
-		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), ep.price_date
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), lst.currency, ep.price_date
 	`
 	var rows []exportPriceRow
 	if err := p.q.SelectContext(ctx, &rows, q); err != nil {
@@ -183,19 +188,24 @@ type exportPriceCoverageRow struct {
 // travels with the file. Merged across plugins: an import stores everything
 // under one provider, so the distinction cannot survive the round trip.
 //
-// The asset class and currency come along because an instrument can be covered
-// and have no rows, and then this query is the only place its group can get
-// them.
+// The asset class and currency come along because a listing can be covered and
+// have no rows, and then this query is the only place its group can get them.
+// The currency is the listing's own, and is what names which line of the
+// security the group is: an identifier alone no longer picks one out.
+//
+// A listing with no currency never holds coverage, so the column is never empty
+// here.
 func (p *Postgres) ListPriceCoverageForExport(ctx context.Context) ([]db.ExportPriceCoverageRow, error) {
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			COALESCE(i.asset_class, '') AS asset_class,
-			COALESCE(i.currency, '') AS currency,
+			lst.currency,
 			mc.covered_from, mc.covered_before
 		FROM merged_price_coverage mc
-		JOIN instruments i ON i.id = mc.instrument_id
+		JOIN instrument_listings lst ON lst.id = mc.listing_id
+		JOIN instruments i ON i.id = lst.instrument_id
 		` + bestIdentifierJoin + `
-		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), covered_from
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), lst.currency, covered_from
 	`
 	var rows []exportPriceCoverageRow
 	if err := p.q.SelectContext(ctx, &rows, q); err != nil {

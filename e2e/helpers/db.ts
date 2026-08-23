@@ -263,13 +263,17 @@ export async function queryInstrumentByIdentifier(
   id: string;
   asset_class: string | null;
   strike: number | null;
+  underlying_listing_id: string | null;
   underlying_id: string | null;
   identifiers: Array<{ type: string; value: string }>;
 } | null> {
   const c = await getClient();
+  // The stored column is the line the contract delivers; the security above it
+  // is derived, for assertions that do not care which line.
   const instRes = await c.query(
-    `SELECT i.id, i.asset_class, i.strike, i.underlying_id
+    `SELECT i.id, i.asset_class, i.strike, i.underlying_listing_id, ul.instrument_id AS underlying_id
      FROM instruments i
+     LEFT JOIN instrument_listings ul ON ul.id = i.underlying_listing_id
      JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = i.id
      WHERE ii.identifier_type = $1 AND ii.value = $2
      LIMIT 1`,
@@ -285,6 +289,7 @@ export async function queryInstrumentByIdentifier(
     id: row.id as string,
     asset_class: row.asset_class as string | null,
     strike: row.strike != null ? Number(row.strike) : null,
+    underlying_listing_id: row.underlying_listing_id as string | null,
     underlying_id: row.underlying_id as string | null,
     identifiers: idRes.rows as Array<{ type: string; value: string }>,
   };

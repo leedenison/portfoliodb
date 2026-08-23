@@ -40,7 +40,7 @@ message InstrumentIdentifier {
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
-// When asset_class is OPTION or FUTURE, underlying_id must be set.
+// When asset_class is OPTION or FUTURE, underlying_listing_id must be set.
 message Instrument {
   string id = 1;
   portfoliodb.type.v1.AssetClass asset_class = 2;
@@ -48,12 +48,24 @@ message Instrument {
   string currency = 4;
   string name = 5;
   repeated InstrumentIdentifier identifiers = 6;
-  string underlying_id = 7;   // UUID of underlying instrument when this is a derivative (OPTION/FUTURE).
+  // The line an OPTION or FUTURE delivers. A contract's strike is a price and a
+  // price is in a currency, so the deliverable is one currency line of the
+  // underlying security. Set for every derivative; empty otherwise. See
+  // docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+  string underlying_listing_id = 7;
+  // The security that line belongs to, derived rather than stored. It is what
+  // `underlying` below carries, and what a caller naming an underlying without
+  // caring which of its lines is asking for.
+  string underlying_id = 19;
   // The half-open [valid_from, valid_before) interval the instrument was
   // available to trade in. Both optional; an unset bound is open-ended.
   google.protobuf.Timestamp valid_from = 8;   // inclusive
   google.protobuf.Timestamp valid_before = 9; // exclusive: when it ceased to be available
-  Instrument underlying = 10; // Populated in ListTxs/GetHoldings so clients need not fetch separately.
+  // The underlying security, populated in ListTxs/GetHoldings so clients need
+  // not fetch separately. The security rather than the line: which line the
+  // contract delivers is underlying_listing_id above. Saying so in the UI is
+  // issue 0154.
+  Instrument underlying = 10;
   Exchange exchange_info = 11; // Rich exchange data from exchanges table JOIN; populated when exchange_mic is set.
   string cik = 12;            // SEC Central Index Key (optional).
   string sic_code = 13;       // SIC industry classification code (optional).

@@ -8,6 +8,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"strings"
 	"testing"
 	"time"
 )
@@ -257,7 +258,7 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: "AAPL 20250117C200"},
 			Canonical: false,
-		}}, nil, underlyingID, &validFrom, &validBefore, &db.OptionFields{Strike: decf(230), Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+		}}, nil, lineOf(t, p, underlyingID), &validFrom, &validBefore, &db.OptionFields{Strike: decf(230), Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"})
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -613,9 +614,9 @@ func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {
 			Canonical: false,
 		}}, nil, "", nil, nil, nil)
 	if err == nil {
-		t.Fatal("expected error when OPTION has no underlying_id")
+		t.Fatal("expected error when OPTION names no underlying line")
 	}
-	if err.Error() != "underlying_id required when asset_class is OPTION" {
+	if err.Error() != "underlying_listing_id required when asset_class is OPTION" {
 		t.Errorf("got error: %v", err)
 	}
 }
@@ -1167,7 +1168,7 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL  260116C00150500"},
 			Canonical: true,
-		}}, nil, underlyingID, nil, nil,
+		}}, nil, lineOf(t, p, underlyingID), nil, nil,
 		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: expiry, PutCall: "C"})
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
@@ -1247,7 +1248,7 @@ func TestListInstrumentsForExport_PullsInUnderlyingOutsideTheFilter(t *testing.T
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL  260116C00150500"},
 			Canonical: true,
-		}}, nil, underlyingID, nil, nil,
+		}}, nil, lineOf(t, p, underlyingID), nil, nil,
 		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
@@ -1894,5 +1895,129 @@ func TestMergeInstruments_PostingOnAnUnmatchableLineLosesIt(t *testing.T) {
 	}
 	if gotLine != nil {
 		t.Errorf("posting names line %s, want none: nothing said which of the survivor's lines it is on", *gotLine)
+	}
+}
+
+// A contract's strike is a price and a price is in a currency, so the underlying
+// it delivers is a line and not the security. A line with no currency leaves the
+// strike denominated in nothing, and the option is refused rather than stored.
+// See docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+func TestEnsureInstrument_OptionOnACurrencyUnknownLine_Rejected(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID, unknownLine, err := p.EnsureInstrument(ctx, "STOCK", "", "", "U", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000UN1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure underlying: %v", err)
+	}
+	if unknownLine == "" {
+		t.Fatalf("fixture wants the underlying's currency-unknown line")
+	}
+	_ = underlyingID
+
+	_, _, err = p.EnsureInstrument(ctx, "OPTION", "", "USD", "", "", "",
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "OCC", Value: "UNKN  260116C00150500"},
+			Canonical: true,
+		}}, nil, unknownLine, nil, nil,
+		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	if err == nil {
+		t.Fatal("expected the option to be refused: its underlying line states no currency")
+	}
+	if !strings.Contains(err.Error(), "states no currency") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// The underlying of an option is one line of a dual-listed security, and which
+// one is decided by the currency the contract is struck in.
+func TestEnsureInstrument_OptionNamesTheLineItsStrikeIsQuotedIn(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID, usdLine, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "DUAL", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DU1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure underlying: %v", err)
+	}
+	eurLine, err := p.EnsureListing(ctx, underlyingID, "EUR")
+	if err != nil {
+		t.Fatalf("ensure EUR line: %v", err)
+	}
+
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "", "EUR", "", "", "",
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "IBKR", Value: "DUAL 20260116C480"},
+			Canonical: true,
+		}}, nil, eurLine, nil, nil,
+		&db.OptionFields{Strike: decimal.RequireFromString("480"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	if err != nil {
+		t.Fatalf("ensure option: %v", err)
+	}
+
+	row, err := p.GetInstrument(ctx, optionID)
+	if err != nil {
+		t.Fatalf("get option: %v", err)
+	}
+	if row.UnderlyingListingID == nil || *row.UnderlyingListingID != eurLine {
+		t.Errorf("underlying line: got %v, want the EUR line %s (not the USD one %s)",
+			row.UnderlyingListingID, eurLine, usdLine)
+	}
+	// The security above that line is derived rather than stored, for the
+	// callers that do not care which line the contract is written on.
+	if row.UnderlyingID == nil || *row.UnderlyingID != underlyingID {
+		t.Errorf("underlying security: got %v, want %s", row.UnderlyingID, underlyingID)
+	}
+}
+
+// A split on the underlying security reaches an option written on any of its
+// lines: split_factor_at climbs from the line to the security above it.
+func TestSplitFactorAt_ReachesTheOptionThroughItsUnderlyingLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "SPLITME", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SP1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure underlying: %v", err)
+	}
+	eurLine, err := p.EnsureListing(ctx, underlyingID, "EUR")
+	if err != nil {
+		t.Fatalf("ensure EUR line: %v", err)
+	}
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "", "EUR", "", "", "",
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "IBKR", Value: "SPLITME 20260116C100"},
+			Canonical: true,
+		}}, nil, eurLine, nil, nil,
+		&db.OptionFields{Strike: decimal.RequireFromString("100"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	if err != nil {
+		t.Fatalf("ensure option: %v", err)
+	}
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{{
+		InstrumentID: underlyingID, ExDate: time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC),
+		SplitFrom: "1", SplitTo: "4", DataProvider: "test",
+	}}); err != nil {
+		t.Fatalf("upsert split: %v", err)
+	}
+
+	var num, den string
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT num::text, den::text FROM split_factor_at($1::uuid, $2::date)`,
+		optionID, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)).Scan(&num, &den); err != nil {
+		t.Fatalf("split_factor_at: %v", err)
+	}
+	if num != "4" || den != "1" {
+		t.Errorf("factor: got %s/%s, want 4/1 -- the split on the security reaches the option through its line", num, den)
+	}
+
+	// InstrumentsWithSplits takes the same join.
+	with, err := p.InstrumentsWithSplits(ctx, []string{optionID})
+	if err != nil {
+		t.Fatalf("instruments with splits: %v", err)
+	}
+	if len(with) != 1 || with[0] != optionID {
+		t.Errorf("instruments with splits: got %v, want the option", with)
 	}
 }

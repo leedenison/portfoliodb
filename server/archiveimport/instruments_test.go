@@ -79,8 +79,11 @@ func TestInstrumentPart_RestoresOptionTermsAndMultiplier(t *testing.T) {
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("underlying-1", "listing-id", nil)
+	// The option's strike is quoted in the currency the file states, and that
+	// names the line of the underlying it delivers.
+	database.EXPECT().EnsureListing(gomock.Any(), "underlying-1", "USD").Return("underlying-line-1", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-1", nil, nil, gomock.Any()).
+		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-1", nil, nil, gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ interface{}, opts *db.OptionFields) (string, string, error) {
 			if opts == nil {
 				t.Fatal("option terms were not restored")
@@ -126,8 +129,11 @@ func TestInstrumentPart_UnderlyingRefNotInArchive_FallsBackToInstance(t *testing
 	// The archive says an underlying appears in the same part, but a partial
 	// file whose underlying this instance already knows still imports.
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("known-1", nil)
+	// The file states no currency, so the OCC symbol implies USD and that names
+	// the underlying's line.
+	database.EXPECT().EnsureListing(gomock.Any(), "known-1", "USD").Return("known-line-1", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "known-1", nil, nil, gomock.Any()).
+		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "known-line-1", nil, nil, gomock.Any()).
 		Return("option-1", "listing-id", nil)
 	part := instrumentPart(&archivev1.Instrument{
 		AssetClass:  typev1.AssetClass_OPTION,

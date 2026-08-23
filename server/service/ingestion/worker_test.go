@@ -536,9 +536,22 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			registry := identifier.NewRegistry()
 			registry.Register("local", &fakePlugin{
-				inst: &identifier.Instrument{AssetClass: "OPTION", Listing: identifier.Listing{Currency: "USD"}},
-				ids:  []identifier.Identifier{{Type: "OCC", Value: occ}},
+				inst: &identifier.Instrument{
+					AssetClass: "OPTION",
+					Listing:    identifier.Listing{Currency: "USD"},
+					// A contract is written on a line of its underlying, so a
+					// stored option needs one; without it the resolution degrades
+					// to a broker-description-only instrument (adr/0074).
+					UnderlyingIdentifiers: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+				},
+				ids: []identifier.Identifier{{Type: "OCC", Value: occ}},
 			})
+			// The underlying short-circuits out of the instrument table, and the
+			// contract's USD strike names the line of it the option delivers.
+			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+				Return("underlying-id", "STOCK", "XNAS", "USD", nil).AnyTimes()
+			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("underlying-id", nil).AnyTimes()
+			database.EXPECT().EnsureListing(gomock.Any(), "underlying-id", "USD").Return("underlying-line-id", nil).AnyTimes()
 
 			payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 				ExportedAt: timestamppb.New(exportedAt),
@@ -579,7 +592,7 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 
 			// The assertion.
 			var validFrom []*time.Time
-			database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "", gomock.Any(), gomock.Any(), "", nil, nil, gomock.Any()).
+			database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "", gomock.Any(), gomock.Any(), "underlying-line-id", nil, nil, gomock.Any()).
 				DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ *time.Time, _ *db.OptionFields) (string, string, error) {
 					for _, idn := range idns {
 						validFrom = append(validFrom, idn.ValidFrom)

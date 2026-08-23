@@ -364,9 +364,23 @@ func TestImportTxPart_ResolvesAgainstTheEnvelopeVintage(t *testing.T) {
 
 	registry := identifier.NewRegistry()
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "OPTION", Listing: identifier.Listing{Currency: "USD"}},
-		ids:  []identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}},
+		inst: &identifier.Instrument{
+			AssetClass: "OPTION",
+			Listing:    identifier.Listing{Currency: "USD"},
+			// A contract is written on a line of its underlying, so a stored
+			// option needs one; without it the resolution degrades to a
+			// broker-description-only instrument (adr/0074).
+			UnderlyingIdentifiers: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		},
+		ids: []identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}},
 	})
+	// The underlying short-circuits out of the instrument table, and the
+	// contract's USD strike names the line of it the option delivers.
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("underlying-id", "STOCK", "XNAS", "USD", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("underlying-id", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("underlying-id", nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), "underlying-id", "USD").Return("underlying-line-id", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10}}, nil).AnyTimes()
 

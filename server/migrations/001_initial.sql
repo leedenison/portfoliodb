@@ -372,7 +372,8 @@ CREATE TABLE exchanges (
 );
 
 -- Canonical instruments (security master).
--- asset_class: controlled vocabulary. OPTION and FUTURE require underlying_id.
+-- asset_class: controlled vocabulary. OPTION and FUTURE require
+-- underlying_listing_id.
 -- name: denormalized display name, computed by trigger from identifier priority:
 --   MIC_TICKER > OPENFIGI_TICKER > OCC > BROKER_DESCRIPTION > CURRENCY > FX_PAIR > (existing name) > id::text.
 -- exchange: denormalized short exchange label, computed by trigger:
@@ -384,7 +385,17 @@ CREATE TABLE instruments (
   currency     TEXT,
   name         TEXT,
   exchange     TEXT NOT NULL DEFAULT '',
-  underlying_id UUID REFERENCES instruments (id),
+  -- The line an OPTION or FUTURE delivers. A contract's strike is a price and a
+  -- price is in a currency, so the deliverable is one currency line of the
+  -- underlying security rather than the security itself: naming the security
+  -- leaves the strike's currency unstated. It is required to be a line with a
+  -- currency -- an underlying whose currency is unknown gives no way to read the
+  -- strike -- which the write path enforces, there being no cross-table CHECK to
+  -- state it in. See
+  -- docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+  --
+  -- The foreign key waits until instrument_listings exists, below.
+  underlying_listing_id UUID,
   -- The half-open [valid_from, valid_before) interval the instrument was
   -- tradeable in. Descriptive only: no query filters on these, and no
   -- identifier plugin supplies them yet. Identity is resolved as current
@@ -402,7 +413,7 @@ CREATE TABLE instruments (
   contract_multiplier NUMERIC NOT NULL DEFAULT 1,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT chk_underlying_required CHECK (
-    (asset_class IN ('OPTION','FUTURE') AND underlying_id IS NOT NULL)
+    (asset_class IN ('OPTION','FUTURE') AND underlying_listing_id IS NOT NULL)
     OR (asset_class IS NULL OR asset_class NOT IN ('OPTION','FUTURE'))
   ),
   CONSTRAINT chk_option_fields CHECK (
@@ -411,7 +422,7 @@ CREATE TABLE instruments (
   )
 );
 
-CREATE INDEX idx_instruments_underlying_id ON instruments (underlying_id);
+CREATE INDEX idx_instruments_underlying_listing_id ON instruments (underlying_listing_id);
 
 -- Identifiers for an instrument. (identifier_type, domain, value) names the
 -- instrument over the half-open [valid_from, valid_before) interval the name was
@@ -544,6 +555,16 @@ CREATE TABLE instrument_listings (
 -- event-bearing, since a price with no stated currency asserts nothing.
 CREATE UNIQUE INDEX uq_instrument_listings_currency ON instrument_listings (instrument_id, currency_family(currency)) WHERE currency IS NOT NULL;
 CREATE UNIQUE INDEX uq_instrument_listings_unknown ON instrument_listings (instrument_id) WHERE currency IS NULL;
+
+-- The line a derivative delivers. The column is declared with the rest of
+-- instruments; only the foreign key waits until here, because
+-- instrument_listings references instruments and so is created after it.
+--
+-- No ON DELETE, for the reason txs_listing_id_fkey gives: a merge repoints its
+-- loser's derivatives before deleting the loser, and one that forgot to should
+-- fail rather than quietly cascade. That matches what underlying_id did.
+ALTER TABLE instruments ADD CONSTRAINT instruments_underlying_listing_id_fkey
+  FOREIGN KEY (underlying_listing_id) REFERENCES instrument_listings (id);
 
 -- The venues a listing is admitted to. A set rather than a column, because a
 -- venue migration is a change to this set rather than an event, and because two
@@ -1502,9 +1523,11 @@ CREATE AGGREGATE mul(numeric) (SFUNC = numeric_mul, STYPE = numeric, INITCOND = 
 -- minimal-error ordering and keeps the exact part exact for as long as possible.
 -- See docs/adr/0028-cumulative-split-factor-is-an-exact-rational.md.
 --
--- For derivative instruments (options, futures) that have an underlying_id,
--- the function also includes splits on the underlying instrument. This
--- avoids the need to duplicate split rows onto each derivative.
+-- For derivative instruments (options, futures) that name an underlying line,
+-- the function also includes splits on the security that line belongs to. This
+-- avoids the need to duplicate split rows onto each derivative. A split is an
+-- action on the security and every line splits with it, so the lookup climbs
+-- from the line to the security above it.
 --
 -- The CURRENT_DATE clause matters: corporate event plugins return splits
 -- the moment they are announced, often weeks before the ex_date arrives,
@@ -1530,7 +1553,10 @@ CREATE OR REPLACE FUNCTION split_factor_at(
   FROM stock_splits s
   WHERE s.instrument_id IN (
       p_instrument_id,
-      (SELECT underlying_id FROM instruments WHERE id = p_instrument_id AND underlying_id IS NOT NULL)
+      (SELECT ul.instrument_id
+         FROM instruments i
+         JOIN instrument_listings ul ON ul.id = i.underlying_listing_id
+        WHERE i.id = p_instrument_id)
     )
     AND s.ex_date > p_reference
     AND s.ex_date <= CURRENT_DATE;

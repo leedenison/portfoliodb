@@ -242,7 +242,7 @@ order the list is written in carries no meaning.
 | `listings[]` | at least one; `{currency, valid_from, valid_before, identifiers[], provider_identifiers[]}`. `currency` is ISO 4217 and optional -- absent is the unknown listing, of which a security has at most one |
 | `identifiers[]` | the security-grain ones; `{type, value, domain, canonical, valid_from, valid_before}` |
 | `provider_identifiers[]` | `{provider, identifier_type, value, domain}`; `identifier_type` is the provider's own vocabulary, not `IdentifierType` |
-| `underlying` | optional; a listing reference naming a listing in the same part |
+| `underlying` | optional; a security-grain reference naming an instrument in the same part. The importing instance narrows it to the line the contract delivers, from the derivative's own currency -- see adr/0074. Naming the line in the file is issue 0151 |
 | `cik`, `sic_code` | optional |
 | `strike`, `expiry`, `put_call`, `contract_multiplier` | optional; options only |
 

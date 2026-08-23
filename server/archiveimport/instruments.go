@@ -90,16 +90,51 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 		underlyingIDByIndex[i] = found
 	}
 
+	// Pass 2b: narrow each underlying security to the line the derivative
+	// delivers -- the one its strike is quoted in. The archive names the
+	// underlying by a security-grain reference, so the currency comes from the
+	// derivative itself: what the file states, else what its contract symbology
+	// implies. Naming the line in the file is issue 0151.
+	//
+	// Ensure rather than find. A contract asserts its own strike currency, and a
+	// strike is quoted against shares, so it asserts that the underlying has a
+	// line there -- and a system archive is the one source allowed to state
+	// instrument identity, so nothing outranks it here. A derivative that states
+	// no currency and wears no contract symbol asserts nothing, names no line and
+	// is reported. See
+	// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+	underlyingLineByIndex := make(map[int]string, len(underlyingIDByIndex))
+	for i, inst := range instruments {
+		underlyingID, ok := underlyingIDByIndex[i]
+		if !ok {
+			continue // not a derivative, or already reported in pass 2
+		}
+		cur := identifier.StrikeCurrency(inst.GetCurrency(), archiveIdentifierTypes(inst))
+		if cur == "" {
+			rep.Errf(i, "underlying", "OPTION/FUTURE states no currency and wears no contract symbol, "+
+				"so the line of "+inst.GetUnderlying().GetValue()+" it delivers cannot be named")
+			rep.Advance(ctx, 1)
+			continue
+		}
+		line, err := database.EnsureListing(ctx, underlyingID, cur)
+		if err != nil {
+			rep.Errf(i, "underlying", err.Error())
+			rep.Advance(ctx, 1)
+			continue
+		}
+		underlyingLineByIndex[i] = line
+	}
+
 	// Pass 3: the derivatives, whose underlyings now exist.
 	for i, inst := range instruments {
 		if !isDerivative(inst.GetAssetClass()) {
 			continue
 		}
-		underlyingID, ok := underlyingIDByIndex[i]
+		underlyingLine, ok := underlyingLineByIndex[i]
 		if !ok {
 			continue // already reported and counted in pass 2
 		}
-		id := ensureArchiveInstrument(ctx, database, inst, underlyingID, i, seenKeys, rep)
+		id := ensureArchiveInstrument(ctx, database, inst, underlyingLine, i, seenKeys, rep)
 		rep.Advance(ctx, 1)
 		if id == "" {
 			continue
@@ -113,13 +148,25 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 	return ensuredCount, nil
 }
 
+// archiveIdentifierTypes is the type of each identifier a file names an
+// instrument by, for the vocabulary-level questions that do not care what any
+// one of them spells.
+func archiveIdentifierTypes(inst *archivev1.Instrument) []string {
+	ids := inst.GetIdentifiers()
+	out := make([]string, len(ids))
+	for i, idn := range ids {
+		out[i] = typev1.IdentifierType_name[int32(idn.GetType())]
+	}
+	return out
+}
+
 // ensureArchiveInstrument ensures one archive instrument, restoring the values
 // nothing recomputes: the option terms, the deliverable multiplier, the interval
 // each name was correct over, and the provider identifiers the lookups
 // produced. It returns "" when
 // it reported a problem rather than storing anything.
 func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev1.Instrument,
-	underlyingID string, i int, seenKeys map[string]struct{}, rep *PartReporter) string {
+	underlyingListingID string, i int, seenKeys map[string]struct{}, rep *PartReporter) string {
 	fail := func(msg string) string {
 		rep.Errf(i, "instruments", msg)
 		return ""
@@ -154,7 +201,7 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	// instrument data is admin-only and authoritative at every level, which is
 	// what makes that claim admissible (adr/0063).
 	id, listingID, err := database.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchangeMic(), inst.GetCurrency(),
-		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, []db.IdentityClaim{archiveClaim(idns)}, underlyingID,
+		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, []db.IdentityClaim{archiveClaim(idns)}, underlyingListingID,
 		archiveDate(inst.ValidFrom), archiveDate(inst.ValidBefore), opts)
 	if err != nil {
 		return fail(err.Error())

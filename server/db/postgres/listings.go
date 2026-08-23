@@ -137,6 +137,30 @@ func soleListing(ctx context.Context, exec queryable, instrumentID uuid.UUID) (u
 	return id, nil
 }
 
+// requireCurrencyBearingListing rejects a listing that no strike could be read
+// against: one that does not exist, and the security's currency-unknown line.
+//
+// A contract's strike is a price and a price is in a currency, so an underlying
+// whose currency is unknown leaves the strike denominated in nothing. adr/0068
+// already says an unknown listing is not event-bearing; this is the same claim
+// reaching the derivative written on it. See
+// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+func requireCurrencyBearingListing(ctx context.Context, exec queryable, listingID uuid.UUID) error {
+	var currency sql.NullString
+	err := exec.QueryRowContext(ctx,
+		`SELECT currency FROM instrument_listings WHERE id = $1`, listingID).Scan(&currency)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("underlying listing %s does not exist", listingID)
+	}
+	if err != nil {
+		return fmt.Errorf("read underlying listing %s: %w", listingID, err)
+	}
+	if !currency.Valid {
+		return fmt.Errorf("underlying listing %s states no currency, so the strike is denominated in nothing", listingID)
+	}
+	return nil
+}
+
 // FindListingByIdentifier implements db.ListingDB.
 //
 // It orders by validity for the reason FindInstrumentByIdentifier gives: where

@@ -49,6 +49,20 @@ func setupInstrument(t *testing.T, p *Postgres, desc string) string {
 	return id
 }
 
+// lineOf is the security's only currency line, which is what a derivative names
+// as its underlying. Every fixture security here has exactly one.
+func lineOf(t *testing.T, p *Postgres, instrumentID string) string {
+	t.Helper()
+	line, err := p.FindListing(context.Background(), instrumentID, "")
+	if err != nil {
+		t.Fatalf("find listing of %s: %v", instrumentID, err)
+	}
+	if line == "" {
+		t.Fatalf("instrument %s has no sole listing", instrumentID)
+	}
+	return line
+}
+
 // insertTxs inserts transactions for a single instrument.
 func insertTxs(t *testing.T, p *Postgres, userID, instID string, txs []*apiv1.Tx) {
 	t.Helper()

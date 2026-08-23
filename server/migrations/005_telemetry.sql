@@ -177,10 +177,17 @@ CREATE TABLE telemetry.identification_attempt (
   -- declined to keep: the whole identity was a proposal and nothing the source
   -- stated agreed with it. The call rows beneath the attempt still say the
   -- plugins answered, which is why this is not not_identified.
+  --
+  -- underlying_line_unknown is a derivative resolved to a contract whose
+  -- underlying names no line the strike could be quoted in. The identity was
+  -- found and is not in doubt; what is missing is the currency the deliverable
+  -- is in, so it is neither not_identified nor proposal_unconfirmed. See
+  -- docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
   outcome           TEXT NOT NULL CHECK (outcome IN ('db_short_circuit', 'no_eligible_plugins',
                                                      'identified', 'not_identified',
                                                      'plugin_timeout', 'plugin_error',
-                                                     'proposal_unconfirmed')),
+                                                     'proposal_unconfirmed',
+                                                     'underlying_line_unknown')),
   security_type_hint   TEXT,
   asset_class          TEXT,
   had_identifier_hints BOOLEAN NOT NULL

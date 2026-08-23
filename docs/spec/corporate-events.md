@@ -145,6 +145,26 @@ The quotient is exact whenever `den` divides the product -- every forward split,
 
 ### Option contracts
 
+An option names the line of its underlying that it delivers -- the one its strike
+is quoted in, a strike being a price and a price being in a currency. The
+currency comes from the contract rather than from the underlying: what the
+contract states, else what an `OCC` or `OPRA` symbol implies, which is USD.
+`FUT_OPT` implies nothing.
+
+That currency mints the line where the underlying does not already have one. A
+corroborated contract asserts its own strike currency, and a strike is quoted
+against shares, so it asserts that the underlying has a line there -- whatever
+lines it is already known to have. A contract that declares no currency asserts
+nothing, names no line, and is not stored as a derivative at all: the transaction
+path falls back to a broker-description-only instrument, recorded in telemetry as
+`underlying_line_unknown`, and the archive and price-import paths report the row.
+See adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+
+A split reaches the contract through that line. `split_factor_at` climbs from the
+underlying listing to the security above it, a split being an action on the
+security that every line splits with, so no derived split row is written on the
+derivative.
+
 A split on an option's underlying restates the option itself: OCC adjusts the contract on the ex_date, so its symbol and strike change. `ProcessPendingOptionSplits` applies that restatement retroactively to stored options. The symbol in force is closed at the ex_date and the adjusted one minted from it, so both names remain stored and a broker file exported either side of the split resolves to the same contract. The strike moves and the option's `split_adjusted_*` values are recomputed. The instrument's name is not written: it is derived from whichever identifier is still in force.
 
 Whether an option still needs restating is decided by comparing the OCC symbol's own `valid_from` -- the point in market time that name became correct -- against the split's `ex_date`. A name that became correct on or after the ex_date already carries the adjusted symbol and is left alone; one that became correct before it does not, however long the split had been known, because providers list the pre-split symbol until the ex_date. Knowledge time is not consulted. A name with no recorded vintage falls back to the option's own first trade date, because a source names an option under the symbol current at its export and an export cannot precede the purchase it describes. See adr/0055-identifier-validity-is-an-interval.md.

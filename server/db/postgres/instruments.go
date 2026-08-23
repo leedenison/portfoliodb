@@ -190,8 +190,21 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 		return err
 	}
 	// Update any instruments that referenced mergedAway as their underlying.
-	if _, err := exec.ExecContext(ctx, `UPDATE instruments SET underlying_id = $1 WHERE underlying_id = $2`, survivor, mergedAway); err != nil {
-		return fmt.Errorf("update instruments.underlying_id: %w", err)
+	// A derivative names a line of its underlying, so the loser's derivatives move
+	// over the same pairing the postings and dividends use rather than by
+	// instrument id. Without it the loser's listings cascade away under a
+	// reference the FK will not let go.
+	//
+	// A pair with no target is left alone and the merge fails on the foreign key.
+	// That is the case adr/0071's union of listing sets removes; until then a
+	// derivative silently repointed at a line in another currency would put the
+	// strike in the wrong denomination, which is worse than a merge that stops.
+	if _, err := exec.ExecContext(ctx, `
+		UPDATE instruments i SET underlying_listing_id = m.to_id
+		FROM unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
+		WHERE i.underlying_listing_id = m.from_id AND m.to_id IS NOT NULL
+	`, pq.Array(from), pq.Array(to)); err != nil {
+		return fmt.Errorf("update instruments.underlying_listing_id: %w", err)
 	}
 	if _, err := exec.ExecContext(ctx, `DELETE FROM instruments WHERE id = $1`, mergedAway); err != nil {
 		return fmt.Errorf("delete merged instrument: %w", err)
@@ -643,6 +656,16 @@ func (p *Postgres) FindDescriptionOnlyInstrument(ctx context.Context, source, de
 	return id.String(), nil
 }
 
+// underlyingSelect names both halves of an instrument's underlying: the line it
+// delivers, which is the stored column, and the security that line belongs to,
+// which underlyingJoin derives. Every read of instruments carries the pair, so
+// a caller that does not care which line a contract is written on is not made
+// to resolve one.
+const underlyingSelect = "i.underlying_listing_id, u_l.instrument_id AS underlying_id"
+
+// underlyingJoin must precede any LATERAL that references u_l.
+const underlyingJoin = "LEFT JOIN instrument_listings u_l ON u_l.id = i.underlying_listing_id"
+
 // GetInstrument implements db.InstrumentDB.
 func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.InstrumentRow, error) {
 	instUUID, err := uuid.Parse(instrumentID)
@@ -651,12 +674,13 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	}
 	var r instrumentRow
 	err = p.q.GetContext(ctx, &r, `
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_before,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, `+underlyingSelect+`, i.valid_from, i.valid_before,
 		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
+		`+underlyingJoin+`
 		WHERE i.id = $1
 	`, instUUID)
 	if err == sql.ErrNoRows {
@@ -728,11 +752,11 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		), selected AS (
 			SELECT id FROM matched
 			UNION
-			SELECT d.underlying_id FROM instruments d
+			SELECT ul.instrument_id FROM instruments d
 			JOIN matched m ON m.id = d.id
-			WHERE d.underlying_id IS NOT NULL
+			JOIN instrument_listings ul ON ul.id = d.underlying_listing_id
 		)
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, ` + underlyingSelect + `,
 		       i.valid_from, i.valid_before, i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code,
@@ -741,8 +765,9 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		       COALESCE(u_id.domain, '') AS underlying_identifier_domain
 		FROM instruments i
 		JOIN selected s ON s.id = i.id
-		LEFT JOIN exchanges e ON e.mic = i.exchange_mic` +
-		bestIdentifierJoinOn("LEFT JOIN", "i.underlying_id", "u_id") + `
+		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
+		` + underlyingJoin +
+		bestIdentifierJoinOn("LEFT JOIN", "u_l.instrument_id", "u_id") + `
 		ORDER BY i.id`
 
 	err = p.q.SelectContext(ctx, &irows, base, args...)
@@ -791,12 +816,13 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	inClause, args := inClauseUUIDs(uuids)
 	var irows []instrumentRow
 	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_before,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, `+underlyingSelect+`, i.valid_from, i.valid_before,
 		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
+		`+underlyingJoin+`
 		WHERE i.id IN (%s)
 	`, inClause), args...)
 	if err != nil {
@@ -831,7 +857,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // caller assembled from several results is not an association anybody stated,
 // and two results agreeing about a currency and a venue have not said they are
 // the same security. Carrying the partition is 0139; acting on it is 0140.
-func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields) (string, string, error) {
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields) (string, string, error) {
 	_ = claims
 	if len(identifiers) == 0 {
 		return "", "", fmt.Errorf("at least one identifier required")
@@ -839,8 +865,13 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	if assetClass != "" && !db.ValidAssetClasses[assetClass] {
 		return "", "", fmt.Errorf("invalid asset_class %q", assetClass)
 	}
-	if (assetClass == db.AssetClassOption || assetClass == db.AssetClassFuture) && underlyingID == "" {
-		return "", "", fmt.Errorf("underlying_id required when asset_class is %s", assetClass)
+	// A derivative that could not be told which line it delivers is not a
+	// derivative this can store: without a currency there is no way to read the
+	// strike. Callers degrade to a broker-description-only instrument rather than
+	// guessing, as they already did when the underlying itself was unresolvable.
+	// See docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+	if (assetClass == db.AssetClassOption || assetClass == db.AssetClassFuture) && underlyingListingID == "" {
+		return "", "", fmt.Errorf("underlying_listing_id required when asset_class is %s", assetClass)
 	}
 	// Normalize MIC_TICKER domains and exchangeMIC to operating MICs.
 	exchangeMIC = p.normalizeToOperatingMIC(ctx, exchangeMIC)
@@ -850,10 +881,13 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		}
 	}
 	var underlyingUUID *uuid.UUID
-	if underlyingID != "" {
-		parsed, err := uuid.Parse(underlyingID)
+	if underlyingListingID != "" {
+		parsed, err := uuid.Parse(underlyingListingID)
 		if err != nil {
-			return "", "", fmt.Errorf("invalid underlying_id: %w", err)
+			return "", "", fmt.Errorf("invalid underlying_listing_id: %w", err)
+		}
+		if err := requireCurrencyBearingListing(ctx, p.q, parsed); err != nil {
+			return "", "", err
 		}
 		underlyingUUID = &parsed
 	}
@@ -990,7 +1024,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 			putCall = optionFields.PutCall
 		}
 		err := exec.QueryRowContext(ctx, `
-			INSERT INTO instruments (asset_class, exchange_mic, currency, name, cik, sic_code, underlying_id, valid_from, valid_before, strike, expiry, put_call)
+			INSERT INTO instruments (asset_class, exchange_mic, currency, name, cik, sic_code, underlying_listing_id, valid_from, valid_before, strike, expiry, put_call)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			RETURNING id
 		`, nullStr(assetClass), nullStr(exchangeMIC), nullStr(currency), nullStr(name), nullStr(cik), nullStr(sicCode), nullUUID(underlyingUUID), nullTime(validFrom), nullTime(validBefore), strike, expiry, putCall).Scan(&newID)
@@ -1092,8 +1126,8 @@ func holdsNoCanonicalIdentifier(ctx context.Context, exec queryable, id uuid.UUI
 	return !exists, nil
 }
 
-// updateInstrumentOnMatch optionally sets underlying_id and option fields on an
-// existing instrument. It writes no identifier, which is what leaves each name's
+// updateInstrumentOnMatch optionally sets underlying_listing_id and option
+// fields on an existing instrument. It writes no identifier, which is what leaves each name's
 // valid_from where it was: matching an existing instrument is not evidence that
 // any of its names became correct today, and moving them is what used to disarm
 // the retroactive option-split guard.
@@ -1101,15 +1135,15 @@ func holdsNoCanonicalIdentifier(ctx context.Context, exec queryable, id uuid.UUI
 // An instrument holding no identity at all is the exception, handled by its
 // caller: an absent name is inserted with the vintage the resolution stamped on
 // it (adr/0055), which is a different act from moving one that is already there.
-func updateInstrumentOnMatch(ctx context.Context, exec queryable, id uuid.UUID, underlyingID *uuid.UUID, optionFields *db.OptionFields) error {
+func updateInstrumentOnMatch(ctx context.Context, exec queryable, id uuid.UUID, underlyingListingID *uuid.UUID, optionFields *db.OptionFields) error {
 	if optionFields != nil {
 		_, err := exec.ExecContext(ctx, `
-			UPDATE instruments SET underlying_id = COALESCE($2, underlying_id), strike = $3, expiry = $4, put_call = $5
+			UPDATE instruments SET underlying_listing_id = COALESCE($2, underlying_listing_id), strike = $3, expiry = $4, put_call = $5
 			WHERE id = $1
-		`, id, nullUUID(underlyingID), optionFields.Strike, optionFields.Expiry, optionFields.PutCall)
+		`, id, nullUUID(underlyingListingID), optionFields.Strike, optionFields.Expiry, optionFields.PutCall)
 		return err
 	}
-	_, err := exec.ExecContext(ctx, `UPDATE instruments SET underlying_id = COALESCE($2, underlying_id) WHERE id = $1`, id, nullUUID(underlyingID))
+	_, err := exec.ExecContext(ctx, `UPDATE instruments SET underlying_listing_id = COALESCE($2, underlying_listing_id) WHERE id = $1`, id, nullUUID(underlyingListingID))
 	return err
 }
 
@@ -1169,13 +1203,14 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	}
 
 	q, args, err := psql.Select(
-		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", "i.exchange", "i.underlying_id", "i.valid_from", "i.valid_before",
+		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", "i.exchange", underlyingSelect, "i.valid_from", "i.valid_before",
 		"i.cik", "i.sic_code",
 		"i.strike", "i.expiry", "i.put_call", "i.contract_multiplier",
 		"e.name AS exchange_name", "e.acronym AS exchange_acronym", "e.country_code AS exchange_country_code",
 	).
 		From("instruments i").
 		LeftJoin("exchanges e ON e.mic = i.exchange_mic").
+		LeftJoin("instrument_listings u_l ON u_l.id = i.underlying_listing_id").
 		Where(where).
 		OrderBy("lower(i.name)").
 		Limit(uint64(limit + 1)).Offset(uint64(offset)).

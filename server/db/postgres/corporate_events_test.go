@@ -1003,7 +1003,7 @@ func TestApplyOptionSplit(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00150000"},
 			Canonical: true,
-		}}, nil, underlyingID, nil, nil, optFields)
+		}}, nil, lineOf(t, p, underlyingID), nil, nil, optFields)
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -1464,6 +1464,9 @@ func adjustedQty(t *testing.T, p *Postgres, txID string) float64 {
 // setupOption creates an option whose OCC symbol became correct on validFrom. A
 // nil validFrom leaves the bound NULL, meaning the name predates everything
 // known about it.
+//
+// underlyingID names the security; the option is written on its only line, which
+// is the currency its strike is quoted in.
 func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike float64, validFrom *time.Time) string {
 	t.Helper()
 	ctx := context.Background()
@@ -1477,7 +1480,7 @@ func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike flo
 			Ref:       db.InstrumentRef{Type: "OCC", Value: occ},
 			Canonical: true,
 			ValidFrom: validFrom,
-		}}, nil, underlyingID, nil, nil, optFields)
+		}}, nil, lineOf(t, p, underlyingID), nil, nil, optFields)
 	if err != nil {
 		t.Fatalf("ensure option %s: %v", occ, err)
 	}

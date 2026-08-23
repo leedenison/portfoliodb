@@ -149,7 +149,7 @@ test.describe("fetch block full flow", () => {
     ).toBeVisible({ timeout: 10_000 });
     await expect(
       page.locator("[data-testid='fetch-blocks-empty']")
-    ).toContainText("No blocked instruments.");
+    ).toContainText("No blocked listings.");
   });
 
   // In record mode, ensure all workers finish so the VCR cassette captures

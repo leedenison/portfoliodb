@@ -246,6 +246,19 @@ func (p *Postgres) ListingsByInstrument(ctx context.Context, instrumentIDs []str
 	return out, nil
 }
 
+// FindListing implements db.ListingDB.
+func (p *Postgres) FindListing(ctx context.Context, instrumentID, currency string) (string, error) {
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return "", fmt.Errorf("find listing: invalid instrument id %q: %w", instrumentID, err)
+	}
+	listingID, err := listingFor(ctx, p.q, id, currency)
+	if err != nil {
+		return "", err
+	}
+	return nilUUIDToString(listingID), nil
+}
+
 // EnsureListing implements db.ListingDB.
 func (p *Postgres) EnsureListing(ctx context.Context, instrumentID, currency string) (string, error) {
 	id, err := uuid.Parse(instrumentID)

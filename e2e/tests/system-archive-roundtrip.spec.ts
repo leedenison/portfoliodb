@@ -98,9 +98,14 @@ test.describe("system archive page", () => {
        VALUES ('GBP', $1, $2, 2015, 'ons')`,
       [INFLATION_MONTH, INFLATION_VALUE],
     );
+    // A price block is on one currency line, so it hangs off the listing and
+    // travels with that line's currency.
     await rawQuery(
-      `INSERT INTO price_fetch_blocks (instrument_id, plugin_id, reason)
-       SELECT ii.instrument_id, $1, $2 FROM ${INSTRUMENT_NAMES} ii WHERE ii.value = $3`,
+      `INSERT INTO price_fetch_blocks (listing_id, plugin_id, reason)
+       SELECT l.id, $1, $2
+         FROM ${INSTRUMENT_NAMES} ii
+         JOIN instrument_listings l ON l.instrument_id = ii.instrument_id AND l.currency IS NOT NULL
+        WHERE ii.value = $3`,
       [BLOCKED_PLUGIN, BLOCK_REASON, tickers[0]],
     );
     // Resolved, because the flag is the only trace that a person looked at this
@@ -280,10 +285,16 @@ test.describe("system archive page", () => {
     expect(inflation).toHaveLength(1);
     expect(inflation[0].base_year).toBe(2015);
 
+    // The block came back on the line it was on, which is what the file's
+    // currency carries: restoring it onto the security would have lost which.
     const blocks = (await rawQuery(
-      `SELECT plugin_id, reason FROM price_fetch_blocks`,
-    )) as { plugin_id: string; reason: string }[];
-    expect(blocks).toEqual([{ plugin_id: BLOCKED_PLUGIN, reason: BLOCK_REASON }]);
+      `SELECT b.plugin_id, b.reason, l.currency
+         FROM price_fetch_blocks b
+         JOIN instrument_listings l ON l.id = b.listing_id`,
+    )) as { plugin_id: string; reason: string; currency: string }[];
+    expect(blocks).toEqual([
+      { plugin_id: BLOCKED_PLUGIN, reason: BLOCK_REASON, currency: "USD" },
+    ]);
 
     const events = (await rawQuery(
       `SELECT event_type, resolved FROM unhandled_corporate_events`,

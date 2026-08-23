@@ -152,7 +152,7 @@ func (s *Server) TriggerPriceFetch(ctx context.Context, req *apiv1.TriggerPriceF
 	return &apiv1.TriggerPriceFetchResponse{}, nil
 }
 
-// ListPriceFetchBlocks returns all blocked (instrument, plugin) pairs. Admin only.
+// ListPriceFetchBlocks returns all blocked (listing, plugin) pairs. Admin only.
 func (s *Server) ListPriceFetchBlocks(ctx context.Context, req *apiv1.ListPriceFetchBlocksRequest) (*apiv1.ListPriceFetchBlocksResponse, error) {
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
@@ -161,7 +161,9 @@ func (s *Server) ListPriceFetchBlocks(ctx context.Context, req *apiv1.ListPriceF
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	// Collect instrument IDs for display name enrichment.
+	// Collect instrument IDs for display name enrichment. The name belongs to the
+	// security a blocked line sits under; the currency beside it is what says
+	// which line.
 	idSet := make(map[string]bool, len(blocks))
 	for _, b := range blocks {
 		idSet[b.InstrumentID] = true
@@ -194,26 +196,28 @@ func (s *Server) ListPriceFetchBlocks(ctx context.Context, req *apiv1.ListPriceF
 			instName = b.InstrumentID
 		}
 		pbBlocks = append(pbBlocks, &apiv1.PriceFetchBlock{
+			ListingId:             b.ListingID,
+			Currency:              b.Currency,
 			InstrumentId:          b.InstrumentID,
+			InstrumentDisplayName: instName,
 			PluginId:              b.PluginID,
+			PluginDisplayName:     pluginName,
 			Reason:                b.Reason,
 			FirstBlockedAt:        timestamppb.New(b.FirstBlockedAt),
-			PluginDisplayName:     pluginName,
-			InstrumentDisplayName: instName,
 		})
 	}
 	return &apiv1.ListPriceFetchBlocksResponse{Blocks: pbBlocks}, nil
 }
 
-// DeletePriceFetchBlock removes a block for an (instrument, plugin) pair. Admin only.
+// DeletePriceFetchBlock removes a block for a (listing, plugin) pair. Admin only.
 func (s *Server) DeletePriceFetchBlock(ctx context.Context, req *apiv1.DeletePriceFetchBlockRequest) (*apiv1.DeletePriceFetchBlockResponse, error) {
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
 	}
-	if req.GetInstrumentId() == "" || req.GetPluginId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "instrument_id and plugin_id required")
+	if req.GetListingId() == "" || req.GetPluginId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "listing_id and plugin_id required")
 	}
-	if err := s.db.DeletePriceFetchBlock(ctx, req.GetInstrumentId(), req.GetPluginId()); err != nil {
+	if err := s.db.DeletePriceFetchBlock(ctx, req.GetListingId(), req.GetPluginId()); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &apiv1.DeletePriceFetchBlockResponse{}, nil

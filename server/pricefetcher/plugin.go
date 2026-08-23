@@ -7,10 +7,12 @@
 //
 // Plugin matching and filtering:
 //
-// The orchestrator skips a plugin for an instrument when the instrument's
-// asset class, exchange, or currency is non-null and not in the plugin's
-// acceptable set. Null values on the instrument always pass the filter --
-// this allows unclassified instruments to be attempted by any plugin.
+// The unit of work is a listing -- one currency line of a security -- because a
+// price is quoted in a currency. The orchestrator skips a plugin for a listing
+// when the security's asset class, or the listing's currency or venue set, is
+// non-empty and not in the plugin's acceptable set. Empty values always pass the
+// filter, so an unclassified security or a line no provider has named a venue for
+// can be attempted by any plugin.
 //
 // Rate limit strategy:
 //
@@ -32,13 +34,14 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// ErrNoData indicates the plugin cannot provide price data for this
-// instrument. The orchestrator tries the next plugin in precedence order.
+// ErrNoData indicates the plugin cannot provide price data for this listing.
+// The orchestrator tries the next plugin in precedence order.
 var ErrNoData = errors.New("no price data available")
 
-// ErrPermanent indicates a permanent failure for an (instrument, plugin)
-// pair (e.g. HTTP 403, 404). The orchestrator creates a fetch block so
-// this combination is never retried.
+// ErrPermanent indicates a permanent failure for a (listing, plugin) pair
+// (e.g. HTTP 403, 404). The orchestrator creates a fetch block so this
+// combination is never retried. The block names the line, so a provider that
+// refuses one currency line of a security keeps being asked about its others.
 type ErrPermanent struct{ Reason string }
 
 func (e *ErrPermanent) Error() string { return "permanent: " + e.Reason }
@@ -90,28 +93,35 @@ type Plugin interface {
 
 	// SupportedIdentifierTypes returns identifier types this plugin can use
 	// to look up prices (e.g. ["MIC_TICKER", "OPENFIGI_TICKER", "OCC"]). The orchestrator passes
-	// only identifiers of these types to FetchPrices. An instrument is
-	// eligible for this plugin if it has ANY of these identifier types.
+	// only identifiers of these types to FetchPrices, and only those naming the
+	// listing being fetched or the security above it -- never a sibling line's,
+	// which would be a name for a line the plugin was not asked about. A listing
+	// is eligible for this plugin if it has ANY of these identifier types.
 	SupportedIdentifierTypes() []string
 
 	// AcceptableAssetClasses returns asset classes this plugin handles.
-	// nil or empty = all. Instruments with a non-null asset class not in
-	// this set are skipped.
+	// nil or empty = all. A security with a non-null asset class not in this
+	// set is skipped. The asset class is the security's: a security is one kind
+	// of thing whichever currency it trades in.
 	AcceptableAssetClasses() map[string]bool
 
-	// AcceptableExchanges returns exchange codes this plugin handles.
-	// nil or empty = all. Instruments with a null exchange always pass.
+	// AcceptableExchanges returns the operating MICs this plugin handles.
+	// nil or empty = all, and so is a listing admitted to no venue -- nothing
+	// named one, so there is nothing to fail on. A listing admitted to several
+	// passes when the plugin carries any of them.
 	AcceptableExchanges() map[string]bool
 
 	// AcceptableCurrencies returns currencies this plugin handles.
-	// nil or empty = all. Instruments with a null currency always pass.
+	// nil or empty = all. The currency tested is the listing's own, which is
+	// what the bars will be denominated in. A listing with no currency never
+	// reaches here, being unpriceable.
 	AcceptableCurrencies() map[string]bool
 
-	// FetchPrices fetches EOD bars for the given instrument over [from, before).
+	// FetchPrices fetches EOD bars for the given listing over [from, before).
 	// identifiers contains only the types declared by SupportedIdentifierTypes.
-	// assetClass is the instrument's asset class so the plugin can adjust
+	// assetClass is the security's asset class so the plugin can adjust
 	// behavior (e.g. stock ticker vs option OCC symbol format).
-	// Returns ErrNoData when the plugin has no data for this instrument.
+	// Returns ErrNoData when the plugin has no data for this listing.
 	//
 	// Derived FX pairs: some FX pairs cannot be fetched directly from data
 	// providers (e.g. GBXUSD for British pence). Plugins must handle these

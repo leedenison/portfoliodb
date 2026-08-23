@@ -79,15 +79,21 @@ type DB interface {
 	GroupingDB
 }
 
-// PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
+// PriceFetchBlockDB manages permanently blocked (listing, plugin) pairs.
+//
+// The listing rather than the security, matching the unit the fetcher works on:
+// a provider that carries one currency line of a security and refuses another
+// has said something about each, and a block keyed on the security could only
+// record one of the two answers.
 type PriceFetchBlockDB interface {
 	ListPriceFetchBlocks(ctx context.Context) ([]PriceFetchBlock, error)
-	// BlockedPluginsForInstruments returns blocked plugin IDs keyed by instrument ID.
-	BlockedPluginsForInstruments(ctx context.Context, instrumentIDs []string) (map[string]map[string]bool, error)
-	CreatePriceFetchBlock(ctx context.Context, instrumentID, pluginID, reason string) error
-	DeletePriceFetchBlock(ctx context.Context, instrumentID, pluginID string) error
+	// BlockedPluginsForListings returns blocked plugin IDs keyed by listing ID.
+	BlockedPluginsForListings(ctx context.Context, listingIDs []string) (map[string]map[string]bool, error)
+	CreatePriceFetchBlock(ctx context.Context, listingID, pluginID, reason string) error
+	DeletePriceFetchBlock(ctx context.Context, listingID, pluginID string) error
 	// ListPriceFetchBlocksForExport returns every price fetch block with the best
-	// identifier per instrument, for the archive's fetch block part.
+	// identifier of its security and the currency naming the line, for the
+	// archive's fetch block part.
 	ListPriceFetchBlocksForExport(ctx context.Context) ([]ExportFetchBlock, error)
 	// UpsertPriceFetchBlocks restores blocks with the knowledge time they carry.
 	// On conflict the reason is replaced and first_blocked_at keeps the earlier
@@ -747,11 +753,15 @@ type PluginConfigRowFull struct {
 }
 
 // ExportFetchBlock is one fetch block named the way a file names it: by the
-// best identifier for the instrument rather than by its id. Both fetch-block
+// best identifier for the security rather than by an id. Both fetch-block
 // tables export into this one shape, because they are the same statement about
 // two fetchers.
 type ExportFetchBlock struct {
-	Ref            InstrumentRef
+	Ref InstrumentRef
+	// Currency names which line of that security is blocked, for a price block.
+	// Empty for a corporate event block, a corporate event being an action on
+	// the security and blocked for all of its lines at once.
+	Currency       string
 	PluginID       string
 	Reason         string
 	FirstBlockedAt time.Time
@@ -760,15 +770,23 @@ type ExportFetchBlock struct {
 // FetchBlockInput is one fetch block to restore, carrying the knowledge time
 // the file stated rather than letting the column default to now.
 type FetchBlockInput struct {
-	InstrumentID   string
+	// OwnerID is what the block hangs off: the listing for a price block, the
+	// security for a corporate event block. The two fetchers block at the grain
+	// they fetch at.
+	OwnerID        string
 	PluginID       string
 	Reason         string
 	FirstBlockedAt time.Time
 }
 
-// PriceFetchBlock records a permanently blocked (instrument, plugin) pair.
+// PriceFetchBlock records a permanently blocked (listing, plugin) pair.
 type PriceFetchBlock struct {
+	// The blocked line, and the security it belongs to. The security is what the
+	// admin surface names the block by; the currency is what tells two lines of
+	// it apart, and the listing id is what lifts the block.
+	ListingID    string
 	InstrumentID string
+	Currency     string
 	PluginID     string
 	Reason       string
 	// FirstBlockedAt is when the pair was first blocked. Never overwritten.
@@ -1259,11 +1277,16 @@ type Listing struct {
 // listings, in listing order.
 //
 // It exists for the callers that have not yet been told which grain they mean:
-// the price fetcher, the corporate event fetcher, and the API boundary that
-// still hands the UI one flat list. Each of those picks a grain in its own issue
-// (0148, 0150, 0151, 0154), and until then this is the one place the two sets
-// are put back together -- deliberately named, so the list of callers still to
-// migrate is a search for it rather than a reading of every query.
+// the corporate event fetcher, and the API boundary that still hands the UI one
+// flat list. Each of those picks a grain in its own issue (0150, 0151, 0154),
+// and until then this is the one place the two sets are put back together --
+// deliberately named, so the list of callers still to migrate is a search for it
+// rather than a reading of every query.
+//
+// The price fetcher no longer uses it. Its unit of work is one line, and what it
+// puts to a plugin is that line's identifiers and its security's -- IdentifiersFor
+// below -- rather than every line's, which is how a plugin stopped being offered
+// a sibling line's ticker.
 //
 // It is not a way to look an identifier up. Which table a row lives in follows
 // from its type, so a lookup asks the table its type names; searching both is
@@ -1277,6 +1300,41 @@ func (r *InstrumentRow) AllIdentifiers() []IdentifierInput {
 	out = append(out, r.Identifiers...)
 	for _, l := range r.Listings {
 		out = append(out, l.Identifiers...)
+	}
+	return out
+}
+
+// IdentifiersFor is the identifiers that name one line: the security's own,
+// which name it whichever line is meant, followed by that listing's.
+//
+// A sibling line's identifiers are left out, and that is the point. A price
+// request is keyed on a ticker as often as on an ISIN, and the GBP and USD lines
+// of one security carry different tickers, so handing a plugin both is handing it
+// a name for a line it was not asked about.
+//
+// An unknown listing id returns the security's identifiers alone, which is the
+// truthful answer: nothing is known to name the line.
+func (r *InstrumentRow) IdentifiersFor(listingID string) []IdentifierInput {
+	out := make([]IdentifierInput, 0, len(r.Identifiers))
+	out = append(out, r.Identifiers...)
+	for _, l := range r.Listings {
+		if l.ID == listingID {
+			out = append(out, l.Identifiers...)
+			break
+		}
+	}
+	return out
+}
+
+// ProviderIdentifiersFor is IdentifiersFor for provider-specific identifiers.
+func (r *InstrumentRow) ProviderIdentifiersFor(listingID string) []ProviderIdentifierInput {
+	out := make([]ProviderIdentifierInput, 0, len(r.ProviderIdentifiers))
+	out = append(out, r.ProviderIdentifiers...)
+	for _, l := range r.Listings {
+		if l.ID == listingID {
+			out = append(out, l.ProviderIdentifiers...)
+			break
+		}
 	}
 	return out
 }
@@ -1301,6 +1359,12 @@ type ListingDB interface {
 	// ListingsByInstrument returns each instrument's listings, keyed by instrument ID.
 	// Instruments with no listings are absent from the map rather than present and empty.
 	ListingsByInstrument(ctx context.Context, instrumentIDs []string) (map[string][]*Listing, error)
+	// FindListing reads the line a currency names on a security, writing nothing
+	// and creating nothing. "" where the security has no line in that currency
+	// family. It is EnsureListing's read-only counterpart, for a caller that must
+	// not invent a line -- the archive's fetch block part, which refuses to
+	// create what it is being told not to fetch.
+	FindListing(ctx context.Context, instrumentID, currency string) (string, error)
 	// EnsureListing returns the line the given currency names on a security,
 	// minting it where the security does not hold that currency family yet and
 	// relabelling its unknown line where it has one. Idempotent.
@@ -2296,11 +2360,11 @@ const (
 // reaches that far back. Reading it as a failure would put every untraded week
 // into a panel meant to show outages.
 const (
-	TelemetryGapFilled            = "filled"
-	TelemetryGapSettledEmpty      = "settled_empty"
-	TelemetryGapNoEligiblePlugin  = "no_eligible_plugin"
-	TelemetryGapAllPluginsFailed  = "all_plugins_failed"
-	TelemetryGapInstrumentMissing = "instrument_missing"
+	TelemetryGapFilled           = "filled"
+	TelemetryGapSettledEmpty     = "settled_empty"
+	TelemetryGapNoEligiblePlugin = "no_eligible_plugin"
+	TelemetryGapAllPluginsFailed = "all_plugins_failed"
+	TelemetryGapListingMissing   = "listing_missing"
 )
 
 // Price plugin call outcomes. TelemetryPriceCallNoData is an answer rather than a
@@ -2479,7 +2543,10 @@ const (
 // decision the row explains, and any of them may be empty on an instrument that
 // carries none -- which is itself why a plugin accepted it.
 type TelemetryPriceGap struct {
-	RunID           string
+	RunID string
+	// The line the gap is on, and the security above it: the fetch unit and what
+	// a panel groups by.
+	ListingID       string
 	InstrumentID    string
 	IsFX            bool
 	AssetClass      string

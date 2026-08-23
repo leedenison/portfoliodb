@@ -17,9 +17,13 @@ import (
 // one place this part differs from prices and corporate events. Those resolve an
 // unknown instrument through the identifier plugins because their rows are worth
 // having either way; a block is a record that a plugin should not be called
-// about an instrument, so paying a plugin to invent one to hang it off would be
+// about something, so paying a plugin to invent it to hang the block off would be
 // self-defeating. A block naming an instrument the instance does not have is
 // rejected instead.
+//
+// A price block names a line and a corporate event block names the security, so
+// they hang off different things. The line is read from the block's currency and
+// is not created either, for the same reason the instrument is not.
 //
 // asOf is the envelope's knowledge time and stands in for a block whose file
 // does not state when it was first blocked.
@@ -44,7 +48,7 @@ func FetchBlockPart(ctx context.Context, database db.DB, part *archivev1.FetchBl
 		}
 		for _, b := range g.GetBlocks() {
 			in := db.FetchBlockInput{
-				InstrumentID:   instrumentID,
+				OwnerID:        instrumentID,
 				PluginID:       b.GetPluginId(),
 				Reason:         b.GetReason(),
 				FirstBlockedAt: fallback,
@@ -54,6 +58,11 @@ func FetchBlockPart(ctx context.Context, database db.DB, part *archivev1.FetchBl
 			}
 			switch b.GetCategory() {
 			case typev1.PluginCategory_PRICE:
+				listingID := findArchiveListing(ctx, database, instrumentID, b.GetCurrency(), i, rep)
+				if listingID == "" {
+					continue
+				}
+				in.OwnerID = listingID
 				price = append(price, in)
 			case typev1.PluginCategory_CORPORATE_EVENT:
 				events = append(events, in)
@@ -70,6 +79,25 @@ func FetchBlockPart(ctx context.Context, database db.DB, part *archivev1.FetchBl
 		return int32(len(price)), fmt.Errorf("upsert corporate event fetch blocks: %w", err)
 	}
 	return int32(len(price) + len(events)), nil
+}
+
+// findArchiveListing maps a price block's currency to one of the security's
+// lines, reporting a miss against the group. A block states which line was
+// refused, so one that states no currency names nothing to block.
+func findArchiveListing(ctx context.Context, database db.DB, instrumentID, currency string, idx int, rep *PartReporter) string {
+	if currency == "" {
+		rep.Errf(idx, "currency", "price fetch block states no currency, so it names no listing")
+		return ""
+	}
+	id, err := database.FindListing(ctx, instrumentID, currency)
+	if err != nil {
+		rep.Errf(idx, "currency", fmt.Sprintf("%s listing: %v", currency, err))
+		return ""
+	}
+	if id == "" {
+		rep.Errf(idx, "currency", fmt.Sprintf("no %s listing of an instrument this instance has", currency))
+	}
+	return id
 }
 
 // findArchiveInstrument maps a file's instrument reference to an instrument this

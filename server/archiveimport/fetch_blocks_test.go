@@ -30,11 +30,18 @@ func fetchBlockGroup(value string, blocks ...*archivev1.FetchBlock) *archivev1.F
 	}
 }
 
-// expectFound makes the identifier lookup succeed for every group.
+// expectFound makes the identifier lookup succeed for every group, and the
+// listing lookup succeed for every price block: a price block names a line, and
+// the line it names is read rather than created.
 func expectFound(database *mock.MockDB, id string) {
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(id, nil).AnyTimes()
+	database.EXPECT().
+		FindListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 }
 
 func TestFetchBlockPart_SplitsByCategory(t *testing.T) {
@@ -47,6 +54,11 @@ func TestFetchBlockPart_SplitsByCategory(t *testing.T) {
 			if len(blocks) != 1 || blocks[0].PluginID != "eodhd" {
 				t.Errorf("price blocks = %+v", blocks)
 			}
+			// The line the currency named, not the security: the two fetchers
+			// block at the grain they fetch at.
+			if blocks[0].OwnerID != "inst-1:USD" {
+				t.Errorf("owner = %q, want the line the currency names", blocks[0].OwnerID)
+			}
 			if !blocks[0].FirstBlockedAt.Equal(blocked) {
 				t.Errorf("first_blocked_at = %v", blocks[0].FirstBlockedAt)
 			}
@@ -57,12 +69,17 @@ func TestFetchBlockPart_SplitsByCategory(t *testing.T) {
 			if len(blocks) != 1 || blocks[0].PluginID != "massive" {
 				t.Errorf("event blocks = %+v", blocks)
 			}
+			// The security, a corporate event being an action on it rather than
+			// on one of its lines.
+			if blocks[0].OwnerID != "inst-1" {
+				t.Errorf("owner = %q, want the security", blocks[0].OwnerID)
+			}
 			return nil
 		})
 
 	part := fetchBlockPart(fetchBlockGroup("AAPL",
 		&archivev1.FetchBlock{
-			Category: typev1.PluginCategory_PRICE, PluginId: "eodhd", Reason: "404",
+			Category: typev1.PluginCategory_PRICE, Currency: "USD", PluginId: "eodhd", Reason: "404",
 			FirstBlockedAt: timestamppb.New(blocked),
 		},
 		&archivev1.FetchBlock{
@@ -96,7 +113,7 @@ func TestFetchBlockPart_FallsBackToTheEnvelope(t *testing.T) {
 	database.EXPECT().UpsertCorporateEventFetchBlocks(gomock.Any(), gomock.Any()).Return(nil)
 
 	part := fetchBlockPart(fetchBlockGroup("AAPL",
-		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, PluginId: "eodhd", Reason: "404"}))
+		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, Currency: "USD", PluginId: "eodhd", Reason: "404"}))
 	if _, err := FetchBlockPart(context.Background(), database, part, &asOf, rep); err != nil {
 		t.Fatalf("FetchBlockPart: %v", err)
 	}
@@ -114,7 +131,7 @@ func TestFetchBlockPart_UnknownInstrumentIsRejectedNotResolved(t *testing.T) {
 	database.EXPECT().UpsertCorporateEventFetchBlocks(gomock.Any(), gomock.Len(0)).Return(nil)
 
 	part := fetchBlockPart(fetchBlockGroup("AAPL",
-		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, PluginId: "eodhd", Reason: "404"}))
+		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, Currency: "USD", PluginId: "eodhd", Reason: "404"}))
 	written, err := FetchBlockPart(context.Background(), database, part, nil, rep)
 	if err != nil {
 		t.Fatalf("FetchBlockPart: %v", err)
@@ -137,7 +154,7 @@ func TestFetchBlockPart_CategoryWithNoTableIsRejected(t *testing.T) {
 
 	part := fetchBlockPart(fetchBlockGroup("AAPL",
 		&archivev1.FetchBlock{Category: typev1.PluginCategory_IDENTIFIER, PluginId: "openfigi", Reason: "404"},
-		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, PluginId: "eodhd", Reason: "404"},
+		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, Currency: "USD", PluginId: "eodhd", Reason: "404"},
 	))
 	written, err := FetchBlockPart(context.Background(), database, part, nil, rep)
 	if err != nil {
@@ -158,9 +175,32 @@ func TestFetchBlockPart_WriteFailureFailsThePart(t *testing.T) {
 	database.EXPECT().UpsertPriceFetchBlocks(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
 
 	part := fetchBlockPart(fetchBlockGroup("AAPL",
-		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, PluginId: "eodhd", Reason: "404"}))
+		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, Currency: "USD", PluginId: "eodhd", Reason: "404"}))
 	if _, err := FetchBlockPart(context.Background(), database, part, nil, rep); err == nil {
 		t.Fatal("expected the part to fail")
+	}
+}
+
+// A price block names a line by the group's identifier plus a currency, so one
+// stating no currency names nothing to block. It is rejected rather than filed
+// against a line nobody named.
+func TestFetchBlockPart_PriceBlockWithNoCurrencyIsRejected(t *testing.T) {
+	database, rep := newPartTest(t)
+	expectFound(database, "inst-1")
+	database.EXPECT().UpsertPriceFetchBlocks(gomock.Any(), gomock.Len(0)).Return(nil)
+	database.EXPECT().UpsertCorporateEventFetchBlocks(gomock.Any(), gomock.Len(0)).Return(nil)
+
+	part := fetchBlockPart(fetchBlockGroup("AAPL",
+		&archivev1.FetchBlock{Category: typev1.PluginCategory_PRICE, PluginId: "eodhd", Reason: "404"}))
+	written, err := FetchBlockPart(context.Background(), database, part, nil, rep)
+	if err != nil {
+		t.Fatalf("FetchBlockPart: %v", err)
+	}
+	if written != 0 {
+		t.Fatalf("written = %d, want 0", written)
+	}
+	if rep.ErrCount() != 1 || rep.Errors()[0].GetField() != "currency" {
+		t.Fatalf("problems = %v", rep.Errors())
 	}
 }
 

@@ -814,15 +814,22 @@ CREATE TABLE plugin_config (
   UNIQUE (category, precedence) DEFERRABLE INITIALLY IMMEDIATE
 );
 
--- Blocked (instrument, plugin) pairs that should not be retried.
+-- Blocked (listing, plugin) pairs that should not be retried.
+--
+-- The listing rather than the security, matching the unit that was actually
+-- fetched: a provider carrying the USD line of a security and not its GBP one
+-- refuses the one and answers the other, and a block keyed on the security would
+-- either lose a line the provider carries or stop asking about every line of one
+-- it does not.
+--
 -- first_blocked_at is when the pair was first blocked and is never overwritten;
 -- re-blocking updates only the reason. See docs/spec/bitemporality.md.
 CREATE TABLE price_fetch_blocks (
-  instrument_id   UUID NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
+  listing_id      UUID NOT NULL REFERENCES instrument_listings(id) ON DELETE CASCADE,
   plugin_id       TEXT NOT NULL,
   reason          TEXT NOT NULL,
   first_blocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (instrument_id, plugin_id)
+  PRIMARY KEY (listing_id, plugin_id)
 );
 
 -- Monthly inflation index values per currency. Index values are relative to a

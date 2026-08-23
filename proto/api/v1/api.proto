@@ -866,15 +866,22 @@ message TriggerPriceFetchRequest {}
 
 message TriggerPriceFetchResponse {}
 
-// PriceFetchBlock is a permanently blocked (instrument, plugin) pair.
+// PriceFetchBlock is a permanently blocked (listing, plugin) pair.
+//
+// The line rather than the security: a provider carrying one currency line and
+// refusing another has said something about each. The security is named beside
+// it because that is what a person recognises, and the currency is what tells
+// two of its lines apart.
 message PriceFetchBlock {
-  string instrument_id = 1;
-  string plugin_id = 2;
-  string reason = 3;
+  string listing_id = 1;
+  string currency = 2;
+  string instrument_id = 3;
+  string instrument_display_name = 4;
+  string plugin_id = 5;
+  string plugin_display_name = 6;
+  string reason = 7;
   // Knowledge time: when the pair was first blocked. Never overwritten.
-  google.protobuf.Timestamp first_blocked_at = 4;
-  string plugin_display_name = 5;
-  string instrument_display_name = 6;
+  google.protobuf.Timestamp first_blocked_at = 8;
 }
 
 message ListPriceFetchBlocksRequest {}
@@ -884,7 +891,9 @@ message ListPriceFetchBlocksResponse {
 }
 
 message DeletePriceFetchBlockRequest {
-  string instrument_id = 1;
+  // The line to unblock. Lifting a block on one currency line of a security
+  // says nothing about its other lines.
+  string listing_id = 1;
   string plugin_id = 2;
 }
 

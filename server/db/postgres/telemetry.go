@@ -295,11 +295,12 @@ func (t *Telemetry) StartPriceGap(ctx context.Context, g db.TelemetryPriceGap) s
 	var id uuid.UUID
 	err := t.db.QueryRowContext(ctx, `
 		INSERT INTO telemetry.price_gap
-			(run_id, instrument_id, is_fx, asset_class, currency, exchange,
+			(run_id, listing_id, instrument_id, is_fx, asset_class, currency, exchange,
 			 days_outstanding)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
-	`, runID, t.optUUID(g.InstrumentID, "start price gap"), g.IsFX,
+	`, runID, t.optUUID(g.ListingID, "start price gap"),
+		t.optUUID(g.InstrumentID, "start price gap"), g.IsFX,
 		nullStr(g.AssetClass), nullStr(g.Currency), nullStr(g.Exchange),
 		g.DaysOutstanding).Scan(&id)
 	if err != nil {

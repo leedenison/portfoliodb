@@ -130,18 +130,23 @@ type gapCycle struct {
 }
 
 func (c gapCycle) expect(m *mock.MockDB) {
+	// One line per security, carrying the currency and venue the row states. In
+	// the database those are the listing's own columns and the security's are on
+	// their way out; here the fixture states them once and the line takes them.
 	listings := make(map[string]*db.Listing, len(c.insts))
 	for _, inst := range c.insts {
-		listings[lstIDOf(inst.ID)] = &db.Listing{
-			ID: lstIDOf(inst.ID), InstrumentID: inst.ID, Currency: inst.Currency,
+		l := &db.Listing{ID: lstIDOf(inst.ID), InstrumentID: inst.ID, Currency: inst.Currency}
+		if inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
+			l.Venues = []string{*inst.ExchangeMIC}
 		}
+		listings[l.ID] = l
 	}
 	m.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(c.priceGaps, nil)
 	m.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(c.fxGaps, nil)
 	m.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).
 		Return(c.configs, nil).AnyTimes()
 	m.EXPECT().ListingsByIDs(gomock.Any(), gomock.Any()).Return(listings, nil).AnyTimes()
-	m.EXPECT().BlockedPluginsForInstruments(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	m.EXPECT().BlockedPluginsForListings(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	m.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(c.insts, nil).AnyTimes()
 	m.EXPECT().PriceCoverageByPlugin(gomock.Any(), gomock.Any()).Return(c.coverage, nil).AnyTimes()
 	m.EXPECT().UpsertPricesForRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
@@ -152,8 +157,9 @@ func (c gapCycle) expect(m *mock.MockDB) {
 
 // TestCycleRecordsWhatItWasAskedFor pins the gap row's inputs. The FX flag is what
 // keeps a missing rate apart from a missing quote once the two lists are one, and
-// the three attributes are the ones plugin filtering reads -- the MIC rather than
-// the denormalised display exchange.
+// the three attributes are the ones plugin filtering reads: the security's asset
+// class, and the line's own currency and venue set -- MICs rather than the
+// denormalised display exchange.
 func TestCycleRecordsWhatItWasAskedFor(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -202,7 +208,7 @@ func TestCycleRecordsWhatItWasAskedFor(t *testing.T) {
 		t.Errorf("fx days_outstanding = %d, want 3", fx.DaysOutstanding)
 	}
 	if price.Exchange != "XNAS" {
-		t.Errorf("exchange = %q, want the MIC the plugin filter compares", price.Exchange)
+		t.Errorf("exchange = %q, want the line's venue set, which is what the plugin filter compares", price.Exchange)
 	}
 	if price.AssetClass != "STOCK" || price.Currency != "USD" {
 		t.Errorf("asset class / currency = %q / %q, want STOCK / USD",

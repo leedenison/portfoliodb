@@ -2,6 +2,7 @@ package pricefetcher
 
 import (
 	"context"
+	"strings"
 
 	"github.com/leedenison/portfoliodb/server/db"
 )
@@ -54,28 +55,28 @@ func newPriceGaps(ctx context.Context, tel db.TelemetryDB, runID string,
 	for i, ig := range gaps {
 		row := db.TelemetryPriceGap{
 			RunID:           runID,
+			ListingID:       ig.ListingID,
 			IsFX:            i >= fxFrom,
 			DaysOutstanding: rangesDays(ig.Ranges),
 		}
 		// The gap is a line, and the panel asking whether an instrument ever
 		// prices reads by security, so both are recorded.
+		//
+		// The currency and the venues are the line's own, because they are what
+		// PluginAcceptsListing compares and this row exists to explain that
+		// comparison. The venue set is joined rather than reduced to one: a
+		// plugin carrying any of them accepts the line, so any one of them alone
+		// would misreport the decision.
 		lst := listingByID[ig.ListingID]
 		if lst != nil {
 			row.InstrumentID = lst.InstrumentID
+			if lst.Currency != nil {
+				row.Currency = *lst.Currency
+			}
+			row.Exchange = strings.Join(lst.Venues, ",")
 		}
-		if inst := instByID[row.InstrumentID]; inst != nil {
-			if inst.AssetClass != nil {
-				row.AssetClass = *inst.AssetClass
-			}
-			if inst.Currency != nil {
-				row.Currency = *inst.Currency
-			}
-			// The MIC rather than InstrumentRow.Exchange, which is a
-			// denormalised display form. PluginAccepts compares the MIC, and
-			// this column exists to explain that comparison.
-			if inst.ExchangeMIC != nil {
-				row.Exchange = *inst.ExchangeMIC
-			}
+		if inst := instByID[row.InstrumentID]; inst != nil && inst.AssetClass != nil {
+			row.AssetClass = *inst.AssetClass
 		}
 		g.ids[i] = tel.StartPriceGap(ctx, row)
 	}

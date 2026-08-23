@@ -26,13 +26,15 @@ message FetchBlockPart {
 }
 
 // FetchBlockGroup is one instrument's blocks, across both fetchers and every
-// plugin.
+// plugin. A price block names one of its currency lines and says which on the
+// block itself, under the rule that a field varying per row lives on the row.
 message FetchBlockGroup {
   InstrumentRef instrument = 1 [(buf.validate.field).required = true];
   repeated FetchBlock blocks = 2;
 }
 
-// FetchBlock is one blocked (instrument, plugin) pair.
+// FetchBlock is one blocked (listing, plugin) pair for a price fetch, and one
+// blocked (instrument, plugin) pair for a corporate event fetch.
 message FetchBlock {
   // Which fetcher is blocked, named by the plugin category it runs. Only PRICE
   // and CORPORATE_EVENT have a fetch-block table; a file naming any other
@@ -54,4 +56,11 @@ message FetchBlock {
   // import keeps the earlier of the stored and the supplied value. Absent falls
   // back to the envelope's exported_at.
   optional google.protobuf.Timestamp first_blocked_at = 4;
+  // Which listing of the group's instrument is blocked, for a PRICE block: a
+  // provider carrying the USD line and refusing the GBP one has blocked one line
+  // and not the other. Empty for a CORPORATE_EVENT block, a corporate event
+  // being an action on the security and blocked for all of its lines at once.
+  // A PRICE block naming no currency names no listing and is rejected.
+  // See docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+  string currency = 5;
 }

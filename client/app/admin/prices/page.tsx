@@ -297,16 +297,18 @@ function PriceFetchBlocksTab() {
     clearError ?? (loadError ? errorMessage(loadError, "Failed to load blocks") : null);
 
   async function handleClear(block: PriceFetchBlock) {
-    const key = `${block.instrumentId}:${block.pluginId}`;
+    // A block is on one currency line, so the line is what identifies it here
+    // and what gets unblocked.
+    const key = `${block.listingId}:${block.pluginId}`;
     setClearing(key);
     setClearError(null);
     try {
-      await deletePriceFetchBlock(block.instrumentId, block.pluginId);
+      await deletePriceFetchBlock(block.listingId, block.pluginId);
       // Drop the row from the cache rather than refetching: the delete already
       // tells us it is gone.
       queryClient.setQueryData<PriceFetchBlock[]>(qk.priceFetchBlocks(), (prev) =>
         (prev ?? []).filter(
-          (b) => b.instrumentId !== block.instrumentId || b.pluginId !== block.pluginId
+          (b) => b.listingId !== block.listingId || b.pluginId !== block.pluginId
         )
       );
     } catch (e) {
@@ -323,12 +325,14 @@ function PriceFetchBlocksTab() {
   return (
     <div data-testid="fetch-blocks-tab" className="space-y-4">
       <p className="text-sm text-text-muted">
-        Instruments blocked from specific price plugins due to permanent errors
-        (e.g. HTTP 403, 404). Clear a block to allow the system to retry.
+        Currency lines blocked from specific price plugins due to permanent
+        errors (e.g. HTTP 403, 404). A provider that carries one line of a
+        security and not another is blocked for the one it refused. Clear a block
+        to allow the system to retry.
       </p>
       {error && <ErrorAlert>{error}</ErrorAlert>}
       {blocks.length === 0 ? (
-        <p data-testid="fetch-blocks-empty" className="text-text-muted">No blocked instruments.</p>
+        <p data-testid="fetch-blocks-empty" className="text-text-muted">No blocked listings.</p>
       ) : (
         <div className="overflow-x-auto">
           <table data-testid="fetch-blocks-table" className="w-full text-sm">
@@ -343,11 +347,14 @@ function PriceFetchBlocksTab() {
             </thead>
             <tbody>
               {blocks.map((block) => {
-                const key = `${block.instrumentId}:${block.pluginId}`;
+                const key = `${block.listingId}:${block.pluginId}`;
                 return (
                   <tr key={key} data-testid="fetch-block-row" className="border-b border-border/50">
                     <td className="py-2 pr-4 text-text-primary">
                       {block.instrumentDisplayName}
+                      {block.currency && (
+                        <span className="ml-1.5 text-text-muted">({block.currency})</span>
+                      )}
                     </td>
                     <td className="py-2 pr-4 text-text-primary">
                       {block.pluginDisplayName}

@@ -7,11 +7,13 @@ null line means nothing did -- a first-class state, not a gap.
 This supersedes [0070](0070-a-posting-names-a-listing.md), which had a posting
 always name a line and used each security's currency-unknown listing to stand for
 "we do not know which". A sentinel row makes partial knowledge sayable only by
-overloading a row that already says something else: under
-[0068](0068-a-listing-is-a-currency-of-a-security.md) the null-currency listing
-says *how many lines this security has is unknown*, which is a claim about the
+overloading a row that already says something else: the null-currency listing
+said *how many lines this security has is unknown*, which is a claim about the
 security, not about a posting that failed to name one of several known lines.
-Two different unknowns then share one representation and neither can be read back.
+Two different unknowns then shared one representation and neither could be read
+back. That row is now gone as well
+([0075](0075-a-name-that-could-not-be-placed-names-no-line.md)), leaving one way
+to say the line is not known.
 
 ## The two columns cannot disagree
 
@@ -56,9 +58,8 @@ security-grain commodity, so it does not say which line the leftover is on. The
 residual takes the line every leg it balances shares, and none where they differ.
 
 What this buys is that `weight_commodity` is not a third correlated column. The
-merge and the listing split rewrite `listing_id` alone; at listing grain each
-would have to rewrite the weight in the same statement and get it right or
-unbalance groups -- which is 0070's own objection, one level down. It also means
+merge rewrites `listing_id` alone; at listing grain it would have to rewrite the
+weight in the same statement and get it right or unbalance groups -- which is 0070's own objection, one level down. It also means
 a conversion between two lines of one security inside a single group balances and
 routes nothing, where at listing grain it would route two `TRANSFER_CLEARING`
 residuals into the same group, which `transfer_matches` can never pair.
@@ -82,8 +83,8 @@ quoted in two it says nothing about which.
 
 A holding is per line: two lines of one security are two holdings an FX rate
 apart, and adding them would report a number in no currency at all. A holding
-whose postings named no line is reported unpriced, which is the same answer 0068
-gives for a line with no currency and for the same reason.
+whose postings named no line is reported unpriced: a quantity with no currency
+behind it is not a value.
 
 Price fetching makes the opposite trade from valuation. A posting on a known line
 fetches that line; one on no line fetches every priceable line of its security,
@@ -94,7 +95,7 @@ A merge moves its loser's postings onto the survivor's line of the same currency
 family, and onto no line where the survivor has none to match. Nulling degrades a
 posting to "this security, line not known", which is exactly what is true of it
 once the line it named is gone -- and it is recoverable, where under a sentinel
-model there was nowhere for those postings to go. The split in
-[0071](0071-listings-merge-by-currency-and-an-unknown-one-splits.md) becomes a
-fill-in rather than a move: postings on no line acquire one when something names
-it, and nothing has to be taken off a sentinel row first.
+model there was nowhere for those postings to go. A posting on no line acquires
+one when something names it, which is a fill-in rather than a move: nothing has
+to be taken off a sentinel row first, there being none
+([0075](0075-a-name-that-could-not-be-placed-names-no-line.md)).

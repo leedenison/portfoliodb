@@ -1,3 +1,7 @@
+---
+status: partly superseded by ADR-0075
+---
+
 # A listing is a currency of a security
 
 A security listed in two currencies -- the GBP and USD lines of one iShares ETC
@@ -54,18 +58,10 @@ codes would collapse instruments that are deliberately distinct.
 
 ## The unknown listing
 
-A security whose currency is unknown carries at most one listing with a null
-currency. That distinguishes two things a single representation could not be
-asked apart: exactly one line is a listing with a currency and no siblings, and
-"how many is unknown" is the null row.
-
-**An unknown listing is not priceable and not event-bearing.** A price with no
-stated currency asserts nothing, so the fetchers skip it and its holding reports
-unpriced.
-
-It says something about the security, not about a posting. A posting that could
-not say which line it is on names no line at all
-([0072](0072-a-posting-names-a-security-and-a-line.md)); it does not point here.
+Superseded by [0075](0075-a-name-that-could-not-be-placed-names-no-line.md). A
+security whose currency is unknown carried a listing with a null currency, which
+was not priceable and not event-bearing. It now holds no listing at all, and the
+listing-grain names nobody could place name no line.
 
 ## Grain is re-declared, not inherited
 

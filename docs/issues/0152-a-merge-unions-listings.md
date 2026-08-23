@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A merge unions listings
 milestone: M25
 dependencies: [0147, 0149, 0157]

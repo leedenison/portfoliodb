@@ -343,9 +343,19 @@ so a re-derived weight could disagree with the one the group was balanced on. Th
 constraint proves the *declared* weights of a group sum to zero rather than that its
 postings balance; see adr/0029-posting-weight-is-stored.md for why that is the right
 trade. Nothing maintains the columns after ingest except the merge, which rewrites
-`weight_commodity` alongside `instrument_id` in the same statement. The line moves
-with them and is never the commodity, so a listing split leaves the weights
-alone.
+`weight_commodity` alongside `instrument_id` in the same statement, and the
+fill-in below, which writes the line alone. The line is never the commodity, so
+neither disturbs a weight.
+
+**A line, once it exists, claims the postings that stated it.** A posting naming a
+currency its security has no line for names no line at ingest, because no rung
+mints one. When something does name that line -- a provider, a listing-grain
+identifier, a merge -- the postings of that security on no line whose
+`trading_currency` is in its family acquire it. That is a fill-in rather than a
+move: nothing has to be taken off a row first, and the holding stops reporting
+unpriced the moment something names the line it was always on. A pad already on
+the line wins over one on none, the INITIALIZE key being per holding. See
+adr/0071-listings-merge-by-currency-and-an-unknown-one-splits.md.
 
 A group's postings are in different commodities, so a plain `SUM(quantity)` cannot
 say whether it balances: a buy is `+10 AAPL` and `-1855 USD`. Balance is checked on

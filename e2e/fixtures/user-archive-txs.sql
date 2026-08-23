@@ -30,8 +30,9 @@ WHERE id IN (
 )
 ON CONFLICT (instrument_id, currency_family(currency)) WHERE currency IS NOT NULL DO NOTHING;
 
--- Two identifiers each, so the export has a priority order to apply: MIC_TICKER
--- outranks ISIN, and bestIdentifierJoin is what decides.
+-- Two identifiers each, so the exports have a priority order to apply -- and one
+-- at each grain, so the two orders are told apart: naming the security the ISIN
+-- wins, naming one of its lines the ticker does.
 INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
 VALUES
   ('e2e00000-0000-0000-0000-000000000401', 'ISIN', 'US0231351067', true),

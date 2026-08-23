@@ -767,7 +767,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		JOIN selected s ON s.id = i.id
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 		` + underlyingJoin +
-		bestIdentifierJoinOn("LEFT JOIN", "u_l.instrument_id", "u_id") + `
+		bestSecurityIdentifierJoinOn("LEFT JOIN", "u_l.instrument_id", "u_id") + `
 		ORDER BY i.id`
 
 	err = p.q.SelectContext(ctx, &irows, base, args...)

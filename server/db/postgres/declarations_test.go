@@ -1086,15 +1086,15 @@ func TestUpsertHoldingDeclaration_LetsTheTriggerDefaultTheBasis(t *testing.T) {
 	}
 }
 
-// The export names an instrument by the identifier bestIdentifierJoin ranks
-// highest, so this export agrees with every other one about which one it is.
-// It also drops a basis equal to the declaration's own date, which is what an
-// absent one already means.
+// A declaration is about a line, so the export names it by the identifier the
+// listing join ranks highest, and this export agrees with every other one that
+// names a line about which one that is. It also drops a basis equal to the
+// declaration's own date, which is what an absent one already means.
 func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-export", "U", "u@u.com")
-	instID, _, _ := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
+	instID, listingID, _ := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "APPLE INC", Domain: "IBKR"},
 			Canonical: false,
@@ -1110,11 +1110,12 @@ func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	basis := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, asOf); err != nil {
+	holding := onLine(held(userID, "acct1", instID), listingID)
+	if err := p.UpsertHoldingDeclaration(ctx, holding, "100", asOf, asOf); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 	later := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "120", later, basis); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, holding, "120", later, basis); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -1125,7 +1126,9 @@ func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("read %d rows, want 2", len(rows))
 	}
-	// MIC_TICKER outranks ISIN, which outranks BROKER_DESCRIPTION.
+	// Naming a line, MIC_TICKER outranks ISIN, which outranks BROKER_DESCRIPTION:
+	// the ticker names this line exactly, where the ISIN names the security above
+	// it and needs the currency alongside to say which line.
 	if rows[0].Ref.Type != "MIC_TICKER" || rows[0].Ref.Value != "AAPL" || rows[0].Ref.Domain != "XNAS" {
 		t.Fatalf("identifier = %s %s %s, want MIC_TICKER AAPL XNAS",
 			rows[0].Ref.Type, rows[0].Ref.Value, rows[0].Ref.Domain)

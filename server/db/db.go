@@ -373,8 +373,8 @@ type ExportPosting struct {
 	AssetClassHint string
 	Description    string
 	// The instrument's best identifier, or the zero ref for a posting whose
-	// instrument never resolved. Chosen by bestIdentifierJoin so that every
-	// export naming one identifier per instrument agrees which one.
+	// instrument never resolved. Chosen by the security join so that every
+	// export naming a security agrees which identifier that is.
 	Ref                InstrumentRef
 	Quantity           decimal.Decimal
 	UnitPrice          *decimal.Decimal
@@ -702,8 +702,10 @@ func VintageDate(t *time.Time) *time.Time {
 // InstrumentRef names an instrument by one identifier and no server UUID, which
 // is the only name that means anything in another instance.
 //
-// Every export that has to name an instrument names it this way, and
-// bestIdentifierJoin picks the identifier so that they all agree which one. An
+// Every export that has to name an instrument names it this way, and one of the
+// two identifier joins picks the identifier -- the security join where the thing
+// named is a security, the listing join where it is one of its currency lines --
+// so that every export agrees which identifier that is. An
 // identity claim is the same thing said several times over: each
 // [ClaimedIdentifier] is one of these, and the claim asserts they denote one
 // security.
@@ -1524,8 +1526,8 @@ type ExportDeclaration struct {
 	Broker  string
 	Account string
 	// The instrument's best identifier, or the zero ref for an instrument
-	// carrying none. Chosen by bestIdentifierJoin so that every export naming
-	// one identifier per instrument agrees which one.
+	// carrying none. Chosen by the listing join, a declaration being about a
+	// holding and a holding being per line.
 	Ref         InstrumentRef
 	DeclaredQty decimal.Decimal
 	AsOfDate    time.Time

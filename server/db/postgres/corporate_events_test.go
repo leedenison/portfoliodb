@@ -792,8 +792,13 @@ func TestRecomputeSplitAdjustments_ReverseSplitRoundsToDeclaredScale(t *testing.
 }
 
 // TestListStockSplitsForExport_BestIdentifier verifies that the export query
-// joins each split with the highest-priority identifier for the instrument.
-// MIC_TICKER beats ISIN beats BROKER_DESCRIPTION.
+// joins each split with the identifier the security join ranks highest.
+//
+// A split is an action on the shares rather than on one of the currency lines
+// they are quoted in, so the security is what a split names, and the ISIN is what
+// names a security: ISIN beats MIC_TICKER beats BROKER_DESCRIPTION. A ticker
+// would name one line of it and say nothing about the others, which is why the
+// two grains no longer share one priority order.
 func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -831,11 +836,12 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
-	if rows[0].Ref.Type != "MIC_TICKER" || rows[0].Ref.Value != "AAPL" {
-		t.Errorf("expected MIC_TICKER/AAPL, got %s/%s", rows[0].Ref.Type, rows[0].Ref.Value)
+	if rows[0].Ref.Type != "ISIN" || rows[0].Ref.Value != "US0378331005" {
+		t.Errorf("expected ISIN/US0378331005, got %s/%s", rows[0].Ref.Type, rows[0].Ref.Value)
 	}
-	if rows[0].Ref.Domain != "XNAS" {
-		t.Errorf("expected domain XNAS, got %q", rows[0].Ref.Domain)
+	// An ISIN is globally unique and carries no domain.
+	if rows[0].Ref.Domain != "" {
+		t.Errorf("expected no domain, got %q", rows[0].Ref.Domain)
 	}
 	if rows[0].AssetClass != "STOCK" {
 		t.Errorf("expected STOCK, got %q", rows[0].AssetClass)

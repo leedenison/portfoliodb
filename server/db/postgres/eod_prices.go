@@ -147,7 +147,7 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 		FROM eod_prices ep
 		JOIN instrument_listings lst ON lst.id = ep.listing_id
 		JOIN instruments i ON i.id = lst.instrument_id
-		` + bestIdentifierJoin + `
+		` + bestListingIdentifierJoinOn("JOIN", "lst.id", "best_id") + `
 		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), lst.currency, ep.price_date
 	`
 	var rows []exportPriceRow
@@ -204,7 +204,7 @@ func (p *Postgres) ListPriceCoverageForExport(ctx context.Context) ([]db.ExportP
 		FROM merged_price_coverage mc
 		JOIN instrument_listings lst ON lst.id = mc.listing_id
 		JOIN instruments i ON i.id = lst.instrument_id
-		` + bestIdentifierJoin + `
+		` + bestListingIdentifierJoinOn("JOIN", "lst.id", "best_id") + `
 		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), lst.currency, covered_from
 	`
 	var rows []exportPriceCoverageRow

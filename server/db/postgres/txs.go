@@ -501,7 +501,7 @@ type exportPosting struct {
 //
 // The identifier join is a LEFT JOIN so a posting whose instrument never
 // resolved survives, travelling with no identifier and resolving from its
-// description on the way back in. bestIdentifierJoinOn rather than a
+// description on the way back in. The security join rather than a
 // hand-written lateral so this export agrees with every other one about which
 // identifier is best.
 func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFrom, periodBefore *timestamppb.Timestamp) ([]db.ExportPosting, error) {
@@ -548,7 +548,7 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 				ELSE t.share_count_basis END AS share_count_basis
 		FROM txs t
 		JOIN tx_groups g ON g.id = t.group_id
-		` + bestIdentifierJoinOn("LEFT JOIN", "t.instrument_id", "best_id") + `
+		` + bestSecurityIdentifierJoinOn("LEFT JOIN", "t.instrument_id", "best_id") + `
 		WHERE t.user_id = $1
 		  -- Only what a source stated. A residual and a boundary leg are derived
 		  -- from the group they sit in, and the file no longer carries the

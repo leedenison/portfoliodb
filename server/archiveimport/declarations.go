@@ -149,7 +149,7 @@ func DeclarationPart(ctx context.Context, database db.DB, userID string, part *a
 //
 // A row failing here is a defect rather than a user error: the instrument was
 // picked in the UI when the declaration was made, and the export writes whichever
-// identifier bestIdentifierJoin ranks highest. ResolveByHintsDBOnly rather than a
+// identifier the listing join ranks highest. ResolveByHintsDBOnly rather than a
 // bare lookup is what keeps the two ends in step -- it normalises OCC to the
 // compact form the column stores, and falls back to (type, value) where the file
 // states no domain.

@@ -522,7 +522,7 @@ func (p *Postgres) ListStockSplitsForExport(ctx context.Context) ([]db.ExportSto
 			s.first_known_at
 		FROM stock_splits s
 		JOIN instruments i ON i.id = s.instrument_id
-		` + bestIdentifierJoin + `
+		` + bestSecurityIdentifierJoin + `
 		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), s.ex_date
 	`
 	rows, err := p.q.QueryContext(ctx, q)
@@ -557,7 +557,7 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 		FROM cash_dividends d
 		JOIN instrument_listings l ON l.id = d.listing_id
 		JOIN instruments i ON i.id = l.instrument_id
-		` + bestIdentifierJoin + `
+		` + bestSecurityIdentifierJoin + `
 		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), d.ex_date, d.currency
 	`
 	rows, err := p.q.QueryContext(ctx, q)
@@ -1072,7 +1072,7 @@ func (p *Postgres) ListCorporateEventCoverageForExport(ctx context.Context) ([]d
 			mc.covered_from, mc.covered_before
 		FROM merged_corporate_event_coverage mc
 		JOIN instruments i ON i.id = mc.instrument_id
-		` + bestIdentifierJoin + `
+		` + bestSecurityIdentifierJoin + `
 		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), covered_from
 	`
 	var rows []exportCoverageRow
@@ -1099,7 +1099,7 @@ func (p *Postgres) ListUnhandledCorporateEventsForExport(ctx context.Context) ([
 			u.event_type, u.ex_date, u.detail, u.data, u.resolved, u.created_at
 		FROM unhandled_corporate_events u
 		JOIN instruments i ON i.id = u.instrument_id
-		` + bestIdentifierJoin + `
+		` + bestSecurityIdentifierJoin + `
 		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''),
 			u.created_at, u.event_type
 	`

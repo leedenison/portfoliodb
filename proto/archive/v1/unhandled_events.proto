@@ -32,7 +32,8 @@ message UnhandledEventGroup {
 // UnhandledEvent is one event awaiting or holding an admin's decision.
 message UnhandledEvent {
   // What could not be applied: REVERSE_SPLIT, NON_WHOLE_SPLIT, MERGER,
-  // EXTRAORDINARY_DIVIDEND, SPECIAL_CASH_DIVIDEND, FUTURES_SPLIT. Free text
+  // EXTRAORDINARY_DIVIDEND, SPECIAL_CASH_DIVIDEND, UNATTRIBUTABLE_DIVIDEND,
+  // FUTURES_SPLIT. Free text
   // rather than a vocabulary, because the column is free text and the detector
   // is free to name a case it has just learned to recognise.
   string event_type = 1 [(buf.validate.field).string.min_len = 1];

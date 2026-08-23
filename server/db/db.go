@@ -1702,8 +1702,17 @@ type StockSplit struct {
 // PayDate, RecordDate, DeclarationDate, and Frequency are optional and may be
 // nil/empty when the provider does not supply them. Type is "CD" (regular) or
 // "SC" (special cash); defaults to "CD" when empty.
+//
+// A caller supplies InstrumentID and Currency and leaves ListingID empty: the
+// line is the security's line in that currency's family, and resolving it is
+// UpsertCashDividends' job so that one rule governs every writer. Currency is
+// the code the amount is quoted in, which the family lets differ from the code
+// the line is stored under -- a dividend in pence files against a line stored as
+// GBP. ListingID is populated on the way out, by the reads and by the row a
+// write hands back.
 type CashDividend struct {
 	InstrumentID    string
+	ListingID       string
 	ExDate          time.Time
 	PayDate         *time.Time
 	RecordDate      *time.Time
@@ -1820,16 +1829,24 @@ type CorporateEventDB interface {
 	// safe to run every cycle, and retries anything a previous run failed.
 	ListPendingOptionSplits(ctx context.Context, underlyingID string) ([]PendingOptionSplits, error)
 
-	// UpsertCashDividends inserts or updates the supplied cash_dividends rows.
-	// On conflict (instrument_id, ex_date), all non-key columns are overwritten
+	// UpsertCashDividends inserts or updates the supplied cash_dividends rows,
+	// each filed against the caller's security's line in the currency it states.
+	// On conflict (listing_id, ex_date), all non-key columns are overwritten
 	// except FirstKnownAt, which takes the earlier of the stored and supplied
 	// values. A zero FirstKnownAt is stamped with the current time on insert.
-	UpsertCashDividends(ctx context.Context, dividends []CashDividend) error
-	// ListCashDividends returns every cash dividend for the given instrument
-	// ordered ascending by ex_date.
+	//
+	// The returned rows are the ones that named no line: the security is quoted
+	// in no currency of that family, so nothing here says which of its lines
+	// paid. They are not stored and not an error -- a broker converting a
+	// dividend into the account currency reports a real payment under a currency
+	// the security does not trade in, and the caller queues them for review. See
+	// docs/adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
+	UpsertCashDividends(ctx context.Context, dividends []CashDividend) ([]CashDividend, error)
+	// ListCashDividends returns every cash dividend of the given security,
+	// across all of its lines, ordered ascending by (ex_date, listing).
 	ListCashDividends(ctx context.Context, instrumentID string) ([]CashDividend, error)
-	// DeleteCashDividend removes a single (instrument, ex_date) row.
-	DeleteCashDividend(ctx context.Context, instrumentID string, exDate time.Time) error
+	// DeleteCashDividend removes a single (listing, ex_date) row.
+	DeleteCashDividend(ctx context.Context, listingID string, exDate time.Time) error
 
 	// UpsertCorporateEventCoverage records that (instrumentID, pluginID) has
 	// been queried for the half-open interval [from, before), which must be

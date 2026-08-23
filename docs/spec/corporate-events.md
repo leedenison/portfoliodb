@@ -7,7 +7,11 @@ This document covers the design and operating model of the corporate event subsy
 Two event tables in PostgreSQL, keyed at the grain each is a fact about:
 
 - **`stock_splits`** — keyed `(instrument_id, ex_date)`. `split_from`, `split_to` (decimal NUMERIC), `data_provider`, `first_known_at`. The factor is `split_to / split_from`. A split is an action on the security and applies to every listing of it.
-- **`cash_dividends`** — keyed `(listing_id, ex_date)`. `amount` (per share), `currency`, optional `pay_date` / `record_date` / `declaration_date`, optional `frequency`, `data_provider`, `first_known_at`. A dividend is paid in a currency, so it is a fact about one line; the `currency` column restates the listing's own and must agree with it. Keying it on the security would collide the first time one ex-date paid in two currencies.
+- **`cash_dividends`** — keyed `(listing_id, ex_date)`. `amount` (per share), `currency`, optional `pay_date` / `record_date` / `declaration_date`, optional `frequency`, `data_provider`, `first_known_at`. A dividend is paid in a currency, so it is a fact about one line. Keying it on the security would collide the first time one ex-date paid in two currencies.
+
+  The stated `currency` is how a row finds its line: it is matched against the security's listings on the currency family, so a provider quoting the London line's dividend in pence files against the line stored as GBP. The column is kept rather than derived from the listing because it is the code the amount is quoted in, and nineteen pence is not nineteen pounds. Agreement between the two is a property of the write path — the line is selected from the currency — rather than of a constraint.
+
+  A stated currency **never mints a line**. A dividend says a payment was made in a currency, which is not the claim that the security trades in it: a broker converting a dividend into the account currency reports exactly the first and not the second. A dividend whose currency matches no line of its security is stored nowhere and goes to `unhandled_corporate_events` as an `UNATTRIBUTABLE_DIVIDEND`. See adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
 
 Plus two auxiliary tables:
 
@@ -164,3 +168,5 @@ The instruments fetched each cycle come from `HeldEventBearingInstruments`: dire
 ### Dividends
 
 Cash dividends are stored but **not applied** to `split_adjusted_*` columns; PortfolioDB does not derive a dividend-adjusted price view (see adr/0005-corporate-events-design.md). The `cash_dividends` table is populated for calendar / reporting use.
+
+A dividend is stored against the currency line it was paid on, chosen from the currency it states. One that names a currency none of the security's lines are quoted in is queued for review rather than filed or dropped, and an import reports each such row as well as queuing it, so a file that carried more dividends than were stored says so at the time. See adr/0073-a-dividend-names-a-line-it-does-not-mint.md.

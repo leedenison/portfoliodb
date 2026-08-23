@@ -124,8 +124,10 @@ test.describe("corporate event export/import round trip", () => {
     );
 
     const divAfter = await rawQuery(
-      `SELECT first_known_at, amount::text AS amount
-         FROM cash_dividends WHERE instrument_id = '${AMZN}'`,
+      `SELECT d.first_known_at, d.amount::text AS amount
+         FROM cash_dividends d
+         JOIN instrument_listings l ON l.id = d.listing_id
+        WHERE l.instrument_id = '${AMZN}'`,
     );
     expect(divAfter).toHaveLength(1);
     expect(new Date((divAfter[0] as { first_known_at: Date }).first_known_at).toISOString()).toBe(

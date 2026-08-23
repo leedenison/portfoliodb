@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -93,21 +94,17 @@ func TestUpsertCashDividends_RoundTrip(t *testing.T) {
 	pay := d(2024, 2, 15)
 	rec := d(2024, 2, 12)
 	decl := d(2024, 2, 1)
-	if err := p.UpsertCashDividends(ctx, []db.CashDividend{
-		{
-			InstrumentID:    instID,
-			ExDate:          d(2024, 2, 9),
-			PayDate:         &pay,
-			RecordDate:      &rec,
-			DeclarationDate: &decl,
-			Amount:          "0.24",
-			Currency:        "USD",
-			Frequency:       "quarterly",
-			DataProvider:    "massive",
-		},
-	}); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+	upsertDividends(t, p, db.CashDividend{
+		InstrumentID:    instID,
+		ExDate:          d(2024, 2, 9),
+		PayDate:         &pay,
+		RecordDate:      &rec,
+		DeclarationDate: &decl,
+		Amount:          "0.24",
+		Currency:        "USD",
+		Frequency:       "quarterly",
+		DataProvider:    "massive",
+	})
 
 	got, err := p.ListCashDividends(ctx, instID)
 	if err != nil {
@@ -140,17 +137,13 @@ func TestUpsertCashDividends_TypeDefaultsToCD(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	// Insert without setting Type (empty string) — should default to "CD".
-	if err := p.UpsertCashDividends(ctx, []db.CashDividend{
-		{
-			InstrumentID: instID,
-			ExDate:       d(2024, 3, 1),
-			Amount:       "0.50",
-			Currency:     "USD",
-			DataProvider: "test",
-		},
-	}); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+	upsertDividends(t, p, db.CashDividend{
+		InstrumentID: instID,
+		ExDate:       d(2024, 3, 1),
+		Amount:       "0.50",
+		Currency:     "USD",
+		DataProvider: "test",
+	})
 
 	got, err := p.ListCashDividends(ctx, instID)
 	if err != nil {
@@ -273,9 +266,7 @@ func TestUpsertCashDividends_KnowledgeTimeOnlyMovesBackwards(t *testing.T) {
 		Amount: "0.24", Currency: "USD", DataProvider: "import",
 		FirstKnownAt: original,
 	}
-	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+	upsertDividends(t, p, div)
 	got, err := p.ListCashDividends(ctx, instID)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -285,9 +276,7 @@ func TestUpsertCashDividends_KnowledgeTimeOnlyMovesBackwards(t *testing.T) {
 	}
 
 	div.FirstKnownAt = time.Date(2026, time.July, 29, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
-		t.Fatalf("re-upsert later: %v", err)
-	}
+	upsertDividends(t, p, div)
 	got, _ = p.ListCashDividends(ctx, instID)
 	if !got[0].FirstKnownAt.Equal(original) {
 		t.Errorf("later stamp won: want %s, got %s", original, got[0].FirstKnownAt)
@@ -878,23 +867,19 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 	pay := d(2024, 2, 15)
 	rec := d(2024, 2, 12)
 	decl := d(2024, 2, 1)
-	if err := p.UpsertCashDividends(ctx, []db.CashDividend{
-		{
-			InstrumentID:    instID,
-			ExDate:          d(2024, 2, 9),
-			PayDate:         &pay,
-			RecordDate:      &rec,
-			DeclarationDate: &decl,
-			Amount:          "0.24",
-			Currency:        "USD",
-			Frequency:       "quarterly",
-			Type:            "SC",
-			DataProvider:    "test",
-			FirstKnownAt:    time.Date(2024, time.February, 2, 8, 0, 0, 0, time.UTC),
-		},
-	}); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+	upsertDividends(t, p, db.CashDividend{
+		InstrumentID:    instID,
+		ExDate:          d(2024, 2, 9),
+		PayDate:         &pay,
+		RecordDate:      &rec,
+		DeclarationDate: &decl,
+		Amount:          "0.24",
+		Currency:        "USD",
+		Frequency:       "quarterly",
+		Type:            "SC",
+		DataProvider:    "test",
+		FirstKnownAt:    time.Date(2024, time.February, 2, 8, 0, 0, 0, time.UTC),
+	})
 
 	rows, err := p.ListCashDividendsForExport(ctx)
 	if err != nil {
@@ -1202,6 +1187,20 @@ func TestInsertUnhandledCorporateEvent_Dedup(t *testing.T) {
 // subsequent write either preserves it or is caught clobbering it. Tests run
 // inside one transaction, where now() is frozen at transaction start, so
 // comparing two now() values would never detect a clobber.
+// upsertDividends files dividends and fails the test if any named no line. The
+// tests that care about the unattributable path call UpsertCashDividends
+// directly and read the rows it hands back.
+func upsertDividends(t *testing.T, p *Postgres, dividends ...db.CashDividend) {
+	t.Helper()
+	unfiled, err := p.UpsertCashDividends(context.Background(), dividends)
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if len(unfiled) != 0 {
+		t.Fatalf("expected every dividend to name a line, %d did not: %+v", len(unfiled), unfiled)
+	}
+}
+
 func backdate(t *testing.T, p *Postgres, query string, args ...any) time.Time {
 	t.Helper()
 	past := time.Date(2020, time.March, 1, 12, 0, 0, 0, time.UTC)
@@ -1221,20 +1220,17 @@ func TestUpsertCashDividends_PreservesKnowledgeTime(t *testing.T) {
 		InstrumentID: instID, ExDate: d(2024, 2, 9),
 		Amount: "0.24", Currency: "USD", DataProvider: "massive",
 	}
-	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+	upsertDividends(t, p, div)
 
 	past := backdate(t, p,
-		`UPDATE cash_dividends SET first_known_at = $1 WHERE instrument_id = $2`, instID)
+		`UPDATE cash_dividends d SET first_known_at = $1
+		 FROM instrument_listings l WHERE l.id = d.listing_id AND l.instrument_id = $2`, instID)
 
 	// The provider revises the amount. When we first learned of the dividend
 	// does not change just because its amount did.
 	div.Amount = "0.25"
 	div.DataProvider = "eodhd"
-	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
-		t.Fatalf("re-upsert: %v", err)
-	}
+	upsertDividends(t, p, div)
 
 	got, err := p.ListCashDividends(ctx, instID)
 	if err != nil {
@@ -2208,5 +2204,180 @@ func TestRestoreUnhandledCorporateEvents_ResolvedDoesNotSuppressUnresolved(t *te
 	}
 	if count != 1 {
 		t.Fatalf("unresolved count = %d, want 1", count)
+	}
+}
+
+// setupDualLineInstrument makes a security quoted in two currencies, which is
+// the shape the security-grain dividend key could not represent.
+func setupDualLineInstrument(t *testing.T, p *Postgres, isin string) (instID, usdLine, gbpLine string) {
+	t.Helper()
+	ctx := context.Background()
+	instID, usdLine, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "DUAL", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: isin}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	gbpLine, err = p.EnsureListing(ctx, instID, "GBP")
+	if err != nil {
+		t.Fatalf("ensure GBP line: %v", err)
+	}
+	if usdLine == "" || gbpLine == "" || usdLine == gbpLine {
+		t.Fatalf("fixture wants two distinct lines, got %q and %q", usdLine, gbpLine)
+	}
+	return instID, usdLine, gbpLine
+}
+
+// This is the collision the security-grain key lost. Keyed on
+// (instrument_id, ex_date), the second of these two overwrote the first and the
+// GBP line's payment vanished.
+func TestUpsertCashDividends_OneExDatePaysInTwoCurrencies(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, usdLine, gbpLine := setupDualLineInstrument(t, p, "GB0000000DL1")
+
+	ex := d(2024, 2, 9)
+	upsertDividends(t, p,
+		db.CashDividend{InstrumentID: instID, ExDate: ex, Amount: "0.24", Currency: "USD", DataProvider: "massive"},
+		db.CashDividend{InstrumentID: instID, ExDate: ex, Amount: "0.19", Currency: "GBP", DataProvider: "eodhd"},
+	)
+
+	got, err := p.ListCashDividends(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected both payments, got %d: %+v", len(got), got)
+	}
+	byLine := map[string]db.CashDividend{}
+	for _, g := range got {
+		byLine[g.ListingID] = g
+	}
+	if g := byLine[usdLine]; g.Amount != "0.24" || g.Currency != "USD" {
+		t.Errorf("USD line: %+v", g)
+	}
+	if g := byLine[gbpLine]; g.Amount != "0.19" || g.Currency != "GBP" {
+		t.Errorf("GBP line: %+v", g)
+	}
+}
+
+// The join is on the currency family, so a provider quoting the London line's
+// dividend in pence files against the line stored as GBP rather than naming no
+// line. The amount keeps the code it was quoted in: 19 pence is not 19 pounds.
+func TestUpsertCashDividends_PenceFilesAgainstThePoundLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, _, gbpLine := setupDualLineInstrument(t, p, "GB0000000DL2")
+
+	upsertDividends(t, p, db.CashDividend{
+		InstrumentID: instID, ExDate: d(2024, 5, 2),
+		Amount: "19", Currency: "GBX", DataProvider: "eodhd",
+	})
+
+	got, err := p.ListCashDividends(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 dividend, got %d", len(got))
+	}
+	if got[0].ListingID != gbpLine {
+		t.Errorf("line: got %s, want the GBP line %s", got[0].ListingID, gbpLine)
+	}
+	if got[0].Currency != "GBX" || got[0].Amount != "19" {
+		t.Errorf("the quoted code and amount must survive: %+v", got[0])
+	}
+}
+
+// A dividend reported in a currency the security is not quoted in says a payment
+// was made, not that the security has a line there -- a broker converting into
+// the account currency reports exactly that. It is handed back rather than
+// stored, and rather than minting a line nobody asserted. See
+// docs/adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
+func TestUpsertCashDividends_UnattributableCurrencyMintsNothing(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, _, _ := setupDualLineInstrument(t, p, "GB0000000DL3")
+
+	unfiled, err := p.UpsertCashDividends(ctx, []db.CashDividend{
+		{InstrumentID: instID, ExDate: d(2024, 2, 9), Amount: "0.24", Currency: "USD", DataProvider: "massive"},
+		{InstrumentID: instID, ExDate: d(2024, 2, 9), Amount: "0.31", Currency: "CAD", DataProvider: "broker"},
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if len(unfiled) != 1 {
+		t.Fatalf("expected the CAD dividend back, got %d: %+v", len(unfiled), unfiled)
+	}
+	if unfiled[0].Currency != "CAD" || unfiled[0].Amount != "0.31" {
+		t.Errorf("wrong row handed back: %+v", unfiled[0])
+	}
+	if unfiled[0].InstrumentID != instID {
+		t.Errorf("instrument: got %s, want %s", unfiled[0].InstrumentID, instID)
+	}
+
+	got, err := p.ListCashDividends(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0].Currency != "USD" {
+		t.Errorf("only the attributable dividend should be stored, got %+v", got)
+	}
+	var lines int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM instrument_listings WHERE instrument_id = $1`, instID).Scan(&lines); err != nil {
+		t.Fatalf("count listings: %v", err)
+	}
+	if lines != 2 {
+		t.Errorf("listing count: got %d, want the 2 it started with -- a dividend mints no line", lines)
+	}
+}
+
+// A dividend is stored against a line, so a merge has to move it or the loser's
+// listings cascade it away. It lands on the survivor's line of the same currency
+// family, as the postings do.
+func TestMergeInstruments_DividendMovesToTheSurvivorsLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "S", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DV1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "L", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DV2"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure loser: %v", err)
+	}
+	// The survivor already holds the 2024-02-09 payment, so the loser's copy of
+	// it is superseded rather than moved; its 2024-05-09 one has nothing to
+	// collide with and travels.
+	upsertDividends(t, p,
+		db.CashDividend{InstrumentID: survivor, ExDate: d(2024, 2, 9), Amount: "0.24", Currency: "USD", DataProvider: "massive"},
+		db.CashDividend{InstrumentID: loser, ExDate: d(2024, 2, 9), Amount: "0.24", Currency: "USD", DataProvider: "eodhd"},
+		db.CashDividend{InstrumentID: loser, ExDate: d(2024, 5, 9), Amount: "0.25", Currency: "USD", DataProvider: "eodhd"},
+	)
+
+	if err := p.runInTx(ctx, func(exec queryable) error {
+		return mergeInstruments(ctx, exec, uuid.MustParse(survivor), uuid.MustParse(loser))
+	}); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	got, err := p.ListCashDividends(ctx, survivor)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 dividends after the merge, got %d: %+v", len(got), got)
+	}
+	for _, g := range got {
+		if g.ListingID != survivorLine {
+			t.Errorf("dividend on %s names line %s, want the survivor's %s",
+				g.ExDate.Format("2006-01-02"), g.ListingID, survivorLine)
+		}
+	}
+	if got[0].DataProvider != "massive" {
+		t.Errorf("the survivor's own row should win the collision, got %q", got[0].DataProvider)
 	}
 }

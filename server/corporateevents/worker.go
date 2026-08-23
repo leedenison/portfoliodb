@@ -268,12 +268,20 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 						}
 					}
 					if len(regular) > 0 {
-						if err := database.UpsertCashDividends(ctx, dividendsToDB(inst.ID, pe.id, regular)); err != nil {
+						unfiled, err := database.UpsertCashDividends(ctx, dividendsToDB(inst.ID, pe.id, regular))
+						if err != nil {
 							if log != nil {
 								log.ErrorContext(ctx, "corporate event fetch: upsert dividends",
 									"plugin", pe.id, "instrument", inst.ID, "err", err)
 							}
 							continue
+						}
+						// A currency none of the security's lines are quoted in
+						// names no line, and a dividend that names no line is
+						// reviewed rather than filed against a guess.
+						for _, d := range unfiled {
+							QueueUnhandledDividend(ctx, database, d, "UNATTRIBUTABLE_DIVIDEND",
+								"Dividend in a currency no listing is quoted in:", log)
 						}
 					}
 				}
@@ -337,40 +345,63 @@ func splitsToDB(instrumentID, provider string, splits []Split) []db.StockSplit {
 func dividendsToDB(instrumentID, provider string, dividends []CashDividend) []db.CashDividend {
 	out := make([]db.CashDividend, len(dividends))
 	for i, d := range dividends {
-		typ := d.Type
-		if typ == "" {
-			typ = "CD"
-		}
-		row := db.CashDividend{
-			InstrumentID: instrumentID,
-			ExDate:       d.ExDate,
-			Amount:       d.Amount,
-			Currency:     d.Currency,
-			Frequency:    d.Frequency,
-			Type:         typ,
-			DataProvider: provider,
-		}
-		if !d.PayDate.IsZero() {
-			t := d.PayDate
-			row.PayDate = &t
-		}
-		if !d.RecordDate.IsZero() {
-			t := d.RecordDate
-			row.RecordDate = &t
-		}
-		if !d.DeclarationDate.IsZero() {
-			t := d.DeclarationDate
-			row.DeclarationDate = &t
-		}
-		out[i] = row
+		out[i] = dividendToDB(instrumentID, provider, d)
 	}
 	return out
 }
 
+// dividendToDB converts one plugin dividend to its stored shape. It names the
+// security and the currency and leaves the line to UpsertCashDividends, which is
+// the one place the currency picks a listing.
+func dividendToDB(instrumentID, provider string, d CashDividend) db.CashDividend {
+	typ := d.Type
+	if typ == "" {
+		typ = "CD"
+	}
+	row := db.CashDividend{
+		InstrumentID: instrumentID,
+		ExDate:       d.ExDate,
+		Amount:       d.Amount,
+		Currency:     d.Currency,
+		Frequency:    d.Frequency,
+		Type:         typ,
+		DataProvider: provider,
+	}
+	if !d.PayDate.IsZero() {
+		t := d.PayDate
+		row.PayDate = &t
+	}
+	if !d.RecordDate.IsZero() {
+		t := d.RecordDate
+		row.RecordDate = &t
+	}
+	if !d.DeclarationDate.IsZero() {
+		t := d.DeclarationDate
+		row.DeclarationDate = &t
+	}
+	return row
+}
+
 // insertSpecialDividend stores a special cash dividend as an unhandled
-// corporate event with the dividend details in the JSONB data field.
+// corporate event. A special dividend is not the regular series the calendar is
+// for, so it is reviewed rather than filed.
 func insertSpecialDividend(ctx context.Context, database db.CorporateEventDB, instrumentID, provider string, d CashDividend, log *slog.Logger) {
-	type specialDivData struct {
+	QueueUnhandledDividend(ctx, database, dividendToDB(instrumentID, provider, d),
+		"SPECIAL_CASH_DIVIDEND", "Special cash dividend", log)
+}
+
+// QueueUnhandledDividend stores a dividend that cannot be filed as an unhandled
+// corporate event, with its details in the JSONB data field.
+//
+// Two kinds reach it: a special dividend, which is not part of the regular
+// series, and one whose currency names no line of the security, which nothing
+// can attribute. The second is not a provider error -- a broker converting a
+// dividend into the account currency reports a real payment under a currency the
+// security does not trade in -- so it is put in front of a person rather than
+// dropped or used to invent a listing. See
+// docs/adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
+func QueueUnhandledDividend(ctx context.Context, database db.CorporateEventDB, d db.CashDividend, eventType, description string, log *slog.Logger) {
+	type dividendData struct {
 		Amount          string `json:"amount"`
 		Currency        string `json:"currency"`
 		PayDate         string `json:"pay_date,omitempty"`
@@ -380,42 +411,44 @@ func insertSpecialDividend(ctx context.Context, database db.CorporateEventDB, in
 		DividendType    string `json:"dividend_type"`
 		DataProvider    string `json:"data_provider"`
 	}
-	sd := specialDivData{
-		Amount:       d.Amount,
-		Currency:     d.Currency,
-		DividendType: d.Type,
-		DataProvider: provider,
-		Frequency:    d.Frequency,
-	}
-	if !d.PayDate.IsZero() {
-		sd.PayDate = d.PayDate.Format("2006-01-02")
-	}
-	if !d.RecordDate.IsZero() {
-		sd.RecordDate = d.RecordDate.Format("2006-01-02")
-	}
-	if !d.DeclarationDate.IsZero() {
-		sd.DeclarationDate = d.DeclarationDate.Format("2006-01-02")
+	sd := dividendData{
+		Amount:          d.Amount,
+		Currency:        d.Currency,
+		PayDate:         optDay(d.PayDate),
+		RecordDate:      optDay(d.RecordDate),
+		DeclarationDate: optDay(d.DeclarationDate),
+		Frequency:       d.Frequency,
+		DividendType:    d.Type,
+		DataProvider:    d.DataProvider,
 	}
 	data, err := json.Marshal(sd)
 	if err != nil {
 		if log != nil {
-			log.ErrorContext(ctx, "corporate event fetch: marshal special dividend",
-				"instrument", instrumentID, "err", err)
+			log.ErrorContext(ctx, "corporate event fetch: marshal unhandled dividend",
+				"instrument", d.InstrumentID, "event_type", eventType, "err", err)
 		}
 		return
 	}
 	exDate := d.ExDate
 	event := db.UnhandledCorporateEvent{
-		InstrumentID: instrumentID,
-		EventType:    "SPECIAL_CASH_DIVIDEND",
+		InstrumentID: d.InstrumentID,
+		EventType:    eventType,
 		ExDate:       &exDate,
-		Detail:       fmt.Sprintf("Special cash dividend %s %s (provider: %s)", d.Amount, d.Currency, provider),
+		Detail:       fmt.Sprintf("%s %s %s (provider: %s)", description, d.Amount, d.Currency, d.DataProvider),
 		Data:         data,
 	}
 	if err := database.InsertUnhandledCorporateEvent(ctx, event); err != nil {
 		if log != nil {
-			log.ErrorContext(ctx, "corporate event fetch: insert special dividend",
-				"instrument", instrumentID, "err", err)
+			log.ErrorContext(ctx, "corporate event fetch: insert unhandled dividend",
+				"instrument", d.InstrumentID, "event_type", eventType, "err", err)
 		}
 	}
+}
+
+// optDay formats an optional date the way the JSONB payload carries it.
+func optDay(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02")
 }

@@ -221,9 +221,26 @@ func (p *Postgres) DeleteStockSplit(ctx context.Context, instrumentID string, ex
 }
 
 // UpsertCashDividends implements db.CorporateEventDB.
-func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashDividend) error {
+//
+// One statement does the whole job: the caller's rows are unnested, each is left
+// joined to the security's line in the currency family it states, the ones that
+// found a line are inserted, and the ones that did not are returned. Resolving
+// the line here rather than in each caller is what keeps a single rule over
+// every writer -- the fetcher, the archive import, and whatever a broker
+// statement parser becomes.
+//
+// The join is on the family rather than the code, so a provider quoting the
+// London line's dividend in pence files against the line stored as GBP. The
+// amount keeps the code it was quoted in; see the column comment in
+// 001_initial.sql.
+//
+// A currency the security has no line in mints nothing. A dividend says a
+// payment was made in a currency, which is not the claim that the security
+// trades in it -- a broker converting into the account currency reports exactly
+// that. See docs/adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
+func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashDividend) ([]db.CashDividend, error) {
 	if len(dividends) == 0 {
-		return nil
+		return nil, nil
 	}
 	instIDs := make([]string, len(dividends))
 	exDates := make([]time.Time, len(dividends))
@@ -257,51 +274,110 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 			knownAts[i] = &t
 		}
 	}
-	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO cash_dividends (
-			instrument_id, ex_date, pay_date, record_date, declaration_date,
-			amount, currency, frequency, type, data_provider, first_known_at
+	rows, err := p.q.QueryContext(ctx, `
+		WITH input AS (
+			SELECT * FROM unnest($1::uuid[], $2::date[], $3::date[], $4::date[], $5::date[],
+				$6::numeric[], $7::text[], $8::text[], $9::text[], $10::text[],
+				$11::timestamptz[])
+				AS t(instrument_id, ex_date, pay_date, record_date, declaration_date,
+					amount, currency, frequency, type, data_provider, first_known_at)
+		),
+		resolved AS (
+			SELECT i.*, l.id AS listing_id
+			FROM input i
+			LEFT JOIN instrument_listings l
+				ON l.instrument_id = i.instrument_id
+				AND l.currency IS NOT NULL
+				AND currency_family(l.currency) = currency_family(i.currency)
+		),
+		stored AS (
+			INSERT INTO cash_dividends (
+				listing_id, ex_date, pay_date, record_date, declaration_date,
+				amount, currency, frequency, type, data_provider, first_known_at
+			)
+			SELECT listing_id, ex_date, pay_date, record_date, declaration_date,
+				amount, currency, frequency, type, data_provider,
+				COALESCE(first_known_at, now())
+			FROM resolved WHERE listing_id IS NOT NULL
+			ON CONFLICT (listing_id, ex_date) DO UPDATE SET
+				pay_date         = EXCLUDED.pay_date,
+				record_date      = EXCLUDED.record_date,
+				declaration_date = EXCLUDED.declaration_date,
+				amount           = EXCLUDED.amount,
+				currency         = EXCLUDED.currency,
+				frequency        = EXCLUDED.frequency,
+				type             = EXCLUDED.type,
+				data_provider    = EXCLUDED.data_provider,
+				first_known_at   = LEAST(cash_dividends.first_known_at, EXCLUDED.first_known_at)
 		)
 		SELECT instrument_id, ex_date, pay_date, record_date, declaration_date,
-			amount, currency, frequency, type, data_provider,
-			COALESCE(first_known_at, now())
-		FROM unnest($1::uuid[], $2::date[], $3::date[], $4::date[], $5::date[],
-			$6::numeric[], $7::text[], $8::text[], $9::text[], $10::text[],
-			$11::timestamptz[])
-			AS t(instrument_id, ex_date, pay_date, record_date, declaration_date,
-				amount, currency, frequency, type, data_provider, first_known_at)
-		ON CONFLICT (instrument_id, ex_date) DO UPDATE SET
-			pay_date         = EXCLUDED.pay_date,
-			record_date      = EXCLUDED.record_date,
-			declaration_date = EXCLUDED.declaration_date,
-			amount           = EXCLUDED.amount,
-			currency         = EXCLUDED.currency,
-			frequency        = EXCLUDED.frequency,
-			type             = EXCLUDED.type,
-			data_provider    = EXCLUDED.data_provider,
-			first_known_at   = LEAST(cash_dividends.first_known_at, EXCLUDED.first_known_at)
+			amount::text, currency, frequency, type, data_provider, first_known_at
+		FROM resolved WHERE listing_id IS NULL
+		ORDER BY instrument_id, ex_date
 	`, pq.Array(instIDs), pq.Array(exDates),
 		pq.Array(payDates), pq.Array(recordDates), pq.Array(declDates),
 		pq.Array(amounts), pq.Array(currencies), pq.Array(frequencies),
 		pq.Array(types), pq.Array(providers), pq.Array(knownAts))
 	if err != nil {
-		return fmt.Errorf("upsert cash dividends: %w", err)
+		return nil, fmt.Errorf("upsert cash dividends: %w", err)
 	}
-	return nil
+	defer rows.Close()
+	var unfiled []db.CashDividend
+	for rows.Next() {
+		var d db.CashDividend
+		var instUUID uuid.UUID
+		var pay, record, decl, known sql.NullTime
+		var freq sql.NullString
+		if err := rows.Scan(&instUUID, &d.ExDate, &pay, &record, &decl,
+			&d.Amount, &d.Currency, &freq, &d.Type, &d.DataProvider, &known); err != nil {
+			return nil, fmt.Errorf("upsert cash dividends scan: %w", err)
+		}
+		d.InstrumentID = instUUID.String()
+		setDividendOptionals(&d, pay, record, decl, freq)
+		if known.Valid {
+			d.FirstKnownAt = known.Time
+		}
+		unfiled = append(unfiled, d)
+	}
+	return unfiled, rows.Err()
 }
 
-// ListCashDividends implements db.CorporateEventDB.
+// setDividendOptionals copies the nullable columns onto a dividend row, which
+// the upsert's rejects and the two reads all scan the same way.
+func setDividendOptionals(d *db.CashDividend, pay, record, decl sql.NullTime, freq sql.NullString) {
+	if pay.Valid {
+		t := pay.Time
+		d.PayDate = &t
+	}
+	if record.Valid {
+		t := record.Time
+		d.RecordDate = &t
+	}
+	if decl.Valid {
+		t := decl.Time
+		d.DeclarationDate = &t
+	}
+	if freq.Valid {
+		d.Frequency = freq.String
+	}
+}
+
+// ListCashDividends implements db.CorporateEventDB. It reads a security's
+// dividends across every one of its lines, which is what an admin looking at a
+// security wants; the line each belongs to is on the row.
 func (p *Postgres) ListCashDividends(ctx context.Context, instrumentID string) ([]db.CashDividend, error) {
 	id, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return nil, fmt.Errorf("list cash dividends: invalid instrument id %q: %w", instrumentID, err)
 	}
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT instrument_id, ex_date, pay_date, record_date, declaration_date,
-			amount::text, currency, frequency, type, data_provider, first_known_at
-		FROM cash_dividends
-		WHERE instrument_id = $1
-		ORDER BY ex_date
+		SELECT l.instrument_id, d.listing_id, d.ex_date, d.pay_date, d.record_date,
+			d.declaration_date, d.amount::text, d.currency, d.frequency, d.type,
+			d.data_provider, d.first_known_at
+		FROM cash_dividends d
+		JOIN instrument_listings l ON l.id = d.listing_id
+		WHERE l.instrument_id = $1
+		ORDER BY d.ex_date, d.listing_id
 	`, id)
 	if err != nil {
 		return nil, fmt.Errorf("list cash dividends: %w", err)
@@ -310,39 +386,26 @@ func (p *Postgres) ListCashDividends(ctx context.Context, instrumentID string) (
 	var out []db.CashDividend
 	for rows.Next() {
 		var d db.CashDividend
-		var instUUID uuid.UUID
+		var instUUID, listingUUID uuid.UUID
 		var pay, record, decl sql.NullTime
 		var freq sql.NullString
-		if err := rows.Scan(&instUUID, &d.ExDate, &pay, &record, &decl,
+		if err := rows.Scan(&instUUID, &listingUUID, &d.ExDate, &pay, &record, &decl,
 			&d.Amount, &d.Currency, &freq, &d.Type, &d.DataProvider, &d.FirstKnownAt); err != nil {
 			return nil, fmt.Errorf("list cash dividends scan: %w", err)
 		}
 		d.InstrumentID = instUUID.String()
-		if pay.Valid {
-			t := pay.Time
-			d.PayDate = &t
-		}
-		if record.Valid {
-			t := record.Time
-			d.RecordDate = &t
-		}
-		if decl.Valid {
-			t := decl.Time
-			d.DeclarationDate = &t
-		}
-		if freq.Valid {
-			d.Frequency = freq.String
-		}
+		d.ListingID = listingUUID.String()
+		setDividendOptionals(&d, pay, record, decl, freq)
 		out = append(out, d)
 	}
 	return out, rows.Err()
 }
 
 // DeleteCashDividend implements db.CorporateEventDB.
-func (p *Postgres) DeleteCashDividend(ctx context.Context, instrumentID string, exDate time.Time) error {
+func (p *Postgres) DeleteCashDividend(ctx context.Context, listingID string, exDate time.Time) error {
 	_, err := p.q.ExecContext(ctx, `
-		DELETE FROM cash_dividends WHERE instrument_id = $1 AND ex_date = $2
-	`, instrumentID, exDate)
+		DELETE FROM cash_dividends WHERE listing_id = $1 AND ex_date = $2
+	`, listingID, exDate)
 	if err != nil {
 		return fmt.Errorf("delete cash dividend: %w", err)
 	}
@@ -480,6 +543,10 @@ func (p *Postgres) ListStockSplitsForExport(ctx context.Context) ([]db.ExportSto
 }
 
 // ListCashDividendsForExport implements db.CorporateEventDB.
+//
+// The row is named by the security even though it is stored against a line: an
+// archive group is per instrument, and the dividend's own currency field is what
+// says which line within it. See docs/spec/archive-format.md#corporate-events.
 func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportCashDividend, error) {
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
@@ -487,9 +554,10 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 			d.data_provider, d.ex_date, d.pay_date, d.record_date, d.declaration_date,
 			d.amount::text, d.currency, d.frequency, d.type, d.first_known_at
 		FROM cash_dividends d
-		JOIN instruments i ON i.id = d.instrument_id
+		JOIN instrument_listings l ON l.id = d.listing_id
+		JOIN instruments i ON i.id = l.instrument_id
 		` + bestIdentifierJoin + `
-		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), d.ex_date
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), d.ex_date, d.currency
 	`
 	rows, err := p.q.QueryContext(ctx, q)
 	if err != nil {

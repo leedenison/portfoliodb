@@ -98,6 +98,33 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	`, survivor, mergedAway, pq.Array(from), pq.Array(to)); err != nil {
 		return fmt.Errorf("update txs: %w", err)
 	}
+	// A dividend is stored against a line, so the loser's would cascade away with
+	// its listings. It moves onto the survivor's line of the same currency family
+	// for the same reason the postings do -- it is a fact about the payment, not
+	// about which of two duplicate rows recorded the security.
+	//
+	// The survivor's row wins a collision: both describe one payment, and the
+	// loser's is the copy made while the duplicate existed. The delete has to run
+	// first, because (listing_id, ex_date) is the primary key and the update would
+	// otherwise violate it. A pair with no target cannot arise here -- a dividend
+	// only ever files against a currency-bearing line, and listingMap gives every
+	// one of those a target -- but it is guarded rather than assumed.
+	if _, err := exec.ExecContext(ctx, `
+		DELETE FROM cash_dividends d
+		USING unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
+		WHERE d.listing_id = m.from_id AND m.to_id IS NOT NULL
+		  AND EXISTS (SELECT 1 FROM cash_dividends s
+		              WHERE s.listing_id = m.to_id AND s.ex_date = d.ex_date)
+	`, pq.Array(from), pq.Array(to)); err != nil {
+		return fmt.Errorf("drop superseded dividends: %w", err)
+	}
+	if _, err := exec.ExecContext(ctx, `
+		UPDATE cash_dividends d SET listing_id = m.to_id
+		FROM unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
+		WHERE d.listing_id = m.from_id AND m.to_id IS NOT NULL
+	`, pq.Array(from), pq.Array(to)); err != nil {
+		return fmt.Errorf("update cash dividends: %w", err)
+	}
 	// A transfer match is keyed on the commodity in flight, so it moves with the
 	// postings it links. Left behind it would point at an instrument the delete
 	// below is about to remove, and the pair would look unmatched again.

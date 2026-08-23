@@ -77,11 +77,30 @@ func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistr
 		persisted = true
 	}
 	if len(dividends) > 0 {
-		if err := database.UpsertCashDividends(ctx, dividends); err != nil {
+		unfiled, err := database.UpsertCashDividends(ctx, dividends)
+		if err != nil {
 			rep.Errf(-1, "dividends", err.Error())
 			return false, fmt.Errorf("upsert dividends: %w", err)
 		}
-		persisted = true
+		// A dividend whose currency names no line of its security is queued for
+		// review rather than filed against a guess, exactly as the fetcher does
+		// with one. It is reported as well as queued, because an import that
+		// quietly stored fewer rows than the file holds is worth saying so at the
+		// time. The row index is the part rather than a group: the batch is
+		// flattened across groups by the time the line is resolved, and inventing
+		// an index would point at the wrong event.
+		for _, d := range unfiled {
+			corporateevents.QueueUnhandledDividend(ctx, database, d, "UNATTRIBUTABLE_DIVIDEND",
+				"Dividend in a currency no listing is quoted in:", ingestionLog)
+			rep.Errf(-1, "dividends", fmt.Sprintf(
+				"dividend on %s ex %s names no %s listing; queued for review",
+				d.InstrumentID, d.ExDate.Format("2006-01-02"), d.Currency))
+		}
+		// Not a bare assignment: the splits above may already have set it, and
+		// a batch where every dividend went to the queue must not unset it.
+		if len(unfiled) < len(dividends) {
+			persisted = true
+		}
 	}
 
 	// Coverage rows are recorded after the events are upserted so a partial

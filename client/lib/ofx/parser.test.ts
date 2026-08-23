@@ -93,7 +93,7 @@ function buyStockTx({
       <UNITS>${units}
       <UNITPRICE>${unitPrice}
       <TOTAL>-3131
-      <CURRENCY><CURRATE>0.75</CURRATE><CURSYM>${curSym}</CURSYM></CURRENCY>
+      ${curSym ? `<CURRENCY><CURRATE>0.75</CURRATE><CURSYM>${curSym}</CURSYM></CURRENCY>` : ""}
     </INVBUY>
     <BUYTYPE>BUY
   </BUYSTOCK>`;
@@ -223,6 +223,15 @@ describe("parseOfxStatement", () => {
     expect(cf.identifierHints.length).toBe(1);
     expect(cf.identifierHints[0]!.type).toBe(IdentifierType.CURRENCY);
     expect(cf.identifierHints[0]!.value).toBe("USD");
+  });
+
+  it("takes a security's own currency from an explicit CURSYM", () => {
+    // CURSYM is what UNITPRICE is quoted in, so it names the line.
+    const ofx = buildOfx({ curdef: "GBP", transactions: buyStockTx({ curSym: "USD" }) });
+    const result = parseOfxStatement(ofx);
+    expect(result.errors).toEqual([]);
+    expect(result.postings[0]!.tradingCurrency).toBe("USD");
+    expect(result.postings[0]!.settlementCurrency).toBe("USD");
   });
 
   it("parses a SELLSTOCK with ISIN identifier", () => {
@@ -377,7 +386,11 @@ describe("parseOfxStatement", () => {
     expect(stockRef.info).toBeUndefined();
   });
 
-  it("uses account currency when transaction has no CURRENCY element", () => {
+  it("settles in the account currency without naming the security's own", () => {
+    // CURDEF is a fact about the account: a broker reporting in it may have
+    // converted, so it says what the record settled in without naming the line
+    // the security trades on. The cash leg is the other way round -- its
+    // instrument is the currency, so the figures name it outright.
     const tx = `<BUYSTOCK>
       <INVBUY>
         <INVTRAN><FITID>1</FITID><DTTRADE>20260303</DTTRADE></INVTRAN>
@@ -392,7 +405,13 @@ describe("parseOfxStatement", () => {
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
     const buy = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET))!;
-    expect(buy.tradingCurrency).toBe("EUR");
+    expect(buy.tradingCurrency).toBeUndefined();
+    expect(buy.settlementCurrency).toBe("EUR");
+
+    const cash = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH))!;
+    expect(cash.tradingCurrency).toBe("EUR");
+    expect(cash.settlementCurrency).toBe("EUR");
+    expect(cash.identifierHints[0]!.value).toBe("EUR");
   });
 
   it("falls back to UNIQUEID for description when SECLIST missing", () => {

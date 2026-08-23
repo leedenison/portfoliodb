@@ -93,10 +93,11 @@ Since the instrument is already in USD, the BASEUSD rate is 1.0 by definition.
 ## Determining required FX pairs
 
 The system determines which FX pair instruments are needed by scanning the
-currencies of all held instruments:
+currencies of all held listings:
 
-1. From `HeldRanges`, identify all instruments with non-zero positions.
-2. Look up each instrument's `currency` from the `instruments` table.
+1. From `HeldRanges`, identify all listings with non-zero positions.
+2. Look up each listing's `currency` from `instrument_listings`. That is where a
+   currency lives: it is a fact about the line, not about the security above it.
 3. For each currency C where C != USD, ensure an FX pair instrument C/USD
    exists (with identifier `FX_PAIR` / value `CUSD`).
 4. If it does not exist, create it on demand.
@@ -157,17 +158,26 @@ the instrument is treated as unpriced. It appears in `unpriced_instruments`
 and shows as an orange dot on the performance chart. Its value is excluded
 from the total rather than using a stale or assumed rate.
 
-**Listing with no currency:** a holding on a listing whose currency is unknown
-is **unpriced**, not converted. It used to be treated as already in the display
-currency, which valued it at an implied FX rate of 1; a null currency means the
-line is unknown, and a value nobody can state is reported as missing rather than
-guessed. See adr/0068-a-listing-is-a-currency-of-a-security.md. Cash never
-reaches this case, always resolving through a `CURRENCY` identifier.
+**Holding with no line:** a holding the query cannot attribute to a currency
+line is **unpriced**, not converted. It used to be treated as already in the
+display currency, which valued it at an implied FX rate of 1; a value nobody can
+state is reported as missing rather than guessed. See
+adr/0068-a-listing-is-a-currency-of-a-security.md.
+
+Two shapes reach it. A security that states no currency has only its unknown
+listing, which is never priceable and holds no bars. A security with two currency
+lines has bars on both and, until a posting names a listing, nothing saying which
+line the holding is on; picking one would value the position at a currency nobody
+stated, which is the failure this level exists to remove.
+
+Cash does not reach it: a cash instrument resolves through a `CURRENCY`
+identifier, so it always has exactly one line and that line always has a
+currency.
 
 **Listing currency equals display currency:** No FX lookup is needed;
-`fx_rate = 1.0`. This is handled by the COALESCE in the query -- no FX rate
-row exists for same-currency instruments, so the LEFT JOIN produces NULL
-which coalesces to 1.0.
+`fx_rate = 1.0`. The query tests the line's currency against the display
+currency directly and skips the conversion, so no FX rate row is needed and none
+is looked for.
 
 **USD instrument with non-USD display currency:** The BASEUSD rate is 1.0 by
 definition (1 USD = 1 USD). The conversion simplifies to dividing by the

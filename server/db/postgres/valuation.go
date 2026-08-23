@@ -322,8 +322,22 @@ valued AS (
         CASE
             -- Unidentified instrument: always unpriced.
             WHEN dh.instrument_id IS NULL THEN NULL
+            -- No line to value at, so no currency to value in: unpriced.
+            --
+            -- Either the security states no currency, or it has more than one
+            -- line and nothing said which this holding is on. Both used to be
+            -- read as "already in the display currency", which valued the
+            -- position at an implied FX rate of 1 -- a number nobody could
+            -- state, reported as though it were known. A value nobody can state
+            -- is reported as missing instead.
+            --
+            -- Cash does not reach here: a cash instrument resolves through a
+            -- CURRENCY identifier, so it always has exactly one line and that
+            -- line always has a currency. See
+            -- docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+            WHEN pl.currency IS NULL THEN NULL
             -- Cash in display currency: implicit price 1.0, no FX needed.
-            WHEN inst.asset_class = 'CASH' AND COALESCE(pl.currency, $4) = $4
+            WHEN inst.asset_class = 'CASH' AND pl.currency = $4
                 THEN dh.qty::double precision
             -- Cash in foreign currency: implicit price 1.0, convert via FX rate.
             WHEN inst.asset_class = 'CASH' THEN
@@ -335,7 +349,7 @@ valued AS (
                         END
                     ELSE
                         CASE WHEN dfr.rate IS NOT NULL
-                                AND (COALESCE(pl.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
+                                AND (pl.currency = 'USD' OR fr.rate IS NOT NULL)
                             THEN dh.qty::double precision
                                 * COALESCE(fr.rate::double precision, 1.0)
                                 / dfr.rate::double precision
@@ -344,8 +358,8 @@ valued AS (
                 END
             -- Non-cash with no price: unpriced.
             WHEN gp.close IS NULL THEN NULL
-            -- Instrument currency IS the display currency (or NULL): no conversion.
-            WHEN COALESCE(pl.currency, $4) = $4
+            -- The line is quoted in the display currency: no conversion.
+            WHEN pl.currency = $4
                 THEN dh.qty::double precision * gp.close::double precision
             -- Display = USD: fx_rate = BASEUSD_rate.
             WHEN $4 = 'USD' THEN
@@ -356,10 +370,10 @@ valued AS (
                     ELSE NULL  -- missing FX rate -> unpriced
                 END
             -- Display != USD: fx_rate = BASEUSD_rate / DISPLAYUSD_rate.
-            -- For USD-denominated instruments, BASEUSD = 1.0 so fx_rate = 1.0 / DISPLAYUSD.
+            -- For a USD-quoted line, BASEUSD = 1.0 so fx_rate = 1.0 / DISPLAYUSD.
             ELSE
                 CASE WHEN dfr.rate IS NOT NULL
-                        AND (COALESCE(pl.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
+                        AND (pl.currency = 'USD' OR fr.rate IS NOT NULL)
                     THEN dh.qty::double precision
                         * gp.close::double precision
                         * COALESCE(fr.rate::double precision, 1.0)
@@ -367,16 +381,20 @@ valued AS (
                     ELSE NULL  -- missing base or display FX rate -> unpriced
                 END
         END AS converted_value,
-        -- Flag: needs FX conversion but rate is missing (applies to both cash and non-cash).
+        -- Flag: needs FX conversion but rate is missing (applies to both cash and
+        -- non-cash). A holding with no line is not this case: it is unpriced for
+        -- want of a currency rather than for want of a rate to convert one, and
+        -- the arm above has already reported it.
         CASE
             WHEN dh.instrument_id IS NOT NULL
+                AND pl.currency IS NOT NULL
                 AND (gp.close IS NOT NULL OR inst.asset_class = 'CASH')
-                AND COALESCE(pl.currency, $4) != $4
+                AND pl.currency != $4
                 AND (
                     ($4 = 'USD' AND fr.rate IS NULL)
                     OR ($4 != 'USD' AND (
                         dfr.rate IS NULL
-                        OR (fr.rate IS NULL AND COALESCE(pl.currency, 'USD') != 'USD')
+                        OR (fr.rate IS NULL AND pl.currency != 'USD')
                     ))
                 )
             THEN true

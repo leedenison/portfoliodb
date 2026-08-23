@@ -1581,10 +1581,11 @@ func TestReplaceTxsInPeriod_DefaultsWeightWhenAbsent(t *testing.T) {
 	}
 }
 
-// The export names an instrument by the identifier bestIdentifierJoin picks, so
-// that every export surfacing one identifier per instrument agrees which one. An
-// instrument carrying both a ticker and the broker description it resolved under
-// exports as the ticker.
+// A posting names a security, so the export names it by the identifier the
+// security join picks, and every export that names a security agrees which one
+// that is. An instrument carrying both a ticker and the broker description it
+// resolved under exports as the ticker: the description is the one type that is
+// not canonical and is last in either order.
 func TestListTxsForExport_UsesTheBestIdentifier(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

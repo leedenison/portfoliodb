@@ -27,6 +27,9 @@ test.describe("corporate event export/import round trip", () => {
   const KNOWN_AT = new Date("2015-03-04T09:30:00.000Z");
   const DIV_KNOWN_AT = new Date("2018-11-02T14:00:00.000Z");
   const AMZN = "e2e00000-0000-0000-0000-000000000101";
+  // What the export names that security by: seeded in instruments.sql beside the
+  // ticker the import below states.
+  const AMZN_ISIN = "US0231351067";
   const NVDA = "e2e00000-0000-0000-0000-000000000102";
 
   test.beforeAll(async () => {
@@ -87,8 +90,12 @@ test.describe("corporate event export/import round trip", () => {
     );
 
     // Export, and confirm both knowledge times and the coverage reach the wire.
+    // The group is named by the ISIN, not by the ticker the import stated. A
+    // corporate event is an action on the security, so the export takes the
+    // security join, and a ticker names one of a security's currency lines
+    // rather than the security itself.
     const exported = await exportCorporateEvents(adminSession);
-    const group = exported.find((g) => g.instrument?.value === "AMZN");
+    const group = exported.find((g) => g.instrument?.value === AMZN_ISIN);
     expect(group).toBeDefined();
     expect(group!.coverage).toHaveLength(1);
     expect(group!.coverage[0].before).toBe("2025-01-01");

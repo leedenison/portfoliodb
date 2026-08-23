@@ -138,7 +138,7 @@ func listFetchBlocksForExport(ctx context.Context, p *Postgres, t fetchBlockTabl
 			b.plugin_id, b.reason, b.first_blocked_at
 		FROM ` + t.name + ` b
 		` + join + `
-		` + bestIdentifierJoin + `
+		` + bestSecurityIdentifierJoin + `
 		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), currency, b.plugin_id
 	`
 	rows, err := p.q.QueryContext(ctx, q)

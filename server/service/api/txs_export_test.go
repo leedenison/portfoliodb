@@ -221,7 +221,7 @@ func TestPosting_UnresolvedInstrumentCarriesNoHint(t *testing.T) {
 	}
 }
 
-// The identifier bestIdentifierJoin picked becomes the posting's one hint, with
+// The identifier the security join picked becomes the posting's one hint, with
 // its domain, so a broker-description instrument keeps the source it resolved
 // under.
 func TestPosting_CarriesTheBestIdentifier(t *testing.T) {

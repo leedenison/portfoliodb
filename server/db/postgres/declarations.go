@@ -284,12 +284,16 @@ type exportDeclaration struct {
 
 // ListHoldingDeclarationsForExport implements db.HoldingDeclarationDB.
 //
-// The identifier join is a LEFT JOIN so an instrument carrying no identifier
-// still comes back, and the writer can say so rather than the row simply not
-// appearing: a declaration silently missing from an export is the one failure
-// mode a file the user diffs by hand cannot show them.
-// bestIdentifierJoinOn rather than a hand-written lateral so this export agrees
-// with every other one about which identifier is best.
+// The identifier join is a LEFT JOIN so a declaration whose line carries no
+// identifier still comes back, and the writer can say so rather than the row
+// simply not appearing: a declaration silently missing from an export is the one
+// failure mode a file the user diffs by hand cannot show them. It is also what
+// covers a declaration on no line at all, whose listing_id is NULL.
+//
+// The listing join rather than the security one, because a declaration is about a
+// holding and a holding is per line. bestListingIdentifierJoinOn rather than a
+// hand-written lateral so this export agrees with every other one about which
+// identifier names a line.
 //
 // Neither declarationVerify nor declarationKind is here. The check and the
 // pad/assert discriminator are derived from the declaration set and the
@@ -313,7 +317,7 @@ func (p *Postgres) ListHoldingDeclarationsForExport(ctx context.Context, userID 
 			CASE WHEN d.share_count_basis = d.as_of_date THEN NULL
 				ELSE d.share_count_basis END AS share_count_basis
 		FROM holding_declarations d
-		`+bestIdentifierJoinOn("LEFT JOIN", "d.instrument_id", "best_id")+`
+		`+bestListingIdentifierJoinOn("LEFT JOIN", "d.listing_id", "best_id")+`
 		WHERE d.user_id = $1
 		ORDER BY d.broker, d.account, d.as_of_date, d.instrument_id, d.listing_id
 	`, userUUID)

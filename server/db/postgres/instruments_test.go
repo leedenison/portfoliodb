@@ -2021,3 +2021,104 @@ func TestSplitFactorAt_ReachesTheOptionThroughItsUnderlyingLine(t *testing.T) {
 		t.Errorf("instruments with splits: got %v, want the option", with)
 	}
 }
+
+// TestIdentifierJoins_PickPerGrain is what the split is for. A dual-listed
+// security carries one ISIN and a ticker on each of its lines: the security join
+// answers with the ISIN, and answers the same way twice; the listing join answers
+// with each line's own ticker and never with its sibling's.
+//
+// Before the split one order served both, ranking MIC_TICKER above ISIN, so a
+// security-grain export was named by whichever of its lines the planner happened
+// to return -- and a price group could be named by the GBP line's ticker and
+// stated to be in USD.
+// See docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+func TestIdentifierJoins_PickPerGrain(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, gbp, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00TWOLINES"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "ABCG", Domain: "XLON"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	usd, err := p.EnsureListing(ctx, instID, "USD")
+	if err != nil {
+		t.Fatalf("ensure usd listing: %v", err)
+	}
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
+		VALUES ($1, 'MIC_TICKER', 'XLON', 'ABCU', true)
+	`, usd); err != nil {
+		t.Fatalf("insert usd ticker: %v", err)
+	}
+
+	// The security join. Read twice, because an unstable answer is the failure
+	// mode that splits one security's rows across two groups in a file.
+	securityRef := func() db.InstrumentRef {
+		t.Helper()
+		var ref db.InstrumentRef
+		if err := p.q.QueryRowxContext(ctx, `
+			SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain
+			FROM instruments i
+			`+bestSecurityIdentifierJoin+`
+			WHERE i.id = $1
+		`, instID).StructScan(&ref); err != nil {
+			t.Fatalf("security join: %v", err)
+		}
+		return ref
+	}
+	first := securityRef()
+	if first.Type != "ISIN" || first.Value != "IE00TWOLINES" {
+		t.Fatalf("security join = %s %s %q, want the ISIN: a ticker names a line, not the security",
+			first.Type, first.Value, first.Domain)
+	}
+	if second := securityRef(); second != first {
+		t.Fatalf("security join returned %+v then %+v: the answer has to be stable across a security's listings", first, second)
+	}
+
+	// The listing join, once per line.
+	for _, tc := range []struct {
+		name    string
+		listing string
+		want    string
+	}{
+		{"the GBP line", gbp, "ABCG"},
+		{"the USD line", usd, "ABCU"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var ref db.InstrumentRef
+			if err := p.q.QueryRowxContext(ctx, `
+				SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain
+				FROM instrument_listings l
+				`+bestListingIdentifierJoinOn("JOIN", "l.id", "best_id")+`
+				WHERE l.id = $1
+			`, tc.listing).StructScan(&ref); err != nil {
+				t.Fatalf("listing join: %v", err)
+			}
+			if ref.Type != "MIC_TICKER" || ref.Value != tc.want {
+				t.Fatalf("listing join = %s %s, want MIC_TICKER %s -- a sibling line's ticker names the wrong line",
+					ref.Type, ref.Value, tc.want)
+			}
+		})
+	}
+
+	// A line with no ticker of its own falls back to the security's ISIN, which is
+	// a name only because the caller carries the currency alongside it.
+	eur, err := p.EnsureListing(ctx, instID, "EUR")
+	if err != nil {
+		t.Fatalf("ensure eur listing: %v", err)
+	}
+	var ref db.InstrumentRef
+	if err := p.q.QueryRowxContext(ctx, `
+		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain
+		FROM instrument_listings l
+		`+bestListingIdentifierJoinOn("JOIN", "l.id", "best_id")+`
+		WHERE l.id = $1
+	`, eur).StructScan(&ref); err != nil {
+		t.Fatalf("listing join on the EUR line: %v", err)
+	}
+	if ref.Type != "ISIN" {
+		t.Fatalf("listing join on a line with no ticker = %s %s, want the security's ISIN", ref.Type, ref.Value)
+	}
+}

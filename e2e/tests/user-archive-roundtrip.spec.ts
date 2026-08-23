@@ -187,10 +187,12 @@ test.describe("user archive page", () => {
     // decimal and a value that does not reimport identically is a bug.
     expect(first.quantity).toBe("8");
     expect(first.unit_price).toBe("155.2");
-    // Named by identifier and never by id, and by the one bestIdentifierJoin
-    // picks: MIC_TICKER outranks the ISIN the same instrument also carries.
+    // Named by identifier and never by id. A posting names a security, so the
+    // security join picks the name: the ISIN outranks the ticker the same
+    // security also carries, a ticker naming one of its currency lines rather
+    // than the security itself.
     expect(first.identifier_hints).toEqual([
-      { type: "MIC_TICKER", value: "AMZN" },
+      { type: "ISIN", value: "US0231351067" },
     ]);
     // The counterparty travels with its account type, so the group still sums to
     // zero on the way back in and nothing is routed a second time.
@@ -300,8 +302,10 @@ test.describe("user archive page", () => {
     expect(january.as_of_date).toBe("2024-01-31");
     expect(january.declarations).toHaveLength(2);
 
-    // Named by identifier and never by id, and by the one bestIdentifierJoin
-    // picks: MIC_TICKER outranks the ISIN the same instrument also carries.
+    // Named by identifier and never by id. A declaration is about a holding and a
+    // holding is per currency line, so the listing join picks the name and the
+    // ticker wins here -- the opposite of the posting above, and the whole point
+    // of there being two orders.
     expect(january.declarations[0].instrument).toEqual({
       type: "MIC_TICKER",
       value: "AMZN",

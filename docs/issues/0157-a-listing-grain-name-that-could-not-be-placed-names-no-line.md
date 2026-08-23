@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A listing-grain name that could not be placed names no line
 milestone: M25
 dependencies: [0147, 0149]

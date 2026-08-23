@@ -20,6 +20,7 @@
 import { expect } from "vitest";
 import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { Big } from "@/lib/decimal";
+import { settlesIn } from "@/lib/currency";
 import { AccountType, AssetClass, TxType } from "@/gen/type/v1/type_pb";
 import { mustBe } from "@/lib/tx-type";
 
@@ -54,7 +55,7 @@ function contractSize(tx: Posting): Big {
 
 /** What a posting contributes to its group's balance, and in what commodity. */
 export function weigh(tx: Posting): { amount: Big; commodity: string } {
-  const settle = (tx.settlementCurrency || tx.tradingCurrency || "").toUpperCase();
+  const settle = settlesIn(tx).toUpperCase();
   const qty = new Big(tx.quantity);
   // The asset leg of a trade is the one type whose counter-leg is money, and
   // the every-candidate rule means an ambiguous set does not convert.

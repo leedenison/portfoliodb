@@ -43,11 +43,10 @@ func resolveListings(txs []*apiv1.Tx, resolved []db.Resolution, instByID map[str
 // listingFor is the rungs, in order: the currency the source stated the security
 // trades in, then the security's sole line, then none.
 //
-// settlement_currency is deliberately not a rung. It is what the record settled in,
-// which for every source in hand is the account's own currency -- so on a security
-// quoted in two it says nothing about which, and is the same as saying nothing.
+// The first rung is quotedIn, so settlement_currency is not a rung and the reason
+// it is not is stated once, where that choice is made.
 func listingFor(tx *apiv1.Tx, inst *db.InstrumentRow) string {
-	if code := strings.ToUpper(strings.TrimSpace(tx.GetTradingCurrency())); code != "" {
+	if code := quotedIn(tx); code != "" {
 		if id := listingInFamily(inst, code); id != "" {
 			return id
 		}

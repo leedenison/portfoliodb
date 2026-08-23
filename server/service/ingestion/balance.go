@@ -83,16 +83,6 @@ func (c commodity) key() string {
 	}
 }
 
-// settleCurrency is the currency a converted weight is denominated in. Settlement
-// is what the group is paid in; trading is the fallback for a source that reports
-// only the instrument's own denomination.
-func settleCurrency(tx *apiv1.Tx) string {
-	if c := strings.ToUpper(strings.TrimSpace(tx.GetSettlementCurrency())); c != "" {
-		return c
-	}
-	return strings.ToUpper(strings.TrimSpace(tx.GetTradingCurrency()))
-}
-
 // ownCommodity names the posting's own units.
 func ownCommodity(tx *apiv1.Tx, instID string, inst balanceInstrument) commodity {
 	if inst.isCurrency && inst.currency != "" {

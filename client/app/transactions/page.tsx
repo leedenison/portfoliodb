@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import { useUploadModal } from "@/contexts/upload-modal-context";
 import { usePagination } from "@/hooks/use-pagination";
+import { figureCurrency } from "@/lib/currency";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { listTxs } from "@/lib/portfolio-api";
@@ -235,7 +236,7 @@ function TxRow({
   const accountTypeLabel = ACCOUNT_TYPE_LABEL[tx.accountType];
   const ticker = currentTicker(ptx.instrument);
   const label = ticker || ptx.instrument?.name || tx.instrumentDescription || "\u2014";
-  const currency = tx.tradingCurrency || tx.settlementCurrency || "";
+  const currency = figureCurrency(tx);
 
   return (
     <tr

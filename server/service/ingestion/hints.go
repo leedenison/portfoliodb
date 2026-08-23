@@ -7,10 +7,10 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// HintsFromTx builds resolution hints from a transaction. Only trading_currency
-// is passed as the currency hint to plugins (never settlement_currency). The
-// security type hint is the asset class the source stated, and empty when it
-// made no claim.
+// HintsFromTx builds resolution hints from a transaction. The currency hint is
+// quotedIn: the line the source stated the security trades on, and never what
+// the record settled in. The security type hint is the asset class the source
+// stated, and empty when it made no claim.
 //
 // The instrument kind defaults to SECURITY rather than to "anything": a row is
 // routed to the cash plugins only when its source stated CASH. An unstated hint
@@ -32,7 +32,7 @@ func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 		}
 	}
 	return identifier.Hints{
-		Currency:         tx.GetTradingCurrency(),
+		Currency:         quotedIn(tx),
 		InstrumentKind:   kind,
 		SecurityTypeHint: hint,
 	}

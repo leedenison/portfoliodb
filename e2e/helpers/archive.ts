@@ -87,9 +87,10 @@ export function writeGeneratedArchive(opts: {
         close: badDecimal.has(key) ? "not-a-number" : (100 + (r % 50) + i / 1000).toFixed(4),
       });
     }
+    // The group is one listing, named by an identifier and the currency saying
+    // which of the security's lines it is.
     priceGroups.push({
-      instrument: { type: "MIC_TICKER", value: ticker, domain: "XNAS" },
-      currency: "USD",
+      instrument: { type: "MIC_TICKER", value: ticker, domain: "XNAS", currency: "USD" },
       coverage: [{ from: day(0), before: day(rowsEach) }],
       rows,
     });
@@ -97,7 +98,7 @@ export function writeGeneratedArchive(opts: {
 
   const doc = {
     envelope: {
-      format_version: 1,
+      format_version: 2,
       exported_at: "2026-07-30T00:00:00Z",
       source_instance: "e2e-generated",
       kind: "SYSTEM",

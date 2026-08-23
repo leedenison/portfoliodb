@@ -22,6 +22,7 @@ import (
 func systemArchivePayload(t *testing.T) []byte {
 	t.Helper()
 	ref := &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"}
+	priced := &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD"}
 	b, err := proto.Marshal(&archivev1.SystemArchive{
 		Envelope: &archivev1.Envelope{
 			FormatVersion: 1,
@@ -33,8 +34,10 @@ func systemArchivePayload(t *testing.T) []byte {
 			Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true}},
 		}}},
 		Prices: &archivev1.PricePart{Groups: []*archivev1.PriceGroup{{
-			Instrument: ref,
-			Currency:   "USD",
+			// A price group names a line, so its ref carries the currency; the
+			// corporate event group below names the security and shares `ref`
+			// exactly as it stands.
+			Instrument: priced,
 			Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 		}}},
 		CorporateEvents: &archivev1.CorporateEventPart{Groups: []*archivev1.CorporateEventGroup{{

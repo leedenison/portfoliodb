@@ -18,7 +18,7 @@ import type { SystemArchive, UserArchive } from "@/gen/archive/v1/archive_pb";
 import { ArchiveKind } from "@/gen/archive/v1/common_pb";
 
 /** What this build writes, and the highest it will read. */
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
 
 const writeOpts = {
   // snake_case keys. Without this protobuf-es writes lowerCamelCase, which is a

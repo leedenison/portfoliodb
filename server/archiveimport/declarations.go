@@ -111,13 +111,12 @@ func DeclarationPart(ctx context.Context, database db.DB, userID string, part *a
 			if instrumentID == "" {
 				continue
 			}
-			// The line the declaration is on. The file states no currency of its
-			// own yet -- naming the listing in the archive is 0151 -- so this is
-			// the last rung of the ladder, the security's sole line, and no line
-			// where it has several.
-			listingID, err := database.SoleListing(ctx, instrumentID)
+			listingID, err := findDeclaredListing(ctx, database, instrumentID, d.GetInstrument().GetCurrency(), idx, rep)
 			if err != nil {
 				return written, fmt.Errorf("resolve listing: %w", err)
+			}
+			if listingID == "" && d.GetInstrument().GetCurrency() != "" {
+				continue
 			}
 
 			holding := db.Holding{
@@ -136,6 +135,33 @@ func DeclarationPart(ctx context.Context, database db.DB, userID string, part *a
 	return written, nil
 }
 
+// findDeclaredListing maps a declaration's stated currency to one of the
+// security's lines, reporting a miss against the row.
+//
+// Find-only, and never a creation, for the reason the instrument lookup above is:
+// a declaration is a statement about a holding, so a line the instance does not
+// have leaves it nothing to pad and nothing to check against. A user saying how
+// much of something they hold has also not said the security is quoted in that
+// currency -- minting a line from it would let a typo in a file invent one.
+//
+// A ref with no currency names no line, which is a declaration the exporting
+// instance could not place either. That is carried through as it stands rather
+// than settled here: settling it would turn "nothing said which" into a claim,
+// and the fallback belongs to the paths that are writing a new declaration.
+func findDeclaredListing(ctx context.Context, database db.DB, instrumentID, currency string, idx int, rep *PartReporter) (string, error) {
+	if currency == "" {
+		return "", nil
+	}
+	id, err := database.FindListing(ctx, instrumentID, currency)
+	if err != nil {
+		return "", err
+	}
+	if id == "" {
+		rep.Errf(idx, "instrument", fmt.Sprintf("the instrument is not quoted in %s on this instance", currency))
+	}
+	return id, nil
+}
+
 // findDeclaredInstrument maps a declaration's instrument reference to an
 // instrument this instance already has, reporting a miss against the row.
 //
@@ -149,7 +175,8 @@ func DeclarationPart(ctx context.Context, database db.DB, userID string, part *a
 //
 // A row failing here is a defect rather than a user error: the instrument was
 // picked in the UI when the declaration was made, and the export writes whichever
-// identifier the listing join ranks highest. ResolveByHintsDBOnly rather than a
+// identifier the listing join ranks highest, with the line's currency beside it.
+// ResolveByHintsDBOnly rather than a
 // bare lookup is what keeps the two ends in step -- it normalises OCC to the
 // compact form the column stores, and falls back to (type, value) where the file
 // states no domain.

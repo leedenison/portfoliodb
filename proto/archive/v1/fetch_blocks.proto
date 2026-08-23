@@ -29,6 +29,11 @@ message FetchBlockPart {
 // plugin. A price block names one of its currency lines and says which on the
 // block itself, under the rule that a field varying per row lives on the row.
 message FetchBlockGroup {
+  option (buf.validate.message).cel = {
+    id: "fetch_block_group.instrument_names_a_security"
+    message: "instrument.currency must be empty: a PRICE block states its own currency, and a CORPORATE_EVENT block is on the security"
+    expression: "this.instrument.currency == ''"
+  };
   InstrumentRef instrument = 1 [(buf.validate.field).required = true];
   repeated FetchBlock blocks = 2;
 }

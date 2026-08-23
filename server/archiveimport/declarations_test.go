@@ -36,9 +36,13 @@ func expectStartDate(t *testing.T, database *mock.MockDB) {
 	database.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&start, nil)
 }
 
+// decl is one declaration naming a line: the fixtures state USD, which is what an
+// export of a US security writes.
 func decl(value, qty string, basis *string) *archivev1.Declaration {
 	return &archivev1.Declaration{
-		Instrument:      &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: value, Domain: "XNAS"},
+		Instrument: &archivev1.InstrumentRef{
+			Type: typev1.IdentifierType_MIC_TICKER, Value: value, Domain: "XNAS", Currency: "USD",
+		},
 		DeclaredQty:     qty,
 		ShareCountBasis: basis,
 	}
@@ -57,20 +61,19 @@ func declarationPart(sts ...*archivev1.Statement) *archivev1.DeclarationPart {
 	return &archivev1.DeclarationPart{Statements: sts}
 }
 
-// expectResolve stubs the DB-only lookup for one identifier value, and the line
-// the resolved security has: the file states no currency, so the import settles
-// the line from the security's sole one.
+// expectResolve stubs the DB-only lookup for one identifier value, and the USD
+// line the file names on the security it resolves to.
 func expectResolve(database *mock.MockDB, value, instrumentID string) {
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", value).
 		Return(instrumentID, nil)
 	database.EXPECT().
-		SoleListing(gomock.Any(), instrumentID).
+		FindListing(gomock.Any(), instrumentID, "USD").
 		Return(instrumentID+"-line", nil).AnyTimes()
 }
 
 // held is the holding a declaration in these fixtures is about: one user, one
-// broker, and the security's sole line.
+// broker, and the line the file's currency names.
 func held(account, instrumentID string) db.Holding {
 	return db.Holding{
 		UserID:       "user-1",
@@ -273,5 +276,58 @@ func TestDeclarationPart_AWriteFailureFailsThePart(t *testing.T) {
 		declarationPart(statement("Z1", "2024-01-31", decl("AAPL", "100", nil))), rep)
 	if err == nil {
 		t.Fatal("DeclarationPart succeeded, want the write failure to fail the part")
+	}
+}
+
+// A currency the instance does not quote the security in names no line, so the
+// row is rejected rather than landing on a line somebody picked for it. Nothing
+// mints the line either: a user saying how much of something they hold has not
+// said the security is quoted in that currency, and a typo in a file would
+// otherwise invent one.
+func TestDeclarationPart_RejectsACurrencyTheSecurityIsNotQuotedIn(t *testing.T) {
+	database, rep := newPartTest(t)
+	expectStartDate(t, database)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-a", nil)
+	database.EXPECT().
+		FindListing(gomock.Any(), "inst-a", "USD").
+		Return("", nil)
+
+	n := applyDeclarations(t, database, rep, declarationPart(
+		statement("Z1", "2024-01-31", decl("AAPL", "100", nil)),
+	))
+	if n != 0 {
+		t.Fatalf("wrote %d declarations, want none", n)
+	}
+	if rep.ErrCount() != 1 {
+		t.Fatalf("reported %d row errors, want 1: %v", rep.ErrCount(), rep.Errors())
+	}
+}
+
+// A ref with no currency names no line, which is the declaration the exporting
+// instance could not place either. It is carried through as it stands: settling
+// it here would turn "nothing said which" into a claim about the security.
+func TestDeclarationPart_ARefWithNoCurrencyLandsOnNoLine(t *testing.T) {
+	database, rep := newPartTest(t)
+	expectStartDate(t, database)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-a", nil)
+	unplaced := held("Z1", "inst-a")
+	unplaced.ListingID = ""
+	database.EXPECT().
+		UpsertHoldingDeclaration(gomock.Any(), unplaced, "100",
+			day(t, "2024-01-31"), day(t, "2024-01-31")).
+		Return(nil)
+
+	d := decl("AAPL", "100", nil)
+	d.Instrument.Currency = ""
+	n := applyDeclarations(t, database, rep, declarationPart(statement("Z1", "2024-01-31", d)))
+	if n != 1 {
+		t.Fatalf("wrote %d declarations, want 1", n)
+	}
+	if rep.ErrCount() != 0 {
+		t.Fatalf("reported %d row errors, want none: %v", rep.ErrCount(), rep.Errors())
 	}
 }

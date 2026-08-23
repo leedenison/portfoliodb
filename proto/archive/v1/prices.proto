@@ -14,31 +14,45 @@ message PricePart {
   repeated PriceGroup groups = 1;
 }
 
-// PriceGroup is one instrument's prices together with the coverage saying which
-// dates were answered for. There is exactly one group per instrument: the share
+// PriceGroup is one listing's prices together with the coverage saying which
+// dates were answered for. There is exactly one group per listing: the share
 // count a bar is denominated in varies by bar and is stated on the row, so a
 // file carrying a back-adjusted series alongside an as-traded one -- the case
 // the price CSV could only meet by writing two separate files -- is still one
 // group.
+//
+// A price is quoted in a currency, so the aggregate root is the line rather than
+// the security: two lines of one security differ by an FX rate, and a group that
+// could not say which line it was would value a holding at whichever line a
+// plugin happened to fetch.
+// See docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
 message PriceGroup {
+  option (buf.validate.message).cel = {
+    id: "price_group.instrument_names_a_listing"
+    message: "instrument.currency is required: a price group is one listing's bars, and a price with no stated currency asserts nothing"
+    expression: "this.instrument.currency != ''"
+  };
+  // The listing: a security identifier or one of its lines', plus the currency
+  // saying which line. Required, currency included -- an unpriceable line is the
+  // one whose currency is unknown, so a group naming no currency names nothing
+  // this can store.
   InstrumentRef instrument = 1 [(buf.validate.field).required = true];
   // Security type hint, used to route the identifier plugins when the importing
   // instance does not know the instrument. ASSET_CLASS_UNSPECIFIED skips them
   // and creates the instrument from the supplied identifier alone.
   portfoliodb.type.v1.AssetClass asset_class = 2 [(buf.validate.field).enum.defined_only = true];
-  string currency = 3; // ISO 4217; a validation hint, denormalized from the instrument
-  // The intervals this instrument was authoritatively answered for. An interval
+  // The intervals this listing was authoritatively answered for. An interval
   // holding no rows is meaningful and is the only way a file can say a provider
   // was asked about those dates and had nothing; dropping it leaves valuation
   // treating the days between reported bars as unpriced. An empty list means
   // each row covers only its own date.
   // See docs/adr/0023-price-coverage-is-stored-not-inferred.md.
-  repeated DateInterval coverage = 4;
-  repeated PriceRow rows = 5;
+  repeated DateInterval coverage = 3;
+  repeated PriceRow rows = 4;
 }
 
-// PriceRow is one end-of-day bar. It carries what varies per day: the
-// identifier, asset class and currency are on the group.
+// PriceRow is one end-of-day bar. It carries what varies per day: the listing and
+// the asset class are on the group.
 message PriceRow {
   // Valid time: the trading date this bar describes.
   string price_date = 1 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
@@ -52,7 +66,7 @@ message PriceRow {
   // one.
   // See docs/spec/bitemporality.md.
   optional string share_count_basis = 2 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
-  // OHLC are decimal strings in the group's currency, as the source supplied
+  // OHLC are decimal strings in the currency of the group's listing, as the source supplied
   // them. Export and import are a round-trip pair, and a row that does not
   // reimport identically is a bug; trailing zeroes are the only thing not
   // preserved, since "1.50" and "1.5" are the same price.

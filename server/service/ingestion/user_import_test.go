@@ -282,10 +282,13 @@ func declarationArchivePayload(t *testing.T) []byte {
 				Account:  "Z1",
 				AsOfDate: "2024-01-31",
 				Declarations: []*archivev1.Declaration{{
+					// The currency names which of the security's lines the
+					// declaration is about, and is what the import resolves it to.
 					Instrument: &archivev1.InstrumentRef{
-						Type:   typev1.IdentifierType_MIC_TICKER,
-						Value:  "AAPL",
-						Domain: "XNAS",
+						Type:     typev1.IdentifierType_MIC_TICKER,
+						Value:    "AAPL",
+						Domain:   "XNAS",
+						Currency: "USD",
 					},
 					DeclaredQty: "100",
 				}},
@@ -315,7 +318,7 @@ func TestProcessUserImport_DeclarationsPartStoresAndEarnsTheRecalc(t *testing.T)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-a", nil)
-	database.EXPECT().SoleListing(gomock.Any(), "inst-a").Return("line-a", nil)
+	database.EXPECT().FindListing(gomock.Any(), "inst-a", "USD").Return("line-a", nil)
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), db.Holding{
 			UserID: "user-7", Broker: "FIDELITY", Account: "Z1",

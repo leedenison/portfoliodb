@@ -53,8 +53,7 @@ func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 
 	// A valid enum value the resolver has no plugin vocabulary for.
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OPENFIGI_GLOBAL, Value: "BBG000B9XRY4"},
-		Currency:   "USD",
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OPENFIGI_GLOBAL, Value: "BBG000B9XRY4", Currency: "USD"},
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -90,8 +89,7 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
-		Currency:   "USD",
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD"},
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -129,8 +127,7 @@ func TestProcessPriceImport_CarriesShareCountBasis(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "NVDA", Domain: "XNAS"},
-		Currency:   "USD",
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "NVDA", Domain: "XNAS", Currency: "USD"},
 		Rows: []*archivev1.PriceRow{
 			{PriceDate: "2024-01-15", Close: "48.0"},
 			{PriceDate: "2024-01-16", ShareCountBasis: proto.String("2024-06-10"), Close: "4.8"},
@@ -184,8 +181,7 @@ func TestProcessPriceImport_CoverageWithNoRows(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "DELISTED", Domain: "XNAS"},
-		Currency:   "USD",
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "DELISTED", Domain: "XNAS", Currency: "USD"},
 		Coverage:   []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-04-01"}},
 	})
 
@@ -221,8 +217,7 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
-		Currency:   "USD",
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD"},
 		Coverage:   []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-04-01"}},
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
@@ -259,8 +254,7 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 	// Coverage now sits inside the group it applies to, so a group that
 	// declares none has bars covering only their own dates.
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
-		Currency:   "USD",
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD"},
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -297,8 +291,7 @@ func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
-		Currency:   "USD",
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD"},
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -342,8 +335,7 @@ func TestProcessPriceImport_RejectsCurrencyHintDiff(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
-		Currency:   "GBP",
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "GBP"},
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -384,9 +376,8 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_FX_PAIR, Value: "EURGBP"},
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_FX_PAIR, Value: "EURGBP", Currency: "EUR"},
 		AssetClass: typev1.AssetClass_FX,
-		Currency:   "EUR",
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2021-12-31", Close: "0.84"}},
 	})
 
@@ -481,9 +472,8 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OCC, Value: "NVDA240315P00510000"},
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OCC, Value: "NVDA240315P00510000", Currency: "USD"},
 		AssetClass: typev1.AssetClass_OPTION,
-		Currency:   "USD",
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-03-01", Close: "12.50"}},
 	})
 
@@ -554,9 +544,8 @@ func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 
 	exportedAt := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	part := pricePart(&archivev1.PriceGroup{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OCC, Value: "NVDA240315P00510000"},
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OCC, Value: "NVDA240315P00510000", Currency: "USD"},
 		AssetClass: typev1.AssetClass_OPTION,
-		Currency:   "USD",
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-03-01", Close: "12.50"}},
 	})
 

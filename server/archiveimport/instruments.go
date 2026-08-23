@@ -44,6 +44,9 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 				byRef[refKey(idf.GetType(), idf.GetValue(), idf.GetDomain())] = i
 			}
 		}
+		for _, idf := range inst.GetUnplacedIdentifiers() {
+			byRef[refKey(idf.GetType(), idf.GetValue(), idf.GetDomain())] = i
+		}
 	}
 
 	seenKeys := make(map[string]struct{})
@@ -164,14 +167,14 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 		rep.Errf(i, "instruments", msg)
 		return ""
 	}
-	if len(inst.GetListings()) == 0 {
-		return fail("at least one listing required")
-	}
 	idns, err := archiveIdentifiers(inst.GetIdentifiers(), seenKeys)
 	if err != nil {
 		return fail(err.Error())
 	}
-	listings := make([]db.ListingMerge, 0, len(inst.GetListings()))
+	set := db.ListingSet{
+		Listings:         make([]db.ListingMerge, 0, len(inst.GetListings())),
+		UnplacedProvider: archiveProviderIdentifiers(inst.GetUnplacedProviderIdentifiers()),
+	}
 	claimed := make([]db.IdentifierInput, 0, len(idns))
 	claimed = append(claimed, idns...)
 	for _, l := range inst.GetListings() {
@@ -180,7 +183,7 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 			return fail(err.Error())
 		}
 		claimed = append(claimed, lidns...)
-		listings = append(listings, db.ListingMerge{
+		set.Listings = append(set.Listings, db.ListingMerge{
 			Currency:            l.GetCurrency(),
 			ValidFrom:           archiveDate(l.ValidFrom),
 			ValidBefore:         archiveDate(l.ValidBefore),
@@ -188,8 +191,13 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 			ProviderIdentifiers: archiveProviderIdentifiers(l.GetProviderIdentifiers()),
 		})
 	}
+	set.Unplaced, err = archiveIdentifiers(inst.GetUnplacedIdentifiers(), seenKeys)
+	if err != nil {
+		return fail(err.Error())
+	}
+	claimed = append(claimed, set.Unplaced...)
 	if len(claimed) == 0 {
-		return fail("at least one identifier required, on the security or on one of its listings")
+		return fail("at least one identifier required, on the security, on one of its listings, or on none of them")
 	}
 	opts, err := archiveOptionFields(inst)
 	if err != nil {
@@ -200,15 +208,15 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	// several. The column is on its way out in issue 0155; until then filling it
 	// keeps a restored instrument reading the way a resolved one does.
 	currency := ""
-	if len(listings) == 1 {
-		currency = listings[0].Currency
+	if len(set.Listings) == 1 {
+		currency = set.Listings[0].Currency
 	}
 	// The instrument block names its identifiers together, so it is one claim
 	// rather than a set assembled from several answers. An archive carrying
 	// instrument data is admin-only and authoritative at every level, which is
 	// what makes that claim admissible (adr/0063).
 	id, listingID, err := database.EnsureArchiveInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), "", currency,
-		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, listings,
+		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, set,
 		[]db.IdentityClaim{archiveClaim(claimed)}, underlyingListingID, opts)
 	if err != nil {
 		return fail(err.Error())

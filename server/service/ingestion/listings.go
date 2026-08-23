@@ -63,31 +63,22 @@ func listingFor(tx *apiv1.Tx, inst *db.InstrumentRow) string {
 func listingInFamily(inst *db.InstrumentRow, code string) string {
 	want := currency.Family(code)
 	for _, l := range inst.Listings {
-		if l.Currency == nil {
-			continue
-		}
-		if currency.Family(strings.ToUpper(*l.Currency)) == want {
+		if currency.Family(strings.ToUpper(l.Currency)) == want {
 			return l.ID
 		}
 	}
 	return ""
 }
 
-// soleListing is the security's only line, when it has exactly one and that line
-// has a currency.
+// soleListing is the security's only line, when it has exactly one.
 //
 // A security with several lines and nothing naming one is the case this whole
 // change exists for: picking one would value the holding at an FX rate nobody
-// stated. A security whose only line is the currency-unknown one has nothing to
-// name either -- that row says how many lines it has is unknown, which is not a
-// line a posting can be on.
+// stated. A security with no line at all has nothing to name either -- nobody has
+// said what it is quoted in, and the posting says so by naming none.
 func soleListing(inst *db.InstrumentRow) string {
 	if len(inst.Listings) != 1 {
 		return ""
 	}
-	l := inst.Listings[0]
-	if l.Currency == nil {
-		return ""
-	}
-	return l.ID
+	return inst.Listings[0].ID
 }

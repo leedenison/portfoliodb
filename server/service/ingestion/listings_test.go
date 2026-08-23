@@ -5,15 +5,10 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
-	"google.golang.org/protobuf/proto"
 )
 
 func listing(id, code string) *db.Listing {
-	l := &db.Listing{ID: id}
-	if code != "" {
-		l.Currency = proto.String(code)
-	}
-	return l
+	return &db.Listing{ID: id, Currency: code}
 }
 
 // The rungs, in order, and what each one refuses.
@@ -69,11 +64,10 @@ func TestResolveListings(t *testing.T) {
 			want:     "",
 		},
 		{
-			// The currency-unknown listing says how many lines the security has
-			// is unknown. That is not a line a posting can be on.
-			name:     "a security whose only line has no currency names none",
+			// Nobody has said what it is quoted in, so there is no line to be on.
+			name:     "a security with no line at all names none",
 			tx:       &apiv1.Tx{},
-			listings: []*db.Listing{listing("unknown", "")},
+			listings: nil,
 			want:     "",
 		},
 		{

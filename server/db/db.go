@@ -148,9 +148,9 @@ type EODPrice struct {
 
 // PriceCacheDB provides price cache management.
 //
-// Every method keys on the listing. A currency-unknown listing never appears:
-// it is not priceable, so it is neither held for pricing purposes nor answered
-// for. See docs/spec/prices.md.
+// Every method keys on the listing, and every listing has a currency, so every
+// answer is in a currency somebody stated. A holding on no line is unpriced
+// rather than answered for. See docs/spec/prices.md.
 type PriceCacheDB interface {
 	// HeldRanges computes system-wide date ranges during which any user held
 	// a non-zero position in each priceable listing.
@@ -302,9 +302,7 @@ type Weight struct {
 // ListingID is empty where nothing did. That is a first-class state rather than
 // a gap to be filled by picking a line: a security quoted in two currencies is
 // two holdings an FX rate apart, and naming one of them on a posting that stated
-// neither would value the position at a rate nobody could state. It is not the
-// same as the security's currency-unknown listing either, which says how many
-// lines the security has is unknown.
+// neither would value the position at a rate nobody could state.
 //
 // See docs/adr/0072-a-posting-names-a-security-and-a-line.md.
 type Resolution struct {
@@ -733,16 +731,28 @@ type ProviderIdentifierInput struct {
 
 // ListingMerge is what a file says about one of a security's currency lines.
 //
-// Currency is the key: it is what says which line this is, and an empty one names
-// the security's unknown line -- how many lines it has is what is unknown, not
-// whether it has any. Identifiers are listing-grain, and a name another line
-// already holds is left where it is, a stored value winning (adr/0004).
+// Currency is the key: it is what says which line this is, and a line without one
+// is not a line. Identifiers are listing-grain, and a name another line already
+// holds is left where it is, a stored value winning (adr/0004).
 type ListingMerge struct {
 	Currency            string
 	ValidFrom           *time.Time
 	ValidBefore         *time.Time
 	Identifiers         []IdentifierInput
 	ProviderIdentifiers []ProviderIdentifierInput
+}
+
+// ListingSet is a file's whole account of a security's lines: the lines
+// themselves, and the listing-grain names that belong to no line of it.
+//
+// One argument rather than three, because the three are one statement -- a file
+// carrying names for a line it did not state is describing something else. See
+// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+type ListingSet struct {
+	Listings []ListingMerge
+	// Listing-grain names the file placed on no line.
+	Unplaced         []IdentifierInput
+	UnplacedProvider []ProviderIdentifierInput
 }
 
 // InstrumentMerge is what an archive file says about an instrument, for filling
@@ -1281,9 +1291,15 @@ type InstrumentRow struct {
 	Identifiers         []IdentifierInput
 	Listings            []*Listing                // the currency lines this security trades in
 	ProviderIdentifiers []ProviderIdentifierInput // security-grain provider identifiers
-	ExchangeName        *string                   // read-only; from exchanges JOIN
-	ExchangeAcronym     *string                   // read-only; from exchanges JOIN
-	ExchangeCountryCode *string                   // read-only; from exchanges JOIN
+	// Listing-grain names nobody could place: a ticker or a SEDOL from a result
+	// that stated no currency. They name this security and no line of it, which
+	// is a different claim from either of the two sets above. See
+	// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+	UnplacedIdentifiers         []IdentifierInput
+	UnplacedProviderIdentifiers []ProviderIdentifierInput
+	ExchangeName                *string // read-only; from exchanges JOIN
+	ExchangeAcronym             *string // read-only; from exchanges JOIN
+	ExchangeCountryCode         *string // read-only; from exchanges JOIN
 	// The underlying named by its highest-priority identifier rather than by
 	// UUID, which is how a file has to name it. Populated by
 	// ListInstrumentsForExport and nil everywhere else; use UnderlyingListingID
@@ -1301,18 +1317,17 @@ type InstrumentRow struct {
 // GBP and in USD may carry one ISIN, and holdings in the two lines are not
 // fungible because they differ by an FX rate.
 //
-// A security holds one listing per currency family, and at most one whose
-// currency is unknown. See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+// A security holds one listing per currency family. A line carries a currency or
+// does not exist, so a security nobody has named a line for holds none; the
+// listing-grain names it holds are on InstrumentRow.UnplacedIdentifiers. See
+// docs/adr/0068-a-listing-is-a-currency-of-a-security.md and
+// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
 type Listing struct {
 	ID           string
 	InstrumentID string
 	// The code the line is quoted in, in the units it is quoted in: GBX for a
 	// London line quoted in pence, not the GBP its family collapses to.
-	//
-	// nil is the unknown listing, which says how many lines this security has is
-	// unknown rather than that it has one. It is never priceable and never
-	// event-bearing, because a price with no stated currency asserts nothing.
-	Currency    *string
+	Currency    string
 	ValidFrom   *time.Time
 	ValidBefore *time.Time
 	CreatedAt   time.Time
@@ -1352,7 +1367,7 @@ type Listing struct {
 // from its type, so a lookup asks the table its type names; searching both is
 // the polymorphic read the split exists to remove.
 func (r *InstrumentRow) AllIdentifiers() []IdentifierInput {
-	n := len(r.Identifiers)
+	n := len(r.Identifiers) + len(r.UnplacedIdentifiers)
 	for _, l := range r.Listings {
 		n += len(l.Identifiers)
 	}
@@ -1361,7 +1376,9 @@ func (r *InstrumentRow) AllIdentifiers() []IdentifierInput {
 	for _, l := range r.Listings {
 		out = append(out, l.Identifiers...)
 	}
-	return out
+	// A name on no line is still a name for this security, so a caller taking
+	// every name takes these too.
+	return append(out, r.UnplacedIdentifiers...)
 }
 
 // IdentifiersFor is the identifiers that name one line: the security's own,
@@ -1372,8 +1389,10 @@ func (r *InstrumentRow) AllIdentifiers() []IdentifierInput {
 // of one security carry different tickers, so handing a plugin both is handing it
 // a name for a line it was not asked about.
 //
-// An unknown listing id returns the security's identifiers alone, which is the
-// truthful answer: nothing is known to name the line.
+// A listing id the security does not hold returns its identifiers alone, which is
+// the truthful answer: nothing is known to name that line. The names that name no line
+// are left out for the same reason a sibling's are -- they name some line of this
+// security, and nothing says it is this one.
 func (r *InstrumentRow) IdentifiersFor(listingID string) []IdentifierInput {
 	out := make([]IdentifierInput, 0, len(r.Identifiers))
 	out = append(out, r.Identifiers...)
@@ -1402,7 +1421,7 @@ func (r *InstrumentRow) ProviderIdentifiersFor(listingID string) []ProviderIdent
 // AllProviderIdentifiers is AllIdentifiers for provider-specific identifiers,
 // and exists for the same callers.
 func (r *InstrumentRow) AllProviderIdentifiers() []ProviderIdentifierInput {
-	n := len(r.ProviderIdentifiers)
+	n := len(r.ProviderIdentifiers) + len(r.UnplacedProviderIdentifiers)
 	for _, l := range r.Listings {
 		n += len(l.ProviderIdentifiers)
 	}
@@ -1411,7 +1430,7 @@ func (r *InstrumentRow) AllProviderIdentifiers() []ProviderIdentifierInput {
 	for _, l := range r.Listings {
 		out = append(out, l.ProviderIdentifiers...)
 	}
-	return out
+	return append(out, r.UnplacedProviderIdentifiers...)
 }
 
 // ListingDB reads the currency lines of a security.
@@ -1426,13 +1445,12 @@ type ListingDB interface {
 	// create what it is being told not to fetch.
 	FindListing(ctx context.Context, instrumentID, currency string) (string, error)
 	// EnsureListing returns the line the given currency names on a security,
-	// minting it where the security does not hold that currency family yet and
-	// relabelling its unknown line where it has one. Idempotent.
+	// minting it where the security does not hold that currency family yet.
+	// Idempotent.
 	//
-	// An empty currency names no line, and the answer is the security's unknown
-	// listing, or "" where it has more than one line and nothing said which. A
-	// caller that must have a priceable line treats "" as a refusal rather than
-	// picking one.
+	// An empty currency mints nothing and names no line: the answer is the
+	// security's sole line, and "" where it has none or several. A caller that
+	// must have a priceable line treats "" as a refusal rather than picking one.
 	EnsureListing(ctx context.Context, instrumentID, currency string) (string, error)
 	// ListingsByIDs reads listings by their own ids, with the identifiers and
 	// venues that hang off them. For a caller whose unit of work is the line
@@ -1616,11 +1634,10 @@ type InstrumentDB interface {
 	// whose type names a listing is written against that line rather than
 	// against the security.
 	//
-	// The listing is "" only where the caller stated no currency and the
-	// security has more than one line. Nothing said which, and choosing would
-	// attach the caller's listing-grain identifiers to a currency nobody stated.
-	// A caller in that position has to state a currency; one whose security has
-	// a single line, the unknown line included, always gets it.
+	// The listing is "" where the caller stated no currency and the security has
+	// no single line to fall back on. Nothing said which, so the caller's
+	// listing-grain identifiers are filed against the security on no line rather
+	// than attached to a currency nobody stated.
 	//
 	// claims says which of those identifiers were named together, and by which
 	// answer. It is what separates an association somebody asserted from a set
@@ -1644,7 +1661,7 @@ type InstrumentDB interface {
 	// Every listing the file states is ensured. It returns the security and the
 	// first line the file named, which is what a caller with one line in mind --
 	// every caller today -- is asking for.
-	EnsureArchiveInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, listings []ListingMerge, claims []IdentityClaim, underlyingListingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
+	EnsureArchiveInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, listings ListingSet, claims []IdentityClaim, underlyingListingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
 	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but also returns asset_class, exchange_mic (ISO 10383 MIC code), and currency from the instruments table in one query.

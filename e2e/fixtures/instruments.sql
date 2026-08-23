@@ -31,8 +31,8 @@ ON CONFLICT DO NOTHING;
 -- A ticker names one line of a security, so it goes on the listing above rather
 -- than beside the ISIN. Which table a row belongs in follows from its type; see
 -- docs/spec/identifiers.md.
-INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, value, canonical)
-SELECT l.id, 'MIC_TICKER', v.ticker, true
+INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, value, canonical)
+SELECT l.instrument_id, l.id, 'MIC_TICKER', v.ticker, true
 FROM (VALUES ('e2e00000-0000-0000-0000-000000000101', 'AMZN'),
              ('e2e00000-0000-0000-0000-000000000102', 'NVDA'),
              ('e2e00000-0000-0000-0000-000000000103', 'TSLA')) AS v(instrument_id, ticker)

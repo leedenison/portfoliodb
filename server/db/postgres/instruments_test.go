@@ -394,7 +394,7 @@ func TestEnsureInstrument_CompletesADescriptionOnlyInstrument(t *testing.T) {
 	// named rather than beside the ISIN on the security.
 	if tkr, lst := findListingIdentifier(row, "MIC_TICKER", "VWRP"); tkr == nil {
 		t.Errorf("MIC_TICKER not written onto the instrument that had no identity")
-	} else if lst.Currency == nil || *lst.Currency != "USD" {
+	} else if lst.Currency != "USD" {
 		t.Errorf("MIC_TICKER landed on listing %v, want the USD line", lst.Currency)
 	}
 	if row.AssetClass == nil || *row.AssetClass != "STOCK" {
@@ -1837,17 +1837,15 @@ func TestMergeInstruments_PostingsMoveToTheSurvivorsLine(t *testing.T) {
 	}
 }
 
-// Where the survivor has no line to match, the posting moves to no line at all.
-// That is exactly what is true of it -- this security, line not known -- and it is
-// recoverable, where a dangling reference would not be. See adr/0071 for the split
-// that finishes the job.
-func TestMergeInstruments_PostingOnAnUnmatchableLineLosesIt(t *testing.T) {
+// A posting that named no line still names none afterwards, and follows its
+// security across. Under a sentinel model there was nowhere for such a posting to
+// go; the null column is what makes "this security, line not known" survive a
+// merge. See docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+func TestMergeInstruments_PostingOnNoLineStaysOnNone(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	userID, _ := p.GetOrCreateUser(ctx, "sub|merge-line-drop", "U", "u@merge-line-drop.com")
+	userID, _ := p.GetOrCreateUser(ctx, "sub|merge-line-none", "U", "u@merge-line-none.com")
 
-	// The survivor has two currency lines, so nothing says which of them the
-	// loser's currency-unknown line belongs to.
 	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "S", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SS1"}, Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
@@ -1856,13 +1854,15 @@ func TestMergeInstruments_PostingOnAnUnmatchableLineLosesIt(t *testing.T) {
 	if _, err := p.EnsureListing(ctx, survivor, "GBP"); err != nil {
 		t.Fatalf("second survivor line: %v", err)
 	}
+	// Nothing stated a currency for the loser, so it has no line and the posting
+	// below is on none.
 	loser, loserLine, err := p.EnsureInstrument(ctx, "STOCK", "", "", "L", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000LL2"}, Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
-	if loserLine == "" {
-		t.Fatalf("fixture wants the loser's unknown line")
+	if loserLine != "" {
+		t.Fatalf("loser has line %s, want none: nothing stated a currency", loserLine)
 	}
 
 	from := timestamppb.New(time.Now().Add(-time.Hour))
@@ -1873,8 +1873,8 @@ func TestMergeInstruments_PostingOnAnUnmatchableLineLosesIt(t *testing.T) {
 		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "3", Account: "ACC",
 	}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs,
-		[]db.Resolution{{InstrumentID: loser, ListingID: loserLine}}, nil, nil); err != nil {
-		t.Fatalf("seed posting on the loser's unknown line: %v", err)
+		[]db.Resolution{{InstrumentID: loser}}, nil, nil); err != nil {
+		t.Fatalf("seed posting on no line: %v", err)
 	}
 
 	if err := p.runInTx(ctx, func(exec queryable) error {
@@ -1899,20 +1899,21 @@ func TestMergeInstruments_PostingOnAnUnmatchableLineLosesIt(t *testing.T) {
 }
 
 // A contract's strike is a price and a price is in a currency, so the underlying
-// it delivers is a line and not the security. A line with no currency leaves the
-// strike denominated in nothing, and the option is refused rather than stored.
-// See docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
-func TestEnsureInstrument_OptionOnACurrencyUnknownLine_Rejected(t *testing.T) {
+// it delivers is a line and not the security. Every line has a currency, so what
+// is left to refuse is a contract naming a line that is not there -- a security
+// nobody has named a line for cannot underwrite one. See
+// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+func TestEnsureInstrument_OptionOnALineThatIsNotThere_Rejected(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	underlyingID, unknownLine, err := p.EnsureInstrument(ctx, "STOCK", "", "", "U", "", "", []db.IdentifierInput{
+	underlyingID, line, err := p.EnsureInstrument(ctx, "STOCK", "", "", "U", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000UN1"}, Canonical: true}}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
-	if unknownLine == "" {
-		t.Fatalf("fixture wants the underlying's currency-unknown line")
+	if line != "" {
+		t.Fatalf("underlying has line %s, want none: nothing stated a currency", line)
 	}
 	_ = underlyingID
 
@@ -1920,12 +1921,12 @@ func TestEnsureInstrument_OptionOnACurrencyUnknownLine_Rejected(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "UNKN  260116C00150500"},
 			Canonical: true,
-		}}, nil, unknownLine, nil, nil,
+		}}, nil, uuid.New().String(), nil, nil,
 		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
 	if err == nil {
-		t.Fatal("expected the option to be refused: its underlying line states no currency")
+		t.Fatal("expected the option to be refused: it names a line that does not exist")
 	}
-	if !strings.Contains(err.Error(), "states no currency") {
+	if !strings.Contains(err.Error(), "does not exist") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -2047,9 +2048,9 @@ func TestIdentifierJoins_PickPerGrain(t *testing.T) {
 		t.Fatalf("ensure usd listing: %v", err)
 	}
 	if _, err := p.q.ExecContext(ctx, `
-		INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
-		VALUES ($1, 'MIC_TICKER', 'XLON', 'ABCU', true)
-	`, usd); err != nil {
+		INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
+		VALUES ($1, $2, 'MIC_TICKER', 'XLON', 'ABCU', true)
+	`, instID, usd); err != nil {
 		t.Fatalf("insert usd ticker: %v", err)
 	}
 

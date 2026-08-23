@@ -523,9 +523,11 @@ CREATE TABLE instrument_listings (
   id            UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   instrument_id UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
   -- The code the line is actually quoted in, not its family: GBX stays GBX so
-  -- price magnitudes and the existing scaling logic are untouched. NULL is the
-  -- unknown listing described by the partial index below.
-  currency      TEXT,
+  -- price magnitudes and the existing scaling logic are untouched. A line
+  -- carries a currency or does not exist: a security nobody has named a line for
+  -- holds none, and the listing-grain names it holds name no line. See
+  -- docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+  currency      TEXT NOT NULL,
   valid_from    DATE,
   valid_before  DATE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -545,16 +547,10 @@ CREATE TABLE instrument_listings (
   CONSTRAINT uq_instrument_listings_of_instrument UNIQUE (instrument_id, id)
 );
 
--- One listing per security per currency family, and at most one whose currency
--- is unknown. Two partial indexes rather than one index with NULLS NOT
--- DISTINCT, which would put this on a PostgreSQL 15 dependency.
---
--- The NULL row is not a default: it says how many lines the security has is
--- unknown, which is a different claim from "exactly one line, and it is this
--- currency". A listing with no currency is never priceable and never
--- event-bearing, since a price with no stated currency asserts nothing.
-CREATE UNIQUE INDEX uq_instrument_listings_currency ON instrument_listings (instrument_id, currency_family(currency)) WHERE currency IS NOT NULL;
-CREATE UNIQUE INDEX uq_instrument_listings_unknown ON instrument_listings (instrument_id) WHERE currency IS NULL;
+-- One listing per security per currency family. The family and not the code, so
+-- a provider quoting the London line in pence and another quoting it in pounds
+-- name one line rather than forking it in two.
+CREATE UNIQUE INDEX uq_instrument_listings_currency ON instrument_listings (instrument_id, currency_family(currency));
 
 -- The line a derivative delivers. The column is declared with the rest of
 -- instruments; only the foreign key waits until here, because
@@ -596,9 +592,16 @@ CREATE INDEX idx_listing_venues_mic ON listing_venues (mic);
 -- Every column below means what the matching column on instrument_identifiers
 -- means, including the half-open [valid_from, valid_before) interval and what a
 -- NULL bound says. Only the thing named differs.
+--
+-- The security and the line are carried as a pair, as a posting carries them: a
+-- result may supply a ticker or a SEDOL without supplying a currency, and then
+-- nothing says which line the name is on. NULL is that state, and it is the only
+-- one -- there is no listing standing in for it. See
+-- docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
 CREATE TABLE instrument_listing_identifiers (
   id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  listing_id      UUID NOT NULL REFERENCES instrument_listings (id) ON DELETE CASCADE,
+  instrument_id   UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  listing_id      UUID,
   identifier_type TEXT NOT NULL,
   domain          TEXT,
   value           TEXT NOT NULL,
@@ -621,7 +624,20 @@ CREATE TABLE instrument_listing_identifiers (
     COALESCE(domain, '') WITH =,
     value WITH =,
     daterange(valid_from, valid_before) WITH &&
-  )
+  ),
+  -- The line and the security it belongs to, referenced as a pair, so a name
+  -- cannot be filed on a line of some other security. MATCH SIMPLE skips the
+  -- check when the line is null, which is what makes the unplaced name
+  -- representable; instrument_id is NOT NULL, so there is no second case for a
+  -- CHECK to close.
+  --
+  -- ON DELETE CASCADE because a line's names go with the line, which is what the
+  -- reference to instrument_listings did before the pair. A merge moves them
+  -- first; this is the backstop, not the mechanism. An unplaced name matches no
+  -- listing and so survives one being deleted, which is right -- it never named
+  -- that line.
+  FOREIGN KEY (instrument_id, listing_id)
+    REFERENCES instrument_listings (instrument_id, id) MATCH SIMPLE ON DELETE CASCADE
 );
 
 -- The same pair of lookup indexes instrument_identifiers carries, and for the
@@ -631,6 +647,10 @@ CREATE TABLE instrument_listing_identifiers (
 CREATE INDEX idx_instrument_listing_identifiers_lookup ON instrument_listing_identifiers (identifier_type, value);
 CREATE INDEX idx_instrument_listing_identifiers_lookup_domain ON instrument_listing_identifiers (identifier_type, domain, value);
 CREATE INDEX idx_instrument_listing_identifiers_listing ON instrument_listing_identifiers (listing_id);
+-- The read that asks what a security is named at listing grain, which is the
+-- name trigger and every export: it leads with the security because a name on no
+-- line has no listing to lead with.
+CREATE INDEX idx_instrument_listing_identifiers_instrument ON instrument_listing_identifiers (instrument_id);
 
 -- Provider-specific instrument identifiers. Mirrors instrument_identifiers but
 -- scoped to a data provider. Identifier types are free-form strings specific to
@@ -656,17 +676,36 @@ CREATE UNIQUE INDEX idx_prov_instr_ident_unique_non_null_domain ON provider_inst
 -- listing today, so the table above holds nothing at present; it stays because a
 -- provider type nobody has classified reads as security-grain, which attaches it
 -- to a row that certainly exists rather than to a listing something had to pick.
+-- The security and the line are a pair here for the reason they are a pair on
+-- the canonical table above, and the foreign key is shaped the same way.
 CREATE TABLE provider_listing_identifiers (
   id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  listing_id      UUID NOT NULL REFERENCES instrument_listings (id) ON DELETE CASCADE,
+  instrument_id   UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  listing_id      UUID,
   provider        TEXT NOT NULL,
   identifier_type TEXT NOT NULL,
   domain          TEXT,
-  value           TEXT NOT NULL
+  value           TEXT NOT NULL,
+  FOREIGN KEY (instrument_id, listing_id)
+    REFERENCES instrument_listings (instrument_id, id) MATCH SIMPLE ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX idx_prov_listing_ident_unique_null_domain ON provider_listing_identifiers (listing_id, provider, identifier_type, value) WHERE domain IS NULL;
-CREATE UNIQUE INDEX idx_prov_listing_ident_unique_non_null_domain ON provider_listing_identifiers (listing_id, provider, identifier_type, domain, value) WHERE domain IS NOT NULL;
+-- Uniqueness per line where the name is on one, and per security where it is on
+-- none: two partial indexes rather than one over a nullable column, which would
+-- call two unplaced copies of one name distinct. Same shape and same reason as
+-- uq_holding_declarations_on_listing and its twin.
+--
+-- The domain is spelled with COALESCE rather than split into a second pair of
+-- indexes, and it is load-bearing for the same reason it is on the exclusion
+-- constraint above: an absent domain has to be spelled as a value to compare
+-- equal. No path stores an empty domain -- an empty string is written as NULL --
+-- so the two cannot collide.
+CREATE UNIQUE INDEX idx_prov_listing_ident_unique_on_listing
+  ON provider_listing_identifiers (listing_id, provider, identifier_type, COALESCE(domain, ''), value)
+  WHERE listing_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_prov_listing_ident_unique_no_listing
+  ON provider_listing_identifiers (instrument_id, provider, identifier_type, COALESCE(domain, ''), value)
+  WHERE listing_id IS NULL;
 
 -- Trigger: recompute instruments.name and instruments.exchange whenever an
 -- identifier at either grain, a listing, or the instrument itself changes.
@@ -694,12 +733,11 @@ BEGIN
     WHEN 'instrument_identifiers' THEN
       instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
     WHEN 'instrument_listing_identifiers' THEN
-      -- A listing-grain row names its listing, and the listing names the
-      -- security. A cascading delete can remove both before this runs, which
-      -- leaves instr_id null and nothing to recompute.
-      SELECT l.instrument_id INTO instr_id
-      FROM instrument_listings l
-      WHERE l.id = COALESCE(NEW.listing_id, OLD.listing_id);
+      -- A listing-grain row names its security outright, whether or not anything
+      -- placed it on one of that security's lines. Reaching the security through
+      -- the listing would drop the unplaced ones, which name the security no less
+      -- for naming no line.
+      instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
     WHEN 'instrument_listings' THEN
       instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
     ELSE
@@ -719,8 +757,8 @@ BEGIN
       -- sorts first and the branches contribute disjoint types, so the currency
       -- only ever tie-breaks among a security's listings.
       --
-      -- Nulls last within a type is "prefer a listing that has a currency": a
-      -- security with a known line is never named by its unknown one.
+      -- Nulls last within a type is "prefer a name that is on a line": a name
+      -- nobody could place is a last resort rather than a first choice.
       (SELECT n.value FROM (
          SELECT ii.identifier_type, ii.domain, ii.value, NULL::text AS currency
          FROM instrument_identifiers ii
@@ -730,8 +768,8 @@ BEGIN
          UNION ALL
          SELECT li.identifier_type, li.domain, li.value, l.currency
          FROM instrument_listing_identifiers li
-         JOIN instrument_listings l ON l.id = li.listing_id
-         WHERE l.instrument_id = instr_id
+         LEFT JOIN instrument_listings l ON l.id = li.listing_id
+         WHERE li.instrument_id = instr_id
            AND li.valid_before IS NULL
            AND li.identifier_type IN ('MIC_TICKER','OPENFIGI_TICKER')
        ) n
@@ -746,8 +784,8 @@ BEGIN
     exchange = COALESCE(
       (SELECT e.acronym FROM exchanges e WHERE e.mic = instruments.exchange_mic),
       (SELECT li.domain FROM instrument_listing_identifiers li
-       JOIN instrument_listings l ON l.id = li.listing_id
-       WHERE l.instrument_id = instr_id AND li.identifier_type = 'OPENFIGI_TICKER'
+       LEFT JOIN instrument_listings l ON l.id = li.listing_id
+       WHERE li.instrument_id = instr_id AND li.identifier_type = 'OPENFIGI_TICKER'
          AND li.valid_before IS NULL
          AND li.domain IS NOT NULL AND li.domain <> ''
        ORDER BY l.currency IS NULL, l.currency, li.domain LIMIT 1),
@@ -774,13 +812,10 @@ CREATE TRIGGER trg_recompute_instrument_name_on_inst
   AFTER INSERT OR UPDATE OF exchange_mic ON instruments
   FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
 
--- A listing acquiring a currency changes which of a security's listings the name
--- is taken from, so the currency is watched as exchange_mic is above. Insertion
--- is not: a listing is minted with no identifiers, so there is nothing for it to
--- change until a row arrives on the trigger above.
-CREATE TRIGGER trg_recompute_instrument_name_on_listing
-  AFTER UPDATE OF currency ON instrument_listings
-  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
+-- A listing is minted with no identifiers and its currency never changes
+-- afterwards -- a redenomination closes the line and opens another -- so nothing
+-- about a listing row can change which name a security takes. What can is a name
+-- moving on to a line, which is an update on the trigger above.
 
 -- Trigger: derive a listing's venues from its listing-grain identifiers.
 --
@@ -810,6 +845,11 @@ DECLARE
   lstg_id UUID;
 BEGIN
   lstg_id := COALESCE(NEW.listing_id, OLD.listing_id);
+  -- A name nobody could place is on no line and so contributes no venue: a venue
+  -- is a fact about a line, and this one names none.
+  IF lstg_id IS NULL THEN
+    RETURN NULL;
+  END IF;
   -- The listing may have gone with the row, in which case its venues went too.
   IF NOT EXISTS (SELECT 1 FROM instrument_listings WHERE id = lstg_id) THEN
     RETURN NULL;
@@ -1208,14 +1248,12 @@ FROM (
 -- reports unpriced rather than being resolved to a line by its security. See
 -- docs/adr/0072-a-posting-names-a-security-and-a-line.md.
 --
--- The unknown listing is excluded because it is not priceable, so a security
--- whose only line is unknown has no row here either.
+-- A security nobody has named a line for holds none and has no row here either.
 CREATE VIEW instrument_priced_listing AS
 SELECT instrument_id,
        (array_agg(id))[1]       AS listing_id,
        (array_agg(currency))[1] AS currency
 FROM instrument_listings
-WHERE currency IS NOT NULL
 GROUP BY instrument_id
 HAVING count(*) = 1;
 

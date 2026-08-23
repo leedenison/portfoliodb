@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
 )
@@ -94,17 +96,17 @@ func TestInstrumentListings_TwoFamiliesAreTwoListings(t *testing.T) {
 	}
 }
 
-// The unknown listing says how many lines a security has is unknown, so a second
-// one would be saying it twice.
-func TestInstrumentListings_OneUnknownListing(t *testing.T) {
+// A line is a currency, so a row without one is not a line and the column
+// refuses it. What used to be said by a null-currency row -- how many lines this
+// security has is unknown -- is said by having none. See
+// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+func TestInstrumentListings_ALineHasACurrency(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID := ensureListedInstrument(t, p, "ISIN", "GB00LISTING02", "")
+	instID := ensureListedInstrument(t, p, "ISIN", "GB00LISTING02", "USD")
 
 	if err := insertListing(ctx, p, instID, ""); err == nil {
-		t.Error("inserting a second unknown listing succeeded, want a uniqueness violation")
-	} else if !isUniqueViolation(err) {
-		t.Errorf("insert second unknown listing: %v, want a uniqueness violation", err)
+		t.Error("inserting a listing with no currency succeeded, want a not-null violation")
 	}
 }
 
@@ -152,15 +154,15 @@ func TestEnsureInstrument_StoresTheCodeNotTheFamily(t *testing.T) {
 	}
 }
 
-// A security created without a stated currency gets the unknown listing rather
-// than none: how many lines it has is what is unknown, not whether it has any.
-func TestEnsureInstrument_MintsAnUnknownListing(t *testing.T) {
+// A caller that stated no currency has named no line, and none is minted for it.
+// A security is quoted in a currency whether or not anyone traded it, so a line
+// comes into existence when something asserts one and never to hold a silence.
+func TestEnsureInstrument_MintsNoListingWithoutACurrency(t *testing.T) {
 	p := testDBTx(t)
 	instID := ensureListedInstrument(t, p, "ISIN", "GB00LISTING06", "")
 
-	got := listingCurrencies(t, p, instID)
-	if len(got) != 1 || got[0] != "" {
-		t.Errorf("listings = %v, want one unknown listing", got)
+	if got := listingCurrencies(t, p, instID); len(got) != 0 {
+		t.Errorf("listings = %v, want none", got)
 	}
 }
 
@@ -179,10 +181,9 @@ func TestEnsureInstrument_IsIdempotentOnListings(t *testing.T) {
 	}
 }
 
-// A currency filling a blank names the line the security was already trading on.
-// It moves the unknown listing rather than adding a sibling, which is what keeps
-// "how many lines does this security have" answerable.
-func TestEnsureInstrument_CurrencyNamesTheUnknownListing(t *testing.T) {
+// A security identified without a currency has no line, and the currency a later
+// resolution learns mints the one it names.
+func TestEnsureInstrument_ALearnedCurrencyMintsTheLine(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// A broker-description-only instrument: no canonical identifier, no currency.
@@ -192,8 +193,8 @@ func TestEnsureInstrument_CurrencyNamesTheUnknownListing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure description-only: %v", err)
 	}
-	if got := listingCurrencies(t, p, instID); len(got) != 1 || got[0] != "" {
-		t.Fatalf("listings before = %v, want one unknown listing", got)
+	if got := listingCurrencies(t, p, instID); len(got) != 0 {
+		t.Fatalf("listings before = %v, want none", got)
 	}
 
 	// Identification completes it, and the currency it learned names the line.
@@ -208,12 +209,12 @@ func TestEnsureInstrument_CurrencyNamesTheUnknownListing(t *testing.T) {
 		t.Fatalf("completion returned %s, want %s", same, instID)
 	}
 	if got := listingCurrencies(t, p, instID); len(got) != 1 || got[0] != "GBX" {
-		t.Errorf("listings after = %v, want [GBX]: the unknown listing should have moved, not gained a sibling", got)
+		t.Errorf("listings after = %v, want [GBX]", got)
 	}
 }
 
-// The same move, through the archive import path.
-func TestMergeInstrumentFromArchive_NamesTheUnknownListing(t *testing.T) {
+// The same mint, through the archive import path.
+func TestMergeInstrumentFromArchive_MintsTheLine(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := ensureListedInstrument(t, p, "ISIN", "GB00LISTING09", "")
@@ -254,11 +255,11 @@ func TestListingsByInstrument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listings by instrument: %v", err)
 	}
-	if len(got[withCurrency]) != 1 || got[withCurrency][0].Currency == nil || *got[withCurrency][0].Currency != "USD" {
+	if len(got[withCurrency]) != 1 || got[withCurrency][0].Currency != "USD" {
 		t.Errorf("listings for the USD security = %+v, want one USD listing", got[withCurrency])
 	}
-	if len(got[unknown]) != 1 || got[unknown][0].Currency != nil {
-		t.Errorf("listings for the unknown security = %+v, want one null-currency listing", got[unknown])
+	if len(got[unknown]) != 0 {
+		t.Errorf("listings for the security with no stated currency = %+v, want none", got[unknown])
 	}
 	if got[withCurrency][0].InstrumentID != withCurrency {
 		t.Errorf("listing instrument id = %q, want %q", got[withCurrency][0].InstrumentID, withCurrency)
@@ -276,7 +277,7 @@ func TestGetInstrument_CarriesItsListings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get instrument: %v", err)
 	}
-	if len(row.Listings) != 1 || row.Listings[0].Currency == nil || *row.Listings[0].Currency != "USD" {
+	if len(row.Listings) != 1 || row.Listings[0].Currency != "USD" {
 		t.Errorf("row.Listings = %+v, want one USD listing", row.Listings)
 	}
 }
@@ -357,7 +358,7 @@ func ensureListedInstrument(t *testing.T, p *Postgres, idType, value, currency s
 }
 
 // insertListing writes a listing directly, to exercise the constraints rather
-// than the writer. currency "" is the unknown listing.
+// than the writer.
 func insertListing(ctx context.Context, p *Postgres, instrumentID, currency string) error {
 	_, err := p.q.ExecContext(ctx, `
 		INSERT INTO instrument_listings (instrument_id, currency) VALUES ($1::uuid, $2)
@@ -365,7 +366,7 @@ func insertListing(ctx context.Context, p *Postgres, instrumentID, currency stri
 	return err
 }
 
-// listingCurrencies returns the instrument's listing currencies, "" for unknown.
+// listingCurrencies returns the instrument's listing currencies.
 func listingCurrencies(t *testing.T, p *Postgres, instrumentID string) []string {
 	t.Helper()
 	got, err := p.ListingsByInstrument(context.Background(), []string{instrumentID})
@@ -374,11 +375,7 @@ func listingCurrencies(t *testing.T, p *Postgres, instrumentID string) []string 
 	}
 	out := make([]string, 0, len(got[instrumentID]))
 	for _, l := range got[instrumentID] {
-		if l.Currency == nil {
-			out = append(out, "")
-			continue
-		}
-		out = append(out, *l.Currency)
+		out = append(out, l.Currency)
 	}
 	return out
 }
@@ -542,9 +539,9 @@ func TestListingVenues_UnknownMICIsDropped(t *testing.T) {
 	// Written straight in, because EnsureInstrument would normalise a MIC it
 	// recognised and this one it does not.
 	if _, err := p.q.ExecContext(ctx, `
-		INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
-		VALUES ($1::uuid, 'MIC_TICKER', 'ZZZZ', 'UNK', true)
-	`, listingID); err != nil {
+		INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
+		VALUES ($1::uuid, $2::uuid, 'MIC_TICKER', 'ZZZZ', 'UNK', true)
+	`, instID, listingID); err != nil {
 		t.Fatalf("insert ticker under an unknown MIC: %v", err)
 	}
 	if got := listingVenues(t, p, instID); len(got) != 0 {
@@ -581,43 +578,36 @@ func TestRecomputeInstrumentName_ReadsBothGrains(t *testing.T) {
 }
 
 // No listing is primary, so the name is stable across a security's lines. What
-// breaks the tie is having a currency at all: a security with a known line is
-// never named by its unknown one.
-func TestRecomputeInstrumentName_PrefersALineWithACurrency(t *testing.T) {
+// breaks the tie is being on a line at all: a name nobody could place is a last
+// resort rather than a first choice.
+func TestRecomputeInstrumentName_PrefersANameOnALine(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, known, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00PRIMARY1"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "KNOWN", Domain: "XNAS"}, Canonical: true},
 	}, nil, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	// An unknown line beside the known one, which nothing writes today but which
-	// the ordering has to answer for.
-	var unknown string
-	if err := p.q.QueryRowContext(ctx, `
-		INSERT INTO instrument_listings (instrument_id, currency) VALUES ($1::uuid, NULL) RETURNING id::text
-	`, instID).Scan(&unknown); err != nil {
-		t.Fatalf("insert unknown listing: %v", err)
-	}
-	if unknown == known {
-		t.Fatal("the two lines are the same row")
-	}
 	if _, err := p.q.ExecContext(ctx, `
-		INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
-		VALUES ($1::uuid, 'MIC_TICKER', 'XLON', 'AAAAA', true)
-	`, unknown); err != nil {
-		t.Fatalf("insert ticker on the unknown line: %v", err)
+		INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
+		VALUES ($1::uuid, NULL, 'MIC_TICKER', 'XLON', 'AAAAA', true)
+	`, instID); err != nil {
+		t.Fatalf("insert an unplaced ticker: %v", err)
 	}
 	row, err := p.GetInstrument(ctx, instID)
 	if err != nil || row == nil {
 		t.Fatalf("GetInstrument: %v", err)
 	}
-	// AAAAA sorts first on every other key, so only the currency preference
-	// keeps the name off the unknown line.
+	// AAAAA sorts first on every other key, so only the preference for a name on
+	// a line keeps it from taking over.
 	if row.Name == nil || *row.Name != "KNOWN" {
-		t.Errorf("name = %v, want the ticker on the line that has a currency", row.Name)
+		t.Errorf("name = %v, want the ticker that is on a line", row.Name)
+	}
+	// It still names the security, which is what makes it worth keeping.
+	if len(row.UnplacedIdentifiers) != 1 || row.UnplacedIdentifiers[0].Ref.Value != "AAAAA" {
+		t.Errorf("unplaced identifiers = %+v, want the XLON ticker", row.UnplacedIdentifiers)
 	}
 }
 
@@ -669,6 +659,113 @@ func TestMergeInstruments_MovesListingIdentifiersByCurrencyFamily(t *testing.T) 
 	}
 	if tkr, _ := findListingIdentifier(row, "MIC_TICKER", "FAMILY"); tkr == nil {
 		t.Errorf("the loser's ticker was dropped by the merge: %+v", row.Listings)
+	}
+}
+
+// A ticker from a result that stated no currency names a line of the security and
+// nothing says which. It is stored saying exactly that, rather than on a line
+// invented to hold it. See
+// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+func TestEnsureInstrument_ANameWithNoCurrencyNamesNoLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED1"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNPL", Domain: "XLON"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if listingID != "" {
+		t.Errorf("listing = %q, want none: nothing stated a currency", listingID)
+	}
+	if got := listingCurrencies(t, p, instID); len(got) != 0 {
+		t.Errorf("listings = %v, want none", got)
+	}
+	row, err := p.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if len(row.UnplacedIdentifiers) != 1 || row.UnplacedIdentifiers[0].Ref.Value != "UNPL" {
+		t.Fatalf("unplaced identifiers = %+v, want the ticker", row.UnplacedIdentifiers)
+	}
+	// It still names the security, which is the whole reason to keep it.
+	found, err := p.FindInstrumentByIdentifier(ctx, "MIC_TICKER", "XLON", "UNPL")
+	if err != nil {
+		t.Fatalf("find by the unplaced ticker: %v", err)
+	}
+	if found != instID {
+		t.Errorf("lookup by the unplaced ticker = %q, want %q", found, instID)
+	}
+}
+
+// A name on no line survives a merge: it hangs off the security, so the pairing
+// by currency has nothing to say about it, and it would otherwise cascade away
+// with the loser.
+func TestMergeInstruments_CarriesNamesThatNameNoLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED2"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNPM", Domain: "XLON"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure loser: %v", err)
+	}
+	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "CUSIP", Value: "037833100"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BUNPLM2"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	if err := p.runInTx(ctx, func(exec queryable) error {
+		return mergeInstruments(ctx, exec, uuid.MustParse(survivor), uuid.MustParse(loser))
+	}); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	row, err := p.GetInstrument(ctx, survivor)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if len(row.UnplacedIdentifiers) != 1 || row.UnplacedIdentifiers[0].Ref.Value != "UNPM" {
+		t.Errorf("unplaced identifiers = %+v, want the loser's ticker", row.UnplacedIdentifiers)
+	}
+	// The survivor's own line is untouched by a name that named none.
+	if got := listingCurrencies(t, p, survivor); len(got) != 1 || got[0] != "USD" {
+		t.Errorf("listings = %v, want [USD]", got)
+	}
+}
+
+// A name on no line is not on a line, so deleting one leaves it alone. It never
+// named that line, and losing it with the line would lose what it does say.
+func TestListingIdentifiers_UnplacedSurvivesAListingDelete(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED3"}, Canonical: true},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
+		VALUES ($1::uuid, NULL, 'MIC_TICKER', 'XLON', 'UNPD', true)
+	`, instID); err != nil {
+		t.Fatalf("insert an unplaced ticker: %v", err)
+	}
+	if _, err := p.q.ExecContext(ctx, `DELETE FROM instrument_listings WHERE id = $1::uuid`, listingID); err != nil {
+		t.Fatalf("delete the listing: %v", err)
+	}
+	var n int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*) FROM instrument_listing_identifiers WHERE instrument_id = $1::uuid
+	`, instID).Scan(&n); err != nil {
+		t.Fatalf("count names: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("names after the listing delete = %d, want the unplaced one kept", n)
 	}
 }
 

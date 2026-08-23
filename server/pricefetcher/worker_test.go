@@ -30,7 +30,7 @@ func TestPluginAcceptsListing(t *testing.T) {
 			name:       "all nil filters accept anything",
 			plugin:     &filterStub{},
 			assetClass: strPtr("STOCK"),
-			listing:    &db.Listing{Currency: strPtr("USD"), Venues: []string{"XNAS"}},
+			listing:    &db.Listing{Currency: "USD", Venues: []string{"XNAS"}},
 			want:       true,
 		},
 		{
@@ -49,13 +49,13 @@ func TestPluginAcceptsListing(t *testing.T) {
 		{
 			name:    "currency is the line's own",
 			plugin:  &filterStub{currencies: map[string]bool{"USD": true}},
-			listing: &db.Listing{Currency: strPtr("EUR")},
+			listing: &db.Listing{Currency: "EUR"},
 			want:    false,
 		},
 		{
 			name:    "currency match case insensitive",
 			plugin:  &filterStub{currencies: map[string]bool{"USD": true}},
-			listing: &db.Listing{Currency: strPtr("usd")},
+			listing: &db.Listing{Currency: "usd"},
 			want:    true,
 		},
 		{
@@ -64,7 +64,7 @@ func TestPluginAcceptsListing(t *testing.T) {
 			// security. This is the case the grain exists for.
 			name:    "one line of a security is refused while the other is not",
 			plugin:  &filterStub{currencies: map[string]bool{"USD": true}},
-			listing: &db.Listing{Currency: strPtr("GBP"), Venues: []string{"XLON"}},
+			listing: &db.Listing{Currency: "GBP", Venues: []string{"XLON"}},
 			want:    false,
 		},
 		{
@@ -220,7 +220,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{fxLstID}).Return(
-		map[string]*db.Listing{fxLstID: {ID: fxLstID, InstrumentID: fxInstID, Currency: strPtr("USD")}}, nil)
+		map[string]*db.Listing{fxLstID: {ID: fxLstID, InstrumentID: fxInstID, Currency: "USD"}}, nil)
 	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{fxLstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{fxLstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{fxInstID}).Return([]*db.InstrumentRow{
@@ -311,7 +311,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	}, nil)
 	// Return blocked for this (listing, plugin) pair.
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
-		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: "USD"}}, nil)
 	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(
 		map[string]map[string]bool{lstID: {pluginID: true}}, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
@@ -368,9 +368,9 @@ func TestRunCycle_OneLineOfASecurityIsRefusedAndTheOtherFetched(t *testing.T) {
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
-	gbp := &db.Listing{ID: gbpID, InstrumentID: instID, Currency: strPtr("GBP"),
+	gbp := &db.Listing{ID: gbpID, InstrumentID: instID, Currency: "GBP",
 		Identifiers: []db.IdentifierInput{{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VODL", Domain: "XLON"}}}}
-	usd := &db.Listing{ID: usdID, InstrumentID: instID, Currency: strPtr("USD"),
+	usd := &db.Listing{ID: usdID, InstrumentID: instID, Currency: "USD",
 		Identifiers: []db.IdentifierInput{{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VODU", Domain: "XNAS"}}}}
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{gbpID, usdID}).Return(
 		map[string]*db.Listing{gbpID: gbp, usdID: usd}, nil)
@@ -420,7 +420,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
-		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: "USD"}}, nil)
 	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
@@ -474,7 +474,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
-		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: "USD"}}, nil)
 	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
@@ -530,7 +530,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
-		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: "USD"}}, nil)
 	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
@@ -578,7 +578,7 @@ func TestRunCycle_NoDataRecordsCoverage(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
-		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: "USD"}}, nil)
 	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
@@ -619,7 +619,7 @@ func TestRunCycle_CoveredRangeNotRefetched(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
-		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: "USD"}}, nil)
 	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(
 		map[string]map[string][]db.DateRange{lstID: {pluginID: {{From: from, Before: to}}}}, nil)
@@ -664,7 +664,7 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 		{PluginID: freshID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
-		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: "USD"}}, nil)
 	mockDB.EXPECT().BlockedPluginsForListings(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(
 		map[string]map[string][]db.DateRange{lstID: {coveredID: {{From: from, Before: to}}}}, nil)

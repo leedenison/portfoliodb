@@ -32,14 +32,17 @@ func systemFixture() *archivev1.SystemArchive {
 		},
 		Instruments: &archivev1.InstrumentPart{
 			Instruments: []*archivev1.Instrument{{
-				AssetClass:  typev1.AssetClass_STOCK,
-				Currency:    "USD",
-				ExchangeMic: proto.String("XNAS"),
-				Identifiers: []*archivev1.Identifier{{
-					Type:      typev1.IdentifierType_MIC_TICKER,
-					Value:     "AAPL",
-					Domain:    "XNAS",
-					Canonical: true,
+				AssetClass: typev1.AssetClass_STOCK,
+				// The ticker names a line, so it travels on the line rather than
+				// beside the security -- which is what the nesting is for.
+				Listings: []*archivev1.Listing{{
+					Currency: proto.String("USD"),
+					Identifiers: []*archivev1.Identifier{{
+						Type:      typev1.IdentifierType_MIC_TICKER,
+						Value:     "AAPL",
+						Domain:    "XNAS",
+						Canonical: true,
+					}},
 				}},
 			}},
 		},

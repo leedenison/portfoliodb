@@ -24,6 +24,12 @@ func newPartTest(t *testing.T) (*mock.MockDB, *PartReporter) {
 	return mock.NewMockDB(ctrl), NewDetachedReporter()
 }
 
+// usdLine is the single USD line a fixture's security trades in, carrying
+// whichever listing-grain names the test needs. Every security has at least one.
+func usdLine(idns ...*archivev1.Identifier) []*archivev1.Listing {
+	return []*archivev1.Listing{{Currency: proto.String("USD"), Identifiers: idns}}
+}
+
 func instrumentPart(insts ...*archivev1.Instrument) *archivev1.InstrumentPart {
 	return &archivev1.InstrumentPart{Instruments: insts}
 }
@@ -39,15 +45,20 @@ func TestInstrumentPart_Success(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectAnyMerge(database)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, claims []db.IdentityClaim, _ string, _, _ interface{}, _ *db.OptionFields) (string, string, error) {
+		EnsureArchiveInstrument(gomock.Any(), "STOCK", "", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, listings []db.ListingMerge, claims []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
 			if len(idns) < 2 {
-				t.Errorf("expected at least 2 identifiers, got %d", len(idns))
+				t.Errorf("expected at least 2 security-grain identifiers, got %d", len(idns))
 			}
-			// The instrument block names its identifiers together, so it is one
-			// claim holding all of them rather than one claim each.
-			if len(claims) != 1 || len(claims[0].Identifiers) != len(idns) {
-				t.Fatalf("claims = %+v; want one holding all %d identifiers", claims, len(idns))
+			// The ticker names a line, so it travels on that line rather than
+			// beside the ISIN.
+			if len(listings) != 1 || len(listings[0].Identifiers) != 1 {
+				t.Fatalf("listings = %+v; want one carrying the ticker", listings)
+			}
+			// The instrument block names its identifiers together, whatever grain
+			// each of them is, so it is one claim holding all of them.
+			if len(claims) != 1 || len(claims[0].Identifiers) != len(idns)+1 {
+				t.Fatalf("claims = %+v; want one holding all %d identifiers", claims, len(idns)+1)
 			}
 			for _, c := range claims[0].Identifiers {
 				if c.Role != db.ClaimRoleReturned {
@@ -57,12 +68,17 @@ func TestInstrumentPart_Success(t *testing.T) {
 			return "inst-1", "listing-id", nil
 		})
 	part := instrumentPart(&archivev1.Instrument{
-		AssetClass: typev1.AssetClass_STOCK, ExchangeMic: proto.String("XNAS"),
-		Currency: "USD", Name: proto.String("Apple Inc."),
+		AssetClass: typev1.AssetClass_STOCK, Name: proto.String("Apple Inc."),
 		Identifiers: []*archivev1.Identifier{
 			{Type: typev1.IdentifierType_ISIN, Value: "US0378331005", Canonical: true},
 			{Type: typev1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL"},
 		},
+		Listings: []*archivev1.Listing{{
+			Currency: proto.String("USD"),
+			Identifiers: []*archivev1.Identifier{
+				{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true},
+			},
+		}},
 	})
 	ensured, err := InstrumentPart(context.Background(), database, part, rep)
 	if err != nil {
@@ -77,14 +93,14 @@ func TestInstrumentPart_RestoresOptionTermsAndMultiplier(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectAnyMerge(database)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureArchiveInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil).
 		Return("underlying-1", "listing-id", nil)
 	// The option's strike is quoted in the currency the file states, and that
 	// names the line of the underlying it delivers.
 	database.EXPECT().EnsureListing(gomock.Any(), "underlying-1", "USD").Return("underlying-line-1", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-1", nil, nil, gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []db.IdentifierInput, _ []db.IdentityClaim, _ string, _, _ interface{}, opts *db.OptionFields) (string, string, error) {
+		EnsureArchiveInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []db.IdentifierInput, _ []db.ListingMerge, _ []db.IdentityClaim, _ string, opts *db.OptionFields) (string, string, error) {
 			if opts == nil {
 				t.Fatal("option terms were not restored")
 			}
@@ -102,16 +118,20 @@ func TestInstrumentPart_RestoresOptionTermsAndMultiplier(t *testing.T) {
 		&archivev1.Instrument{
 			AssetClass:  typev1.AssetClass_OPTION,
 			Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
-			Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
-			Strike:      proto.String("150.5"),
-			Expiry:      proto.String("2026-01-16"),
-			PutCall:     proto.String("C"),
+			Listings:    usdLine(),
+			// The ref names the line the contract delivers, currency included.
+			Underlying: &archivev1.InstrumentRef{
+				Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD",
+			},
+			Strike:  proto.String("150.5"),
+			Expiry:  proto.String("2026-01-16"),
+			PutCall: proto.String("C"),
 
 			ContractMultiplier: proto.String("1.5"),
 		},
 		&archivev1.Instrument{
-			AssetClass:  typev1.AssetClass_STOCK,
-			Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true}},
+			AssetClass: typev1.AssetClass_STOCK,
+			Listings:   usdLine(&archivev1.Identifier{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true}),
 		},
 	)
 	ensured, err := InstrumentPart(context.Background(), database, part, rep)
@@ -129,16 +149,16 @@ func TestInstrumentPart_UnderlyingRefNotInArchive_FallsBackToInstance(t *testing
 	// The archive says an underlying appears in the same part, but a partial
 	// file whose underlying this instance already knows still imports.
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("known-1", nil)
-	// The file states no currency, so the OCC symbol implies USD and that names
-	// the underlying's line.
+	// The ref names the line, so nothing is re-derived from the OCC symbol.
 	database.EXPECT().EnsureListing(gomock.Any(), "known-1", "USD").Return("known-line-1", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "known-line-1", nil, nil, gomock.Any()).
+		EnsureArchiveInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "known-line-1", gomock.Any()).
 		Return("option-1", "listing-id", nil)
 	part := instrumentPart(&archivev1.Instrument{
 		AssetClass:  typev1.AssetClass_OPTION,
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
-		Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Listings:    usdLine(),
+		Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD"},
 		Strike:      proto.String("150.5"),
 		Expiry:      proto.String("2026-01-16"),
 		PutCall:     proto.String("C"),
@@ -158,7 +178,8 @@ func TestInstrumentPart_DanglingUnderlyingRef(t *testing.T) {
 	part := instrumentPart(&archivev1.Instrument{
 		AssetClass:  typev1.AssetClass_OPTION,
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
-		Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Listings:    usdLine(),
+		Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD"},
 	})
 	ensured, err := InstrumentPart(context.Background(), database, part, rep)
 	if err != nil {
@@ -169,7 +190,9 @@ func TestInstrumentPart_DanglingUnderlyingRef(t *testing.T) {
 	}
 }
 
-func TestInstrumentPart_EmptyIdentifiers(t *testing.T) {
+// A security with no lines describes nothing this can store: every security has
+// at least one, even where how many it has is what is unknown.
+func TestInstrumentPart_NoListings(t *testing.T) {
 	database, rep := newPartTest(t)
 	ensured, err := InstrumentPart(context.Background(), database, instrumentPart(&archivev1.Instrument{}), rep)
 	if err != nil {
@@ -178,8 +201,22 @@ func TestInstrumentPart_EmptyIdentifiers(t *testing.T) {
 	if ensured != 0 || len(rep.Errors()) != 1 {
 		t.Fatalf("expected 1 error, 0 ensured; got ensured=%d, errors=%d", ensured, len(rep.Errors()))
 	}
-	if rep.Errors()[0].GetMessage() != "at least one identifier required" {
+	if rep.Errors()[0].GetMessage() != "at least one listing required" {
 		t.Fatalf("got error %q", rep.Errors()[0].GetMessage())
+	}
+}
+
+// A security named by nothing at all, at either grain, cannot be stored either:
+// the lookup has nothing to ask about and a created row would answer to no name.
+func TestInstrumentPart_NoIdentifiersAtEitherGrain(t *testing.T) {
+	database, rep := newPartTest(t)
+	part := instrumentPart(&archivev1.Instrument{Listings: usdLine()})
+	ensured, err := InstrumentPart(context.Background(), database, part, rep)
+	if err != nil {
+		t.Fatalf("InstrumentPart: %v", err)
+	}
+	if ensured != 0 || len(rep.Errors()) != 1 {
+		t.Fatalf("expected 1 error, 0 ensured; got ensured=%d, errors=%d", ensured, len(rep.Errors()))
 	}
 }
 
@@ -188,11 +225,11 @@ func TestInstrumentPart_DuplicateTypeValueInPayload(t *testing.T) {
 	expectAnyMerge(database)
 	// First instrument (ISIN 1) is ensured; second is rejected as duplicate (type, value) in payload.
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "", "", "", gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureArchiveInstrument(gomock.Any(), "", "", "USD", "", "", "", gomock.Any(), gomock.Any(), gomock.Any(), "", nil).
 		Return("inst-1", "listing-id", nil)
 	part := instrumentPart(
-		&archivev1.Instrument{Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
-		&archivev1.Instrument{Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
+		&archivev1.Instrument{Listings: usdLine(), Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
+		&archivev1.Instrument{Listings: usdLine(), Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
 	)
 	ensured, err := InstrumentPart(context.Background(), database, part, rep)
 	if err != nil {
@@ -210,7 +247,7 @@ func TestInstrumentPart_RestoresProviderIdentifiers(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectAnyMerge(database)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureArchiveInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil).
 		Return("inst-1", "listing-id", nil)
 	database.EXPECT().
 		SaveProviderIdentifiers(gomock.Any(), "inst-1", gomock.Any(), []db.ProviderIdentifierInput{
@@ -220,8 +257,10 @@ func TestInstrumentPart_RestoresProviderIdentifiers(t *testing.T) {
 		Return(nil)
 
 	part := instrumentPart(&archivev1.Instrument{
-		AssetClass:  typev1.AssetClass_STOCK,
-		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true}},
+		AssetClass: typev1.AssetClass_STOCK,
+		Listings:   usdLine(&archivev1.Identifier{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true}),
+		// Security grain. A line's own provider identifiers travel with the line
+		// and are placed by the ensure, not by this write.
 		ProviderIdentifiers: []*archivev1.ProviderIdentifier{
 			{Provider: "eodhd", IdentifierType: "EODHD_EXCH_CODE", Value: "US"},
 			{Provider: "openfigi", IdentifierType: "FIGI", Value: "BBG000B9XRY4", Domain: "XNAS"},
@@ -242,13 +281,13 @@ func TestInstrumentPart_NoProviderIdentifiers_NoWrite(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectAnyMerge(database)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		EnsureArchiveInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil).
 		Return("inst-1", "listing-id", nil)
 	// No SaveProviderIdentifiers expectation: the mock controller fails the test
 	// if it is called.
 	part := instrumentPart(&archivev1.Instrument{
-		AssetClass:  typev1.AssetClass_STOCK,
-		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true}},
+		AssetClass: typev1.AssetClass_STOCK,
+		Listings:   usdLine(&archivev1.Identifier{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true}),
 	})
 	if _, err := InstrumentPart(context.Background(), database, part, rep); err != nil {
 		t.Fatalf("InstrumentPart: %v", err)
@@ -260,21 +299,23 @@ func TestInstrumentPart_NoProviderIdentifiers_NoWrite(t *testing.T) {
 
 // TestInstrumentPart_MergesWhatTheFileCarries covers the collision a rebuild
 // always hits: the instance already has the instrument (migration 002 seeds
-// every currency and FX pair), EnsureInstrument matches rather than creates, and
-// the merge is what carries the file's identifiers and columns onto it.
+// every currency and FX pair), the ensure matches rather than creates, and the
+// merge is what carries the file's identifiers and columns onto it.
+//
+// The line's own interval travels with the line rather than through the merge,
+// which is why only the security-grain columns are checked here.
 func TestInstrumentPart_MergesWhatTheFileCarries(t *testing.T) {
 	database, rep := newPartTest(t)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "FX", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", gomock.Any(), nil, nil).
+		EnsureArchiveInstrument(gomock.Any(), "FX", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil).
 		Return("seeded-eurusd", "listing-id", nil)
 	database.EXPECT().
 		MergeInstrumentFromArchive(gomock.Any(), "seeded-eurusd", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, in db.InstrumentMerge) error {
+			// The security's own currency is filled from its sole line, which is
+			// the last thing the doomed column is good for before 0155 drops it.
 			if in.AssetClass != "FX" || in.Currency != "USD" || in.CIK != "0000320193" {
 				t.Errorf("merge carried %+v", in)
-			}
-			if in.ValidFrom == nil || !in.ValidFrom.Equal(time.Date(1999, 1, 4, 0, 0, 0, 0, time.UTC)) {
-				t.Errorf("valid_from = %v", in.ValidFrom)
 			}
 			if len(in.Identifiers) != 1 || in.Identifiers[0].Ref.Value != "EURUSD" {
 				t.Errorf("identifiers = %+v", in.Identifiers)
@@ -284,10 +325,9 @@ func TestInstrumentPart_MergesWhatTheFileCarries(t *testing.T) {
 
 	part := instrumentPart(&archivev1.Instrument{
 		AssetClass:  typev1.AssetClass_FX,
-		Currency:    "USD",
 		Cik:         proto.String("0000320193"),
-		ValidFrom:   proto.String("1999-01-04"),
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_FX_PAIR, Value: "EURUSD", Canonical: true}},
+		Listings:    []*archivev1.Listing{{Currency: proto.String("USD"), ValidFrom: proto.String("1999-01-04")}},
 	})
 	ensured, err := InstrumentPart(context.Background(), database, part, rep)
 	if err != nil {

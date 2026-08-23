@@ -68,12 +68,17 @@ export function writeGeneratedArchive(opts: {
   for (let i = 0; i < instruments; i++) {
     const ticker = `E2E${String(i).padStart(4, "0")}`;
     tickers.push(ticker);
+    // A security nests its currency lines, and the ticker names one of them, so
+    // it goes on the line rather than beside the security.
     instrumentPart.push({
       asset_class: "STOCK",
-      currency: "USD",
-      exchange_mic: "XNAS",
       name: `E2E Test Instrument ${i}`,
-      identifiers: [{ type: "MIC_TICKER", value: ticker, domain: "XNAS", canonical: true }],
+      listings: [
+        {
+          currency: "USD",
+          identifiers: [{ type: "MIC_TICKER", value: ticker, domain: "XNAS", canonical: true }],
+        },
+      ],
     });
 
     const rows: unknown[] = [];

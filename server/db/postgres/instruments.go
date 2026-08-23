@@ -762,12 +762,17 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code,
 		       u_id.identifier_type AS underlying_identifier_type,
 		       u_id.value AS underlying_identifier_value,
-		       COALESCE(u_id.domain, '') AS underlying_identifier_domain
+		       COALESCE(u_id.domain, '') AS underlying_identifier_domain,
+		       u_l.currency AS underlying_currency
 		FROM instruments i
 		JOIN selected s ON s.id = i.id
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 		` + underlyingJoin +
-		bestSecurityIdentifierJoinOn("LEFT JOIN", "u_l.instrument_id", "u_id") + `
+		// The listing join, because what a contract delivers is one currency
+		// line of the underlying and the file names that line: this identifier
+		// and u_l.currency beside it. See
+		// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+		bestListingIdentifierJoinOn("LEFT JOIN", "i.underlying_listing_id", "u_id") + `
 		ORDER BY i.id`
 
 	err = p.q.SelectContext(ctx, &irows, base, args...)
@@ -859,6 +864,93 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // the same security. Carrying the partition is 0139; acting on it is 0140.
 func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields) (string, string, error) {
 	_ = claims
+	return p.ensureSecurity(ctx, assetClass, exchangeMIC, currency, name, cik, sicCode, identifiers, underlyingListingID, validFrom, validBefore, optionFields, nil)
+}
+
+// EnsureArchiveInstrument implements db.InstrumentDB.
+//
+// The security-grain identifiers and every line's are handed to the shared core
+// together, so the lookup sees the whole of what the file says the instrument is
+// called and a security known by one line's ticker alone is still matched. Where
+// each of those names is then stored is the placement, which files them per line.
+func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string,
+	identifiers []db.IdentifierInput, listings []db.ListingMerge, claims []db.IdentityClaim,
+	underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
+	_ = claims
+	if len(listings) == 0 {
+		return "", "", fmt.Errorf("at least one listing required")
+	}
+	all := make([]db.IdentifierInput, 0, len(identifiers))
+	all = append(all, identifiers...)
+	for _, l := range listings {
+		all = append(all, l.Identifiers...)
+	}
+	// The lines are keyed on currency, and normalising a MIC_TICKER's domain is
+	// the core's job, so the placement reads the set the core has normalised
+	// rather than the caller's copy of it.
+	place := func(ctx context.Context, exec queryable, instrumentID uuid.UUID) (uuid.UUID, error) {
+		return p.placeArchiveListings(ctx, exec, instrumentID, listings)
+	}
+	return p.ensureSecurity(ctx, assetClass, exchangeMIC, currency, name, cik, sicCode, all,
+		underlyingListingID, nil, nil, optionFields, place)
+}
+
+// placeArchiveListings ensures every line a file states and files that line's own
+// names and provider identifiers on it.
+//
+// It returns the first line the file named, which is what the security's own
+// currency column is filled from and what a caller with one line in mind gets
+// back. No line is primary -- the first is simply the one the file wrote first.
+func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, instrumentID uuid.UUID, listings []db.ListingMerge) (uuid.UUID, error) {
+	var first uuid.UUID
+	for _, l := range listings {
+		listingID, err := ensureListing(ctx, exec, instrumentID, l.Currency)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if listingID == uuid.Nil {
+			return uuid.Nil, fmt.Errorf("place listing %q: the security has several lines and none of them is this one", l.Currency)
+		}
+		if first == uuid.Nil {
+			first = listingID
+		}
+		idns := make([]db.IdentifierInput, len(l.Identifiers))
+		copy(idns, l.Identifiers)
+		for i := range idns {
+			if idns[i].Ref.Type == "MIC_TICKER" && idns[i].Ref.Domain != "" {
+				idns[i].Ref.Domain = p.normalizeToOperatingMIC(ctx, idns[i].Ref.Domain)
+			}
+		}
+		if err := insertListingIdentifiers(ctx, exec, listingID, idns); err != nil {
+			return uuid.Nil, err
+		}
+		// The interval the line was tradeable in, which nothing recomputes. A
+		// stored value wins, as it does for every column the merge fills.
+		if l.ValidFrom != nil || l.ValidBefore != nil {
+			if _, err := exec.ExecContext(ctx, `
+				UPDATE instrument_listings
+				SET valid_from = COALESCE(valid_from, $2), valid_before = COALESCE(valid_before, $3)
+				WHERE id = $1 AND (valid_from IS NULL OR valid_before IS NULL)
+			`, listingID, nullTime(l.ValidFrom), nullTime(l.ValidBefore)); err != nil {
+				return uuid.Nil, fmt.Errorf("place listing interval (%s): %w", l.Currency, err)
+			}
+		}
+		if err := insertListingProviderIdentifiers(ctx, exec, listingID, l.ProviderIdentifiers); err != nil {
+			return uuid.Nil, err
+		}
+	}
+	return first, nil
+}
+
+// ensureSecurity is what EnsureInstrument and EnsureArchiveInstrument share: find
+// the security these identifiers name, merge where they name several, create one
+// where they name none, and fill in what it does not already have.
+//
+// place is where the two part company. Nil means the caller speaks of a single
+// currency and its listing-grain names go on the line that currency names, which
+// is EnsureInstrument's whole listing rule; an archive hands in a placement that
+// knows the security's lines one by one.
+func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, underlyingListingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields, place placeListings) (string, string, error) {
 	if len(identifiers) == 0 {
 		return "", "", fmt.Errorf("at least one identifier required")
 	}
@@ -895,6 +987,15 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	// once here and carried through every branch below, so no branch can decide
 	// it differently.
 	securityIDs, listingIDs := splitByGrain(identifiers)
+	// Where this entry point's listing-grain names go. See placeListings.
+	//
+	// placeWrites says whether it has anything to write, which is what lets the
+	// hot path below read a line rather than open a transaction to settle one. A
+	// caller supplying its own placement always has something to say.
+	placeWrites := place != nil || len(listingIDs) > 0
+	if place == nil {
+		place = oneLine(currency, listingIDs)
+	}
 	// Look up every identifier and collect distinct instrument IDs (no early return).
 	seen := make(map[uuid.UUID]struct{})
 	var distinctIDs []uuid.UUID
@@ -929,11 +1030,11 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 					return err
 				}
 			}
-			// The survivor's line for the stated currency, which is where the
-			// caller's listing-grain identifiers belong. Minting it if it is not
-			// there yet is the same act ensureListing performs on the create
-			// path, and it is idempotent for a survivor that already has one.
-			listingID, err = ensureListing(ctx, exec, survivor, currency)
+			// The survivor's lines, and the caller's listing-grain identifiers
+			// filed on them. Minting a line that is not there yet is the same
+			// act the create path performs, and it is idempotent for a survivor
+			// that already has one.
+			listingID, err = place(ctx, exec, survivor)
 			if err != nil {
 				return err
 			}
@@ -954,18 +1055,19 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 			return "", "", err
 		}
 		if !descOnly {
-			// The line the currency names, read rather than written. This is the
-			// path a bulk import takes on almost every row, so it stays one
-			// statement outside a transaction; only a currency the security has
-			// no line in yet is worth the write below.
+			// The line the currency names, read rather than written where the
+			// security already has it and there is nothing to file on it. This
+			// is the path a bulk import takes on almost every row, so it stays
+			// one statement outside a transaction; anything else goes through
+			// placement, which writes.
 			listingID, err := listingFor(ctx, p.q, id, currency)
 			if err != nil {
 				return "", "", err
 			}
-			if listingID == uuid.Nil && currency != "" {
+			if listingID == uuid.Nil || placeWrites {
 				err = p.runInTx(ctx, func(exec queryable) error {
 					var lErr error
-					listingID, lErr = ensureListing(ctx, exec, id, currency)
+					listingID, lErr = place(ctx, exec, id)
 					return lErr
 				})
 				if err != nil {
@@ -993,8 +1095,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		// different answer.
 		var listingID uuid.UUID
 		err = p.runInTx(ctx, func(exec queryable) error {
-			var mErr error
-			listingID, mErr = mergeIntoInstrument(ctx, exec, id, db.InstrumentMerge{
+			if mErr := mergeIntoInstrument(ctx, exec, id, db.InstrumentMerge{
 				AssetClass:  assetClass,
 				ExchangeMIC: exchangeMIC,
 				Currency:    currency,
@@ -1002,10 +1103,14 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 				SICCode:     sicCode,
 				ValidFrom:   validFrom,
 				ValidBefore: validBefore,
-				Identifiers: identifiers,
-			})
-			if mErr != nil {
+				Identifiers: securityIDs,
+			}); mErr != nil {
 				return mErr
+			}
+			var lErr error
+			listingID, lErr = place(ctx, exec, id)
+			if lErr != nil {
+				return lErr
 			}
 			return updateInstrumentOnMatch(ctx, exec, id, underlyingUUID, optionFields)
 		})
@@ -1031,13 +1136,6 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 		if err != nil {
 			return err
 		}
-		// Every security has at least one currency line, and a security created
-		// without a stated currency gets the unknown one rather than none: how
-		// many lines it has is what is unknown, not whether it has any.
-		newListingID, err = ensureListing(ctx, exec, newID, currency)
-		if err != nil {
-			return err
-		}
 		for _, idn := range securityIDs {
 			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 				newID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
@@ -1048,19 +1146,12 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 				return err
 			}
 		}
-		// A listing-grain name goes on the line the currency named. A security
-		// just created has exactly one, so newListingID is never nil here.
-		for _, idn := range listingIDs {
-			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				newListingID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
-			if err != nil {
-				if isIdentifierConflict(err) {
-					return errIdentifierExists // rollback tx; caller will look up existing id
-				}
-				return err
-			}
-		}
-		return nil
+		// Every security has at least one currency line, and a security created
+		// without a stated currency gets the unknown one rather than none: how
+		// many lines it has is what is unknown, not whether it has any. Placement
+		// mints the lines and files the listing-grain names on them.
+		newListingID, err = place(ctx, exec, newID)
+		return err
 	})
 	if err != nil {
 		if errors.Is(err, errIdentifierExists) {
@@ -1329,14 +1420,28 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 	in.ExchangeMIC = mic
 	in.Identifiers = idns
 	return p.runInTx(ctx, func(exec queryable) error {
-		_, err := mergeIntoInstrument(ctx, exec, uid, in)
+		if err := mergeIntoInstrument(ctx, exec, uid, in); err != nil {
+			return err
+		}
+		_, err := oneLine(in.Currency, listingGrain(in.Identifiers))(ctx, exec, uid)
 		return err
 	})
 }
 
-// mergeIntoInstrument adds what an instrument does not already have: identifiers
-// it lacks, and columns that are still NULL. A stored value always wins
-// (adr/0004), so it fills blanks and never rewrites.
+// listingGrain is the listing-grain half of an identifier set, for a caller that
+// wants only that half.
+func listingGrain(idns []db.IdentifierInput) []db.IdentifierInput {
+	_, listing := splitByGrain(idns)
+	return listing
+}
+
+// mergeIntoInstrument adds what an instrument does not already have: the
+// security-grain identifiers it lacks, and columns that are still NULL. A stored
+// value always wins (adr/0004), so it fills blanks and never rewrites.
+//
+// It does no listing work. Which lines a security has, and which of them each
+// listing-grain name belongs on, is what the two entry points disagree about, so
+// it is a placeListings run by the caller rather than a rule buried here.
 //
 // It takes an exec rather than opening its own transaction because both callers
 // already have one to run in, and because the second of them -- EnsureInstrument
@@ -1350,8 +1455,8 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 // name is not among the columns. A trigger derives it from the identifiers in
 // force, so an inserted MIC_TICKER takes over from the broker description on its
 // own, and writing it here would fight that.
-func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in db.InstrumentMerge) (uuid.UUID, error) {
-	securityIDs, listingIDs := splitByGrain(in.Identifiers)
+func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in db.InstrumentMerge) error {
+	securityIDs, _ := splitByGrain(in.Identifiers)
 	for _, idn := range securityIDs {
 		// ON CONFLICT with no target covers the exclusion constraint as well as
 		// a unique index, so an identifier the row already holds over an
@@ -1362,7 +1467,7 @@ func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in d
 			ON CONFLICT DO NOTHING
 		`, id, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 		if err != nil {
-			return uuid.Nil, fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
+			return fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
 		}
 	}
 	// The WHERE guard leaves a row that needs nothing unwritten, which keeps
@@ -1384,37 +1489,85 @@ func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in d
 	`, id, nullStr(in.AssetClass), nullStr(in.ExchangeMIC), nullStr(in.Currency),
 		nullStr(in.CIK), nullStr(in.SICCode), nullTime(in.ValidFrom), nullTime(in.ValidBefore))
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("merge instrument columns: %w", err)
+		return fmt.Errorf("merge instrument columns: %w", err)
 	}
-	// A currency filling a blank names the line the security was already
-	// trading on, so its unknown listing moves onto that currency rather than
-	// gaining a sibling. The guard against rewriting a stored value lives in
-	// ensureListing: a security already quoted in this family keeps what it has.
-	listingID, err := ensureListing(ctx, exec, id, in.Currency)
-	if err != nil {
-		return uuid.Nil, err
+	return nil
+}
+
+// placeListings settles a security's currency lines and files the listing-grain
+// names on them, returning the line a caller asking about one currency should
+// get back. It is the one thing the two entry points disagree about: a caller
+// speaking of one currency has one line to fill, and a file carrying a security's
+// whole listing set has one per line.
+//
+// It runs inside its caller's transaction, because a line minted for names that
+// then fail to land is a line nobody asked for.
+type placeListings func(ctx context.Context, exec queryable, instrumentID uuid.UUID) (uuid.UUID, error)
+
+// oneLine is placement for a caller that speaks of a single currency: the line
+// that currency names, with every listing-grain name it supplied filed there.
+//
+// An empty currency names the security's unknown line, which is what a caller
+// that stated no currency gets -- how many lines the security has is what is
+// unknown, not whether it has any. A currency filling a blank moves that unknown
+// line onto it rather than adding a sibling; the guard against rewriting a stored
+// value lives in ensureListing.
+func oneLine(currency string, listingIDs []db.IdentifierInput) placeListings {
+	return func(ctx context.Context, exec queryable, instrumentID uuid.UUID) (uuid.UUID, error) {
+		listingID, err := ensureListing(ctx, exec, instrumentID, currency)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		// A file that named no line leaves nothing to file, which is why an
+		// ambiguous listing is only an error where there is something to put on
+		// one.
+		if len(listingIDs) == 0 {
+			return listingID, nil
+		}
+		if listingID == uuid.Nil {
+			return uuid.Nil, fmt.Errorf("place listing identifiers: no currency stated and the security has several lines")
+		}
+		return listingID, insertListingIdentifiers(ctx, exec, listingID, listingIDs)
 	}
-	// The listing-grain names go on last, because the listing they go on is what
-	// the two statements above have just settled. A file that named none leaves
-	// nothing to do here, which is why an ambiguous listing is only an error
-	// where there is actually something to file under it.
-	if len(listingIDs) == 0 {
-		return listingID, nil
+}
+
+// insertListingProviderIdentifiers files a line's provider-scoped names on it.
+//
+// The whole set, unfiltered by grain: the file says these belong to this line, so
+// there is nothing left to decide. SaveProviderIdentifiers routes by grain because
+// its callers hand it a flat set with no line stated.
+func insertListingProviderIdentifiers(ctx context.Context, exec queryable, listingID uuid.UUID, pis []db.ProviderIdentifierInput) error {
+	for _, pi := range pis {
+		_, err := exec.ExecContext(ctx, `
+			INSERT INTO provider_listing_identifiers (listing_id, provider, identifier_type, domain, value)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT DO NOTHING
+		`, listingID, pi.Provider, pi.Type, nullStr(pi.Domain), pi.Value)
+		if err != nil {
+			return fmt.Errorf("place listing provider identifier (%s/%s): %w", pi.Provider, pi.Type, err)
+		}
 	}
-	if listingID == uuid.Nil {
-		return uuid.Nil, fmt.Errorf("merge listing identifiers: no currency stated and the security has several lines")
-	}
-	for _, idn := range listingIDs {
+	return nil
+}
+
+// insertListingIdentifiers files listing-grain names on one line.
+//
+// ON CONFLICT DO NOTHING covers the exclusion constraint as well as a unique
+// index, so a name the line already holds over an overlapping interval is a
+// no-op. A name another line of the security holds is a disagreement about which
+// line it denotes, and the stored answer wins (adr/0004).
+func insertListingIdentifiers(ctx context.Context, exec queryable, listingID uuid.UUID, idns []db.IdentifierInput) error {
+	for _, idn := range idns {
 		_, err := exec.ExecContext(ctx, `
 			INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT DO NOTHING
 		`, listingID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 		if err != nil {
-			return uuid.Nil, fmt.Errorf("merge listing identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
+			return fmt.Errorf("place listing identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
 		}
 	}
-	return listingID, nil
+	return nil
 }
 
 // UpdateInstrumentStrike implements db.InstrumentDB.

@@ -51,7 +51,14 @@ describe("assembleSystemArchive", () => {
         {
           item: {
             case: "instrument",
-            value: { currency: "USD", identifiers: [{ type: 11, value: "AAPL", domain: "XNAS", canonical: true }] },
+            value: {
+              listings: [
+                {
+                  currency: "USD",
+                  identifiers: [{ type: 11, value: "AAPL", domain: "XNAS", canonical: true }],
+                },
+              ],
+            },
           },
         },
         { item: { case: "partBegin", value: { part: ArchivePart.PRICES } } },
@@ -59,7 +66,7 @@ describe("assembleSystemArchive", () => {
           item: {
             case: "priceGroup",
             value: {
-              instrument: { type: 11, value: "AAPL", domain: "XNAS" },
+              instrument: { type: 11, value: "AAPL", domain: "XNAS", currency: "USD" },
               rows: [{ priceDate: "2024-01-15", close: "185.90" }],
             },
           },

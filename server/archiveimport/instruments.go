@@ -31,10 +31,18 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 		return 0, nil
 	}
 
+	// Both grains: a derivative names its underlying by whichever identifier the
+	// export picked, and for an equity known only by its ticker that is a name
+	// hanging off one of its lines.
 	byRef := make(map[identifier.Identifier]int, len(instruments))
 	for i, inst := range instruments {
 		for _, idf := range inst.GetIdentifiers() {
 			byRef[refKey(idf.GetType(), idf.GetValue(), idf.GetDomain())] = i
+		}
+		for _, l := range inst.GetListings() {
+			for _, idf := range l.GetIdentifiers() {
+				byRef[refKey(idf.GetType(), idf.GetValue(), idf.GetDomain())] = i
+			}
 		}
 	}
 
@@ -91,17 +99,14 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 	}
 
 	// Pass 2b: narrow each underlying security to the line the derivative
-	// delivers -- the one its strike is quoted in. The archive names the
-	// underlying by a security-grain reference, so the currency comes from the
-	// derivative itself: what the file states, else what its contract symbology
-	// implies. Naming the line in the file is issue 0151.
+	// delivers -- the one its strike is quoted in, which the file names outright
+	// as the ref's currency.
 	//
 	// Ensure rather than find. A contract asserts its own strike currency, and a
 	// strike is quoted against shares, so it asserts that the underlying has a
 	// line there -- and a system archive is the one source allowed to state
-	// instrument identity, so nothing outranks it here. A derivative that states
-	// no currency and wears no contract symbol asserts nothing, names no line and
-	// is reported. See
+	// instrument identity, so nothing outranks it here. A ref that states no
+	// currency names no line and is reported rather than guessed at. See
 	// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
 	underlyingLineByIndex := make(map[int]string, len(underlyingIDByIndex))
 	for i, inst := range instruments {
@@ -109,10 +114,10 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 		if !ok {
 			continue // not a derivative, or already reported in pass 2
 		}
-		cur := identifier.StrikeCurrency(inst.GetCurrency(), archiveIdentifierTypes(inst))
+		cur := inst.GetUnderlying().GetCurrency()
 		if cur == "" {
-			rep.Errf(i, "underlying", "OPTION/FUTURE states no currency and wears no contract symbol, "+
-				"so the line of "+inst.GetUnderlying().GetValue()+" it delivers cannot be named")
+			rep.Errf(i, "underlying", "the underlying reference states no currency, "+
+				"so the line of "+inst.GetUnderlying().GetValue()+" this contract delivers is not named")
 			rep.Advance(ctx, 1)
 			continue
 		}
@@ -148,18 +153,6 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 	return ensuredCount, nil
 }
 
-// archiveIdentifierTypes is the type of each identifier a file names an
-// instrument by, for the vocabulary-level questions that do not care what any
-// one of them spells.
-func archiveIdentifierTypes(inst *archivev1.Instrument) []string {
-	ids := inst.GetIdentifiers()
-	out := make([]string, len(ids))
-	for i, idn := range ids {
-		out[i] = typev1.IdentifierType_name[int32(idn.GetType())]
-	}
-	return out
-}
-
 // ensureArchiveInstrument ensures one archive instrument, restoring the values
 // nothing recomputes: the option terms, the deliverable multiplier, the interval
 // each name was correct over, and the provider identifiers the lookups
@@ -171,62 +164,75 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 		rep.Errf(i, "instruments", msg)
 		return ""
 	}
-	if len(inst.GetIdentifiers()) == 0 {
-		return fail("at least one identifier required")
+	if len(inst.GetListings()) == 0 {
+		return fail("at least one listing required")
 	}
-	idns := make([]db.IdentifierInput, 0, len(inst.GetIdentifiers()))
-	for _, idf := range inst.GetIdentifiers() {
-		typeStr := typev1.IdentifierType_name[int32(idf.GetType())]
-		// The interval is part of the key: one instrument may state a name it
-		// has given up alongside the one it wears now, and those are two rows,
-		// not a duplicate.
-		key := typeStr + "\x00" + idf.GetValue() + "\x00" + idf.GetValidFrom() + "\x00" + idf.GetValidBefore()
-		if _, ok := seenKeys[key]; ok {
-			return fail("duplicate (type, value) in payload")
+	idns, err := archiveIdentifiers(inst.GetIdentifiers(), seenKeys)
+	if err != nil {
+		return fail(err.Error())
+	}
+	listings := make([]db.ListingMerge, 0, len(inst.GetListings()))
+	claimed := make([]db.IdentifierInput, 0, len(idns))
+	claimed = append(claimed, idns...)
+	for _, l := range inst.GetListings() {
+		lidns, err := archiveIdentifiers(l.GetIdentifiers(), seenKeys)
+		if err != nil {
+			return fail(err.Error())
 		}
-		seenKeys[key] = struct{}{}
-		idns = append(idns, db.IdentifierInput{
-			Ref:         db.InstrumentRef{Type: typeStr, Value: idf.GetValue(), Domain: idf.GetDomain()},
-			Canonical:   idf.GetCanonical(),
-			ValidFrom:   archiveDate(idf.ValidFrom),
-			ValidBefore: archiveDate(idf.ValidBefore),
+		claimed = append(claimed, lidns...)
+		listings = append(listings, db.ListingMerge{
+			Currency:            l.GetCurrency(),
+			ValidFrom:           archiveDate(l.ValidFrom),
+			ValidBefore:         archiveDate(l.ValidBefore),
+			Identifiers:         lidns,
+			ProviderIdentifiers: archiveProviderIdentifiers(l.GetProviderIdentifiers()),
 		})
+	}
+	if len(claimed) == 0 {
+		return fail("at least one identifier required, on the security or on one of its listings")
 	}
 	opts, err := archiveOptionFields(inst)
 	if err != nil {
 		return fail(err.Error())
 	}
+	// The security's own currency, which is what the sole line of a single-line
+	// security is quoted in and is nothing at all for a security quoted in
+	// several. The column is on its way out in issue 0155; until then filling it
+	// keeps a restored instrument reading the way a resolved one does.
+	currency := ""
+	if len(listings) == 1 {
+		currency = listings[0].Currency
+	}
 	// The instrument block names its identifiers together, so it is one claim
 	// rather than a set assembled from several answers. An archive carrying
 	// instrument data is admin-only and authoritative at every level, which is
 	// what makes that claim admissible (adr/0063).
-	id, listingID, err := database.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchangeMic(), inst.GetCurrency(),
-		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, []db.IdentityClaim{archiveClaim(idns)}, underlyingListingID,
-		archiveDate(inst.ValidFrom), archiveDate(inst.ValidBefore), opts)
+	id, listingID, err := database.EnsureArchiveInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), "", currency,
+		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, listings,
+		[]db.IdentityClaim{archiveClaim(claimed)}, underlyingListingID, opts)
 	if err != nil {
 		return fail(err.Error())
 	}
-	// EnsureInstrument matched rather than created whenever the instance already
-	// knew the instrument, and a match sets the underlying and the option terms
-	// and nothing else. A rebuild hits that on every currency and FX pair, which
-	// migration 002 seeds. The merge fills the gaps the match left; it does not
-	// overwrite, and on a row just created there is nothing to fill.
+	// EnsureArchiveInstrument matched rather than created whenever the instance
+	// already knew the instrument, and a match sets the underlying and the option
+	// terms and nothing else. A rebuild hits that on every currency and FX pair,
+	// which migration 002 seeds. The merge fills the gaps the match left; it does
+	// not overwrite, and on a row just created there is nothing to fill.
+	//
+	// The lines are not merged again here: placement already ensured every one of
+	// them and filed its names, which is the same fill-the-gaps rule at the grain
+	// below.
 	if err := database.MergeInstrumentFromArchive(ctx, id, db.InstrumentMerge{
 		AssetClass:  db.AssetClassToStr(inst.GetAssetClass()),
-		ExchangeMIC: inst.GetExchangeMic(),
-		Currency:    inst.GetCurrency(),
+		Currency:    currency,
 		CIK:         inst.GetCik(),
 		SICCode:     inst.GetSicCode(),
-		ValidFrom:   archiveDate(inst.ValidFrom),
-		ValidBefore: archiveDate(inst.ValidBefore),
 		Identifiers: idns,
 	}); err != nil {
 		return fail(err.Error())
 	}
-	// The line the file's currency names, which is where a provider identifier
-	// of listing grain belongs. An archive states one currency per instrument,
-	// so it names one line and every provider identifier in the block is about
-	// it. Naming a listing outright, so a file can carry more than one, is 0151.
+	// The security-grain provider identifiers. Each line's travel with the line,
+	// which is where every provider type that exists today belongs.
 	if err := restoreProviderIdentifiers(ctx, database, id, listingID, inst.GetProviderIdentifiers()); err != nil {
 		return fail("provider_identifiers: " + err.Error())
 	}
@@ -242,6 +248,46 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	return id
 }
 
+// archiveIdentifiers converts one grain's identifiers, refusing a set that names
+// the same thing twice.
+//
+// The interval is part of the key: one instrument may state a name it has given
+// up alongside the one it wears now, and those are two rows rather than a
+// duplicate. seenKeys spans the whole part, so a duplicate across two of a
+// security's lines is caught as one within a single line is.
+func archiveIdentifiers(in []*archivev1.Identifier, seenKeys map[string]struct{}) ([]db.IdentifierInput, error) {
+	out := make([]db.IdentifierInput, 0, len(in))
+	for _, idf := range in {
+		typeStr := typev1.IdentifierType_name[int32(idf.GetType())]
+		key := typeStr + "\x00" + idf.GetValue() + "\x00" + idf.GetValidFrom() + "\x00" + idf.GetValidBefore()
+		if _, ok := seenKeys[key]; ok {
+			return nil, errors.New("duplicate (type, value) in payload")
+		}
+		seenKeys[key] = struct{}{}
+		out = append(out, db.IdentifierInput{
+			Ref:         db.InstrumentRef{Type: typeStr, Value: idf.GetValue(), Domain: idf.GetDomain()},
+			Canonical:   idf.GetCanonical(),
+			ValidFrom:   archiveDate(idf.ValidFrom),
+			ValidBefore: archiveDate(idf.ValidBefore),
+		})
+	}
+	return out, nil
+}
+
+// archiveProviderIdentifiers converts one grain's provider identifiers.
+func archiveProviderIdentifiers(in []*archivev1.ProviderIdentifier) []db.ProviderIdentifierInput {
+	out := make([]db.ProviderIdentifierInput, 0, len(in))
+	for _, pi := range in {
+		out = append(out, db.ProviderIdentifierInput{
+			Provider: pi.GetProvider(),
+			Type:     pi.GetIdentifierType(),
+			Domain:   pi.GetDomain(),
+			Value:    pi.GetValue(),
+		})
+	}
+	return out
+}
+
 // restoreProviderIdentifiers writes the recorded output of the identifier
 // lookups straight onto the imported instrument. This is what the archive exists
 // for: the fetchers address an instrument by the provider's own identifier, so
@@ -254,16 +300,7 @@ func restoreProviderIdentifiers(ctx context.Context, database db.DB, instrumentI
 	if len(pis) == 0 {
 		return nil
 	}
-	in := make([]db.ProviderIdentifierInput, 0, len(pis))
-	for _, pi := range pis {
-		in = append(in, db.ProviderIdentifierInput{
-			Provider: pi.GetProvider(),
-			Type:     pi.GetIdentifierType(),
-			Domain:   pi.GetDomain(),
-			Value:    pi.GetValue(),
-		})
-	}
-	return database.SaveProviderIdentifiers(ctx, instrumentID, listingID, in)
+	return database.SaveProviderIdentifiers(ctx, instrumentID, listingID, archiveProviderIdentifiers(pis))
 }
 
 // archiveOptionFields reads the denormalized OCC components off an archive

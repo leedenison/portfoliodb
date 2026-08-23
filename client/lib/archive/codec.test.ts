@@ -33,10 +33,15 @@ function systemFixture() {
       instruments: [
         {
           assetClass: AssetClass.STOCK,
-          currency: "USD",
-          exchangeMic: "XNAS",
-          identifiers: [
-            { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS", canonical: true },
+          // The ticker names a line, so it travels on the line rather than
+          // beside the security.
+          listings: [
+            {
+              currency: "USD",
+              identifiers: [
+                { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS", canonical: true },
+              ],
+            },
           ],
         },
       ],
@@ -287,7 +292,9 @@ describe("cross-runtime agreement", () => {
 
   it("reads what Go wrote", () => {
     const system = unmarshalSystem(readFileSync("../server/archive/testdata/system.json", "utf8"));
-    expect(system.instruments?.instruments[0].identifiers[0].value).toBe("AAPL");
+    // Through the nesting, which is where a ticker lives: it names one of the
+    // security's currency lines rather than the security.
+    expect(system.instruments?.instruments[0].listings[0].identifiers[0].value).toBe("AAPL");
     const user = unmarshalUser(readFileSync("../server/archive/testdata/user.json", "utf8"));
     expect(user.preferences?.displayCurrency).toBe("GBP");
   });

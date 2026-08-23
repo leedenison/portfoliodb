@@ -627,7 +627,7 @@ stored and where it travels.
 | window | `postings[]` | may be empty, which clears the period |
 | posting | `order_date`, `trade_date`, `instrument_description`, `type`, `quantity` | both dates required; a source stating one date writes it to both |
 | posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
-| posting | `identifier_hints[]` | zero or more identifier triples, naming the security. Which line the posting is on is settled at ingest from `trading_currency`, so a hint carries no `currency` |
+| posting | `identifier_hints[]` | zero or more identifier triples, naming the security. Which line the posting is on is settled at ingest from `trading_currency` where it states one and from the security's sole line otherwise, so a hint carries no `currency` |
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
 | posting | `share_count_basis` | optional; absent means the posting's own `trade_date` |
 | posting | `correlations[]` | zero or more; why this posting might belong with another |

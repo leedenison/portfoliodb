@@ -175,9 +175,16 @@ message Tx {
   // group balances, while a row whose converter supplied no price cannot convert
   // and leaves a residual in the security itself. Collapsing the two would let a
   // missing price balance silently. See docs/spec/postings.md.
-  // A decimal string, in the trading currency.
+  // A decimal string, in the currency the row's own figures are in:
+  // trading_currency where the source stated one, settlement_currency otherwise.
   optional string unit_price = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // Currency in which the instrument is denominated (trading currency, e.g. EUR for SAF). Optional. Passed to plugins as the currency hint. For cash transactions only, set this (same as settlement when user selects one currency).
+  // The instrument's own currency (e.g. EUR for a Paris line), which names the
+  // listing the posting is on. Optional, and set only where the source stated
+  // the security's own currency rather than the account's -- an account default
+  // written here would be indistinguishable from a stated one downstream, where
+  // it is passed to the plugins as the currency hint and a currency completes an
+  // identity. A money posting's instrument is its currency, so it always states
+  // this and states it as the settlement currency.
   string trading_currency = 10;
   // Currency used to pay/settle the transaction (e.g. GBP when buying in a UK account). Optional. Set from user input (e.g. Fidelity converter) for all transactions.
   string settlement_currency = 11;

@@ -65,10 +65,17 @@ func ensureListing(ctx context.Context, exec queryable, instrumentID uuid.UUID, 
 // which line it was on names none. A holding stops reporting unpriced the moment
 // something names the line it was always on.
 //
-// The two are claimed on different evidence. A posting carries the currency its
-// own figures are in, so it is matched on that; an unplaced name carries no
-// currency, so the only thing that can place it is the security having exactly
-// one line for it to mean. Neither is ever settled by picking among several.
+// The two are claimed on different evidence. A posting carries the currency the
+// source said its security is quoted in, so it is matched on that; an unplaced
+// name carries no currency, so the only thing that can place it is the security
+// having exactly one line for it to mean. Neither is ever settled by picking
+// among several.
+//
+// So a posting whose source stated no currency of its own is not claimed here at
+// all: trading_currency is null on it, the match is null, and the only thing that
+// ever places it is being the security's sole line at ingest. That is the price
+// of refusing to guess -- an account default written into the field would match
+// something, and would match the wrong line as readily as the right one.
 func claimForLine(ctx context.Context, exec queryable, instrumentID, listingID uuid.UUID) error {
 	// The guard is the two INITIALIZE partial unique indexes: a pad on no line and
 	// a pad already on the line are one holding's pad twice, and moving the first

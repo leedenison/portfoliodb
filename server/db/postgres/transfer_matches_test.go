@@ -106,7 +106,7 @@ func transferFixtureAt(t *testing.T, p *Postgres, userID string, s transferSpec)
 		{Amount: decimal.RequireFromString(s.qty), Commodity: "inst:" + s.instID},
 		{Amount: decimal.RequireFromString(negate(t, s.qty)), Commodity: "inst:" + s.instID},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, txs, ids, ws, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, txs, resolvedFor(t, p, ids), ws, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	// The departure's clearing leg is positive: the account's own leg is negative

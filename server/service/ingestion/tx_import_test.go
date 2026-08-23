@@ -196,7 +196,7 @@ func TestImportTxPart_StoresEachWindowWithItsOwnPeriod(t *testing.T) {
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-tx", from, before,
 			gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp,
-			txs []*apiv1.Tx, _ []string, _ []db.Weight, _ []*time.Time) error {
+			txs []*apiv1.Tx, _ []db.Resolution, _ []db.Weight, _ []*time.Time) error {
 			if len(txs) != 2 {
 				t.Errorf("stored %d postings, want the 2 the file stated", len(txs))
 			}
@@ -307,7 +307,7 @@ func TestImportTxPart_WeighsASplitGroupsShortfall(t *testing.T) {
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-tx", from, before,
 			gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp,
-			txs []*apiv1.Tx, _ []string, weights []db.Weight, _ []*time.Time) error {
+			txs []*apiv1.Tx, _ []db.Resolution, weights []db.Weight, _ []*time.Time) error {
 			// The stated leg alone. Nothing is invented above the store.
 			if len(txs) != 1 {
 				t.Fatalf("stored %d postings, want the stated leg alone", len(txs))

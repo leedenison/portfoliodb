@@ -47,9 +47,11 @@ The client supports uploading transactions in several formats:
 
 ## Associating Instruments with Transactions
 
-Each transaction modifies holding data for one **listing** of a canonical instrument -- one currency that instrument trades in -- and possibly modifies a cash holding.  So a listing must be associated with every transaction.
+Each transaction modifies holding data for one **listing** of a canonical instrument -- one currency that instrument trades in -- and possibly modifies a cash holding.  So an instrument must be associated with every transaction, and its listing wherever one is known.
 
-Every valid transaction must end up with a **listing_id**, never with a bare instrument: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that source's description).  A transaction whose currency line is not known names that instrument's unknown listing rather than the instrument itself, so that a posting group never mixes grains.  Truly unidentified transactions must not exist and are considered a fatal validation error.  See identifiers.md and adr/0070-a-posting-names-a-listing.md.
+Every valid transaction must end up with an **instrument_id**: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that source's description).  Truly unidentified transactions must not exist and are considered a fatal validation error.
+
+It carries a **listing_id** as well wherever something named the currency line -- the transaction's own trading currency, the line identification resolved, or the instrument having exactly one.  Where nothing did, the line is null: the position is real and its quantity is right, but which currency it is denominated in is unknown, so it is reported unpriced rather than valued at a rate nobody stated.  See identifiers.md and adr/0072-a-posting-names-a-security-and-a-line.md.
 
 ### Transaction description vs instrument name
 

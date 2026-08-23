@@ -33,8 +33,9 @@ const insertPostingSQL = `
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 settlement_amount, instrument_id, share_count_basis, account_type,
-	                 synthetic_purpose, weight, weight_commodity, group_id, trade_date)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, g.id, $21 FROM g
+	                 synthetic_purpose, weight, weight_commodity, group_id, trade_date,
+	                 listing_id)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, g.id, $21, $22 FROM g
 	RETURNING id, group_id
 `
 
@@ -45,8 +46,9 @@ const insertPostingInGroupSQL = `
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 settlement_amount, instrument_id, share_count_basis, account_type,
-	                 synthetic_purpose, weight, weight_commodity, group_id, trade_date)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, $20, $21)
+	                 synthetic_purpose, weight, weight_commodity, group_id, trade_date,
+	                 listing_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, $20, $21, $22)
 	RETURNING id
 `
 
@@ -67,7 +69,7 @@ type written struct {
 }
 
 // ReplaceTxsInPeriod implements db.TxDB.
-func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time) error {
+func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, resolved []db.Resolution, weights []db.Weight, shareCountBasis []*time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -76,8 +78,8 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 	if err != nil {
 		return fmt.Errorf("invalid job id: %w", err)
 	}
-	if len(instrumentIDs) != len(txs) {
-		return fmt.Errorf("instrumentIDs length %d != txs length %d", len(instrumentIDs), len(txs))
+	if len(resolved) != len(txs) {
+		return fmt.Errorf("resolved length %d != txs length %d", len(resolved), len(txs))
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
 		fromT, err := tsToTime(periodFrom)
@@ -96,7 +98,7 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		// A group the replace cut has lost legs, so what it fails to balance to is
 		// their value and can be any size.
 		touched.addAll(cut, true)
-		written, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, "")
+		written, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, resolved, weights, shareCountBasis, "")
 		if err != nil {
 			return err
 		}
@@ -152,12 +154,19 @@ func (p *Postgres) groupWritten(ctx context.Context, exec queryable, userUUID uu
 //
 // weights and shareCountBasis are parallel to txs, or nil when the caller has
 // none. See db.TxDB for what a missing entry in either means.
-func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time, account string) (written, error) {
+func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, resolved []db.Resolution, weights []db.Weight, shareCountBasis []*time.Time, account string) (written, error) {
 	var out written
 	for i, t := range txs {
-		instUUID, err := uuid.Parse(instrumentIDs[i])
+		instUUID, err := uuid.Parse(resolved[i].InstrumentID)
 		if err != nil {
 			return out, fmt.Errorf("invalid instrument id: %w", err)
+		}
+		// Empty is the posting naming no line, which the column holds as NULL.
+		// It is not an error: nothing said which line, and the security is still
+		// named. See docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+		listingUUID, err := parseNullUUID(resolved[i].ListingID)
+		if err != nil {
+			return out, fmt.Errorf("invalid listing id: %w", err)
 		}
 		ordered, err := tsToTime(t.OrderDate)
 		if err != nil {
@@ -221,7 +230,7 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			nullStr(t.GetSyntheticPurpose()), w.Amount, w.Commodity,
 		}
 		var txID, groupID uuid.UUID
-		if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID, traded)...).Scan(&txID, &groupID); err != nil {
+		if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID, traded, listingUUID)...).Scan(&txID, &groupID); err != nil {
 			return out, fmt.Errorf("insert tx: %w", err)
 		}
 		out.postings = append(out.postings, txID)
@@ -274,7 +283,7 @@ func insertCorrelations(ctx context.Context, exec queryable, txID uuid.UUID, job
 // partition. What it keeps from the old behaviour is the balance: whatever it does
 // not account for is routed to a counterparty, so a manual entry that balances
 // against nothing is still a group the invariant can reach.
-func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time) error {
+func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, resolved []db.Resolution, weights []db.Weight, shareCountBasis []*time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -285,7 +294,7 @@ func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, j
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
 		var touched settleSet
-		w, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, account)
+		w, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, resolved, weights, shareCountBasis, account)
 		if err != nil {
 			return fmt.Errorf("create tx group: %w", err)
 		}
@@ -766,7 +775,7 @@ const groupResidualsSQL = `
 	       types.resolved_tx_types,
 	       first.order_date, first.trade_date, first.broker_tx_type, first.resolved_tx_type, first.broker, first.account,
 	       first.trading_currency, first.settlement_currency,
-	       commodity.instrument_description, commodity.instrument_id
+	       commodity.instrument_description, commodity.instrument_id, commodity.listing_id
 	FROM (
 		SELECT group_id, weight_commodity, SUM(weight) AS residual
 		FROM txs
@@ -795,10 +804,17 @@ const groupResidualsSQL = `
 		ORDER BY t.order_date, t.id LIMIT 1
 	) first ON true
 	JOIN LATERAL (
-		SELECT t.instrument_description, t.instrument_id
+		SELECT (array_agg(t.instrument_description ORDER BY t.order_date, t.id))[1] AS instrument_description,
+		       (array_agg(t.instrument_id ORDER BY t.order_date, t.id))[1] AS instrument_id,
+		       -- The line only where every leg this balances is on the same one.
+		       -- The sum is per security-grain commodity, so it does not say which
+		       -- line the leftover is on; legs that disagree leave the counterparty
+		       -- naming no line rather than one of theirs.
+		       CASE WHEN count(*) FILTER (WHERE t.listing_id IS NULL) = 0
+		             AND count(DISTINCT t.listing_id) = 1
+		            THEN (array_agg(DISTINCT t.listing_id))[1] END AS listing_id
 		FROM txs t
 		WHERE t.group_id = r.group_id AND t.weight_commodity = r.weight_commodity
-		ORDER BY t.order_date, t.id LIMIT 1
 	) commodity ON true
 	ORDER BY r.group_id, r.weight_commodity
 `
@@ -817,7 +833,7 @@ const boundaryCandidatesSQL = `
 	SELECT t.group_id, t.weight, t.weight_commodity, t.order_date, t.trade_date,
 	       t.broker_tx_type, t.resolved_tx_type, t.broker, t.account,
 	       t.trading_currency, t.settlement_currency, t.instrument_description,
-	       t.instrument_id
+	       t.instrument_id, t.listing_id
 	FROM txs t
 	WHERE t.group_id = ANY($1)
 	  AND t.synthetic_purpose IS NULL
@@ -827,11 +843,21 @@ const boundaryCandidatesSQL = `
 `
 
 // currencyInstrumentSQL resolves the seeded instrument a money residual is denominated
-// in. It runs on the replace's own transaction rather than through
-// FindInstrumentByIdentifier so that the whole operation is one statement stream.
+// in, and the line of it the code names. It runs on the replace's own transaction
+// rather than through FindInstrumentByIdentifier so that the whole operation is one
+// statement stream.
+//
+// The line is matched on the currency family, so a GBX code finds a line stored in
+// GBP and the other way round, and the uniqueness index makes at most one match
+// possible. NULL where the seeded instrument has no line in that family.
 const currencyInstrumentSQL = `
-	SELECT instrument_id FROM instrument_identifiers
-	WHERE identifier_type = 'CURRENCY' AND domain IS NULL AND value = $1
+	SELECT ii.instrument_id,
+	       (SELECT l.id FROM instrument_listings l
+	        WHERE l.instrument_id = ii.instrument_id
+	          AND l.currency IS NOT NULL
+	          AND currency_family(l.currency) = currency_family($1))
+	FROM instrument_identifiers ii
+	WHERE ii.identifier_type = 'CURRENCY' AND ii.domain IS NULL AND ii.value = $1
 `
 
 // groupResidual is one commodity a group the replace cut no longer balances in, and
@@ -859,6 +885,9 @@ type groupResidual struct {
 	settlement     *string
 	description    string
 	instrumentID   *uuid.UUID
+	// The line the legs this balances are on, or nil where they name none or
+	// disagree about which.
+	listingID *uuid.UUID
 }
 
 // boundaryCandidate is one stated posting that names the account its other side sits
@@ -879,6 +908,8 @@ type boundaryCandidate struct {
 	settlement     *string
 	description    string
 	instrumentID   *uuid.UUID
+	// The mirrored posting's line, which its other side is on too.
+	listingID *uuid.UUID
 }
 
 // routeBoundaries writes the other side of every posting in the touched groups whose
@@ -898,7 +929,7 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 		var c boundaryCandidate
 		if err := rows.Scan(&c.groupID, &c.weight, &c.commodity, &c.orderDate, &c.tradeDate,
 			&c.brokerTxTypes, &c.resolvedTxType, &c.broker, &c.account,
-			&c.trading, &c.settlement, &c.description, &c.instrumentID); err != nil {
+			&c.trading, &c.settlement, &c.description, &c.instrumentID, &c.listingID); err != nil {
 			return fmt.Errorf("boundary candidates: %w", err)
 		}
 		cands = append(cands, c)
@@ -907,7 +938,7 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 		return fmt.Errorf("boundary candidates: %w", err)
 	}
 
-	byCurrency := map[string]uuid.UUID{}
+	byCurrency := map[string]moneyCommodity{}
 	for _, c := range cands {
 		acct, named := residual.Boundary(db.StrToTxType(c.resolvedTxType))
 		if !named {
@@ -919,13 +950,13 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 		}
 		amount := c.weight.Neg()
 		desc, trading, settlement := c.description, c.trading, c.settlement
-		instID := c.instrumentID
+		instID, lstID := c.instrumentID, c.listingID
 		if code, money := residual.CurrencyOf(c.commodity); money {
-			id, err := currencyInstrument(ctx, exec, byCurrency, code)
+			m, err := currencyInstrument(ctx, exec, byCurrency, code)
 			if err != nil {
 				return err
 			}
-			instID, desc, trading, settlement = &id, code, &code, &code
+			instID, lstID, desc, trading, settlement = &m.instrumentID, m.listingID, code, &code, &code
 		}
 		var txID uuid.UUID
 		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
@@ -933,6 +964,7 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 			c.brokerTxTypes, c.resolvedTxType, nil, amount,
 			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
 			db.BoundaryPurpose, amount, c.commodity, c.groupID, c.tradeDate,
+			nullUUID(lstID),
 		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert boundary posting: %w", err)
 		}
@@ -1108,7 +1140,7 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		var r groupResidual
 		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.priceRounding, &r.resolvedTypes,
 			&r.orderDate, &r.tradeDate, &r.brokerTxTypes, &r.resolvedTxType, &r.broker, &r.account,
-			&r.trading, &r.settlement, &r.description, &r.instrumentID); err != nil {
+			&r.trading, &r.settlement, &r.description, &r.instrumentID, &r.listingID); err != nil {
 			return fmt.Errorf("surviving residuals: %w", err)
 		}
 		residuals = append(residuals, r)
@@ -1117,7 +1149,7 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		return fmt.Errorf("surviving residuals: %w", err)
 	}
 
-	byCurrency := map[string]uuid.UUID{}
+	byCurrency := map[string]moneyCommodity{}
 	for _, r := range residuals {
 		amount := r.amount.Neg()
 		acctType, err := accountTypeToStr(rule(r.commodity, amount, r.priceRounding, db.StrsToTxTypes(r.resolvedTypes)))
@@ -1130,13 +1162,13 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		// the code as its description, matching how an ordinary cash row arrives so
 		// nothing downstream has to treat it specially.
 		desc, trading, settlement := r.description, r.trading, r.settlement
-		instID := r.instrumentID
+		instID, lstID := r.instrumentID, r.listingID
 		if code, money := residual.CurrencyOf(r.commodity); money {
-			id, err := currencyInstrument(ctx, exec, byCurrency, code)
+			m, err := currencyInstrument(ctx, exec, byCurrency, code)
 			if err != nil {
 				return err
 			}
-			instID, desc, trading, settlement = &id, code, &code, &code
+			instID, lstID, desc, trading, settlement = &m.instrumentID, m.listingID, code, &code, &code
 		}
 
 		// NULL share_count_basis leaves the insert trigger to seed it from the
@@ -1154,6 +1186,7 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 			r.brokerTxTypes, r.resolvedTxType, nil, amount,
 			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
 			db.RoutedPurpose, amount, r.commodity, r.groupID, r.tradeDate,
+			nullUUID(lstID),
 		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert routed posting: %w", err)
 		}
@@ -1161,21 +1194,28 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	return nil
 }
 
+// moneyCommodity is the seeded instrument a currency code names and the line of it
+// the code is quoted in.
+type moneyCommodity struct {
+	instrumentID uuid.UUID
+	listingID    *uuid.UUID
+}
+
 // currencyInstrument resolves and caches the seeded instrument a currency code names.
-func currencyInstrument(ctx context.Context, exec queryable, cache map[string]uuid.UUID, code string) (uuid.UUID, error) {
-	if id, ok := cache[code]; ok {
-		return id, nil
+func currencyInstrument(ctx context.Context, exec queryable, cache map[string]moneyCommodity, code string) (moneyCommodity, error) {
+	if m, ok := cache[code]; ok {
+		return m, nil
 	}
-	var id uuid.UUID
-	switch err := exec.QueryRowContext(ctx, currencyInstrumentSQL, code).Scan(&id); {
+	var m moneyCommodity
+	switch err := exec.QueryRowContext(ctx, currencyInstrumentSQL, code).Scan(&m.instrumentID, &m.listingID); {
 	case err == sql.ErrNoRows:
 		// Currencies are seeded, so this is a safety net rather than a live path.
 		// Naming the commodity is the only way the failure says anything useful: the
 		// alternative is the deferred constraint rejecting the whole replace at COMMIT.
-		return uuid.UUID{}, fmt.Errorf("no instrument for residual currency %q", code)
+		return moneyCommodity{}, fmt.Errorf("no instrument for residual currency %q", code)
 	case err != nil:
-		return uuid.UUID{}, fmt.Errorf("resolve currency %s: %w", code, err)
+		return moneyCommodity{}, fmt.Errorf("resolve currency %s: %w", code, err)
 	}
-	cache[code] = id
-	return id, nil
+	cache[code] = m
+	return m, nil
 }

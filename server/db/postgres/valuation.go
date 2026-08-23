@@ -68,6 +68,7 @@ func valuationQuery(portfolioMode bool) string {
 WITH portfolio_txs AS (
     SELECT
         t.instrument_id,
+        t.listing_id,
         t.instrument_description,
         t.order_date::date AS tx_date,
         SUM(t.split_adjusted_quantity) AS daily_qty,
@@ -77,30 +78,38 @@ WITH portfolio_txs AS (
         -- its raw one converted by 1/1 and cannot have rounded at all. See
         -- qty_is_zero.
         COUNT(*) FILTER (WHERE t.split_adjusted_quantity <> t.quantity)::int AS daily_inexact` + txSource + `
-    GROUP BY t.instrument_id, t.instrument_description, t.order_date::date
+    GROUP BY t.instrument_id, t.listing_id, t.instrument_description, t.order_date::date
 ),
--- Merge transactions by instrument_id for identified instruments so that
--- different descriptions for the same instrument net correctly. Unidentified
+-- Merge transactions by (instrument_id, listing_id) for identified instruments so
+-- that different descriptions for the same line net correctly. Unidentified
 -- instruments (NULL instrument_id) are grouped by instrument_description.
+--
+-- The line is part of the key because a price is quoted in a currency: two lines of
+-- one security are two positions an FX rate apart, and netting them would value the
+-- pair at whichever line happened to be priced. A posting that named no line groups
+-- under the null, which is unpriced further down.
 merged_txs AS (
     SELECT
         instrument_id,
+        listing_id,
         CASE WHEN instrument_id IS NULL THEN instrument_description END AS instrument_description,
         tx_date,
         SUM(daily_qty) AS daily_qty,
         SUM(daily_inexact)::int AS daily_inexact
     FROM portfolio_txs
     GROUP BY instrument_id,
+             listing_id,
              CASE WHEN instrument_id IS NULL THEN instrument_description END,
              tx_date
 ),
 cumulative AS (
     SELECT
         instrument_id,
+        listing_id,
         instrument_description,
         tx_date,
         SUM(daily_qty) OVER (
-            PARTITION BY instrument_id, instrument_description
+            PARTITION BY instrument_id, listing_id, instrument_description
             ORDER BY tx_date
             ROWS UNBOUNDED PRECEDING
         ) AS position,
@@ -108,7 +117,7 @@ cumulative AS (
         -- posting that has entered the running sum can have contributed a
         -- rounding to it.
         SUM(daily_inexact) OVER (
-            PARTITION BY instrument_id, instrument_description
+            PARTITION BY instrument_id, listing_id, instrument_description
             ORDER BY tx_date
             ROWS UNBOUNDED PRECEDING
         )::int AS inexact
@@ -149,13 +158,14 @@ date_series AS (
 holding_spans AS (
     SELECT
         instrument_id,
+        listing_id,
         instrument_description,
         position,
         inexact,
         GREATEST(tx_date, $2::date) AS from_date,
         COALESCE(
             lead(tx_date) OVER (
-                PARTITION BY instrument_id, instrument_description
+                PARTITION BY instrument_id, listing_id, instrument_description
                 ORDER BY tx_date
             ),
             $3::date
@@ -172,6 +182,7 @@ daily_holdings AS (
     SELECT
         ds.val_date,
         hs.instrument_id,
+        hs.listing_id,
         hs.instrument_description,
         hs.position AS qty,
         hs.inexact
@@ -179,25 +190,31 @@ daily_holdings AS (
     JOIN date_series ds
         ON ds.val_date >= hs.from_date AND ds.val_date < hs.before_date
 ),
--- The line each held security is valued at, and its currency. A price is quoted
--- in a currency, so the bars, the coverage and the currency all belong to the
--- listing; instrument_priced_listing is what carries a holding down to it while
--- a transaction still names the security. A security with two currency lines has
--- no row here and is unpriced, nothing having said which line the holding is on.
+-- The lines this query values, which is what the postings named: a price is quoted
+-- in a currency, so the bars, the coverage and the currency all belong to the line
+-- the holding is on. A holding whose postings named none has nothing here and is
+-- unpriced.
+held_listings AS (
+    SELECT DISTINCT l.id AS listing_id, l.currency
+    FROM instrument_listings l
+    WHERE l.id = ANY(SELECT DISTINCT listing_id FROM cumulative WHERE listing_id IS NOT NULL)
+      AND l.currency IS NOT NULL
+),
 -- Map each held line's currency to the listing of its FX pair (currencies != display).
+-- FX_PAIR names the security, so the pair's own line is reached through it, and a
+-- seeded pair has exactly one.
 fx_listings AS (
     SELECT DISTINCT
-        pl.currency AS base_currency,
+        hl.currency AS base_currency,
         fx_pl.listing_id AS fx_listing_id
-    FROM instrument_priced_listing pl
+    FROM held_listings hl
     INNER JOIN instrument_identifiers fx_ii
         ON fx_ii.identifier_type = 'FX_PAIR'
-        AND fx_ii.value = pl.currency || 'USD'
+        AND fx_ii.value = hl.currency || 'USD'
         AND fx_ii.valid_before IS NULL
     INNER JOIN instrument_priced_listing fx_pl
         ON fx_pl.instrument_id = fx_ii.instrument_id
-    WHERE pl.instrument_id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
-      AND pl.currency != 'USD'
+    WHERE hl.currency != 'USD'
 ),
 -- The display currency's own pair (DISPLAY/USD), only when display != USD.
 -- FX_PAIR names the security, so its own line is reached through it.
@@ -212,9 +229,7 @@ display_fx_listing AS (
 ),
 -- Every listing this query needs a price series for.
 price_listings AS (
-    SELECT pl.listing_id
-    FROM instrument_priced_listing pl
-    WHERE pl.instrument_id IN (SELECT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
+    SELECT listing_id FROM held_listings
     UNION
     SELECT fx_listing_id FROM fx_listings
     UNION
@@ -324,17 +339,17 @@ valued AS (
             WHEN dh.instrument_id IS NULL THEN NULL
             -- No line to value at, so no currency to value in: unpriced.
             --
-            -- Either the security states no currency, or it has more than one
-            -- line and nothing said which this holding is on. Both used to be
-            -- read as "already in the display currency", which valued the
-            -- position at an implied FX rate of 1 -- a number nobody could
-            -- state, reported as though it were known. A value nobody can state
-            -- is reported as missing instead.
+            -- Either no posting of this holding named a line, or the line it
+            -- named states no currency. Both used to be read as "already in the
+            -- display currency", which valued the position at an implied FX rate
+            -- of 1 -- a number nobody could state, reported as though it were
+            -- known. A value nobody can state is reported as missing instead.
             --
             -- Cash does not reach here: a cash instrument resolves through a
             -- CURRENCY identifier, so it always has exactly one line and that
             -- line always has a currency. See
-            -- docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+            -- docs/adr/0068-a-listing-is-a-currency-of-a-security.md and
+            -- docs/adr/0072-a-posting-names-a-security-and-a-line.md.
             WHEN pl.currency IS NULL THEN NULL
             -- Cash in display currency: implicit price 1.0, no FX needed.
             WHEN inst.asset_class = 'CASH' AND pl.currency = $4
@@ -402,11 +417,13 @@ valued AS (
         END AS fx_missing
     FROM daily_holdings dh
     -- inst for what the security carries -- its asset class and its name -- and
-    -- pl for what the line does: the bars and the currency they are quoted in.
+    -- pl for what the line does: the currency the bars are quoted in. The bars
+    -- themselves hang off the line the postings named, so they are reached without
+    -- pl at all.
     LEFT JOIN instruments inst ON inst.id = dh.instrument_id
-    LEFT JOIN instrument_priced_listing pl ON pl.instrument_id = dh.instrument_id
+    LEFT JOIN instrument_listings pl ON pl.id = dh.listing_id
     LEFT JOIN prices gp
-        ON gp.listing_id = pl.listing_id AND gp.val_date = dh.val_date
+        ON gp.listing_id = dh.listing_id AND gp.val_date = dh.val_date
     LEFT JOIN fx_rates fr
         ON fr.base_currency = pl.currency AND fr.val_date = dh.val_date
     LEFT JOIN display_fx_rate dfr ON dfr.val_date = dh.val_date
@@ -437,8 +454,8 @@ ORDER BY val_date
 
 // GetPortfolioValuation computes daily portfolio values over the half-open
 // [dateFrom, dateBefore) range.
-// Prices are keyed on the listing, and a holding reaches its line through
-// instrument_priced_listing.
+// Prices are keyed on the listing, and a holding is per line because its postings
+// name one; a holding whose postings named none is unpriced.
 // Only real bars are stored, so prices are carried forward over non-trading days
 // at read time, bounded by price_coverage. Holdings are forward-filled from the
 // last transaction date. Holdings are converted to displayCurrency via FX rates.

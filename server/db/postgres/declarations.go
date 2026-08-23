@@ -447,10 +447,21 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 			if _, err := exec.ExecContext(ctx, `
 				INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 				                 broker_tx_type, resolved_tx_type, quantity, instrument_id,
+				                 listing_id,
 				                 synthetic_purpose, account_type, weight, weight_commodity,
 				                 share_count_basis, group_id)
 				SELECT $1, $2, $3, $4, $4, 'INITIALIZE',
 				       ARRAY['TRANSFER_EXTERNAL'], 'TRANSFER_EXTERNAL', $5, $6,
+				       -- The pad offsets a holding, and a holding is per line, so it
+				       -- has to be on the same one. The security's sole line where it
+				       -- has exactly one, and none otherwise -- the same rungs the
+				       -- ingest ladder runs, since a declaration states no currency of
+				       -- its own. Naming the line on the declaration is 0149's next
+				       -- step.
+				       (SELECT l.id FROM instrument_listings l
+				        WHERE l.instrument_id = i.id AND l.currency IS NOT NULL
+				          AND NOT EXISTS (SELECT 1 FROM instrument_listings o
+				                          WHERE o.instrument_id = i.id AND o.id <> l.id)),
 				       'INITIALIZE', $7, $5,
 				       CASE WHEN i.asset_class = 'CASH' AND i.currency IS NOT NULL
 				            THEN 'cur:' || upper(i.currency)
@@ -462,6 +473,7 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 				DO UPDATE SET order_date = EXCLUDED.order_date,
 				              trade_date = EXCLUDED.trade_date,
 				              quantity = EXCLUDED.quantity,
+				              listing_id = EXCLUDED.listing_id,
 				              weight = EXCLUDED.weight,
 				              weight_commodity = EXCLUDED.weight_commodity,
 				              share_count_basis = EXCLUDED.share_count_basis

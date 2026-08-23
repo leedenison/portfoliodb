@@ -15,16 +15,22 @@ to a collision inside a merged listing's identifiers.
 The split is possible because an unknown listing holds nothing that has to be
 divided. It is not priceable and not event-bearing
 ([0068](0068-a-listing-is-a-currency-of-a-security.md)), so there are no prices,
-no coverage rows, no dividends and no fetch blocks against it -- only postings,
-and every posting already carries the trading currency that says which listing
-it belongs to. The split is a relabelling rather than an apportionment: each
-posting moves to the listing its own currency names, a posting stating no
-currency stays, and an emptied unknown listing is deleted.
+no coverage rows, no dividends and no fetch blocks against it. Nor does it hold
+postings: a posting that could not say which line it is on names no line at all
+([0072](0072-a-posting-names-a-security-and-a-line.md)). So an unknown listing
+that turns out to be several is deleted or renamed, and the postings of its
+security acquire a line as one comes to name them -- a fill-in rather than an
+apportionment, and nothing has to be taken off the row first.
 
 Under a venue-keyed listing this would not have worked. Prices would have
 accumulated against whichever line the plugin picked, their currency unknowable
 after the fact, and dividing them would have meant discarding them. Declining to
 price an unknown listing at all is what turns a loss into a relabelling.
+
+A merge is the same shape one level up: it moves the loser's postings onto the
+survivor's line of the same currency family, and onto no line where the survivor
+has none to match, which is exactly what is true of them once the line they named
+is gone.
 
 ## Completion in place
 
@@ -39,7 +45,7 @@ assembled.
 
 ## Consequences
 
-A holding on an unknown listing is unvaluable rather than valued wrongly, and
-surfaces as a repair. That is the visible cost of declining to guess a line, and
+A holding on no line, or on an unknown listing, is unvaluable rather than valued
+wrongly, and surfaces as a repair. That is the visible cost of declining to guess a line, and
 it is preferred to the alternative this whole change exists to remove: a holding
 valued confidently against the wrong currency.

@@ -21,5 +21,7 @@ A listing is disclosed by its currency -- "VOD (GBP)" -- which
 docs/spec/display-currency.md already has the vocabulary for, and which tells a
 user something a MIC does not.
 
-A holding on a currency-unknown listing is unpriced and unvaluable, so it joins
-the admin attention surface as a repair.
+A holding on no line, or on a currency-unknown listing, is unpriced and
+unvaluable, so it joins the admin attention surface as a repair. The two are
+different questions -- nothing said which line this is, against this security's
+currency is unknown -- and the surface should say which.

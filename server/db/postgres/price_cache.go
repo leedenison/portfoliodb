@@ -14,18 +14,17 @@ import (
 
 // HeldRanges implements db.PriceCacheDB.
 //
-// A transaction still names the security rather than the line, so the position
-// is aggregated per security and then attributed to each of its priceable
-// listings. A listing with no currency is skipped: it is not priceable, and a
-// price with no stated currency asserts nothing.
+// A posting on a known line contributes to that line alone. One that named none
+// contributes to every priceable line of its security instead, because the
+// history has to be there for whichever line it turns out to be on -- and it
+// costs requests for a line nobody holds, not correctness, since the bars land on
+// the line they were quoted for. A listing with no currency is never a target: it
+// is not priceable, and a price with no stated currency asserts nothing.
 //
-// A security with two currency lines yields both, and both are fetched. It costs
-// requests for a line nobody holds and no correctness -- the bars land on the
-// line they were quoted for -- and it means the history is already cached when a
-// transaction can say which line it is on. Valuation makes the opposite trade
-// and reports such a holding unpriced; see instrument_priced_listing.
-//
-// The join becomes txs.listing_id when a posting names a listing.
+// This is the opposite trade from valuation, which reports a holding on no line
+// unpriced rather than picking one. Fetching too much is recoverable; valuing at
+// a currency nobody stated is not. See
+// docs/adr/0072-a-posting-names-a-security-and-a-line.md.
 func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db.ListingDateRanges, error) {
 	rows, err := p.q.QueryContext(ctx, `
 		WITH daily_net AS (
@@ -33,6 +32,7 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 			FROM txs t
 			JOIN instrument_listings l
 				ON l.instrument_id = t.instrument_id AND l.currency IS NOT NULL
+				AND (t.listing_id IS NULL OR l.id = t.listing_id)
 			WHERE t.instrument_id IS NOT NULL AND t.account_type = 'USER'
 			GROUP BY l.id, t.order_date::date
 		)

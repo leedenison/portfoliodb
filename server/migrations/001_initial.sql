@@ -191,6 +191,17 @@ CREATE TABLE txs (
 
   instrument_description    TEXT NOT NULL,
   instrument_id             UUID,
+  -- The currency line of that security the posting is on, and NULL where nothing
+  -- said which. A posting names the security always and the line within it when
+  -- it is known, so partial knowledge is the null rather than a sentinel row.
+  -- The pair is held together by a foreign key below.
+  --
+  -- What a posting balances in is the security -- weight_commodity is
+  -- 'inst:<uuid>' -- because the line is not available for every posting and a
+  -- group's legs have to be weighed at one grain. The line decides which price
+  -- series values the holding, which is a valuation question rather than a
+  -- balance one. See docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+  listing_id                UUID,
   broker_tx_type            TEXT[] NOT NULL
                               CHECK (cardinality(broker_tx_type) > 0
                                      AND broker_tx_type <@ ARRAY['TRADE', 'TRADE_ASSET', 'TRADE_CASH',
@@ -509,7 +520,18 @@ CREATE TABLE instrument_listings (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT chk_instrument_listings_interval CHECK (
     valid_from IS NULL OR valid_before IS NULL OR valid_from < valid_before
-  )
+  ),
+  -- Redundant on its own -- id is already the primary key -- and declared so
+  -- that (instrument_id, id) can be a foreign key target. A table naming both a
+  -- security and one of its lines references this pair, which is what makes the
+  -- two disagreeing unrepresentable rather than merely unintended. See
+  -- docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+  --
+  -- Its index leads on instrument_id, so it also serves the plain lookup by
+  -- security that neither partial index below can: the planner cannot use a
+  -- partial index without matching its predicate, and the read path selects a
+  -- security's listings without knowing which kind it wants.
+  CONSTRAINT uq_instrument_listings_of_instrument UNIQUE (instrument_id, id)
 );
 
 -- One listing per security per currency family, and at most one whose currency
@@ -522,11 +544,6 @@ CREATE TABLE instrument_listings (
 -- event-bearing, since a price with no stated currency asserts nothing.
 CREATE UNIQUE INDEX uq_instrument_listings_currency ON instrument_listings (instrument_id, currency_family(currency)) WHERE currency IS NOT NULL;
 CREATE UNIQUE INDEX uq_instrument_listings_unknown ON instrument_listings (instrument_id) WHERE currency IS NULL;
-
--- Neither partial index above serves a plain lookup by instrument_id: the
--- planner cannot use a partial index without matching its predicate, and the
--- read path selects a security's listings without knowing which kind it wants.
-CREATE INDEX idx_instrument_listings_instrument_id ON instrument_listings (instrument_id);
 
 -- The venues a listing is admitted to. A set rather than a column, because a
 -- venue migration is a change to this set rather than an event, and because two
@@ -867,6 +884,25 @@ ALTER TABLE txs ADD CONSTRAINT txs_instrument_id_fkey
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 
+-- The line and the security it belongs to, referenced as a pair, so a posting
+-- cannot name a line of some other security. MATCH SIMPLE -- the default, spelled
+-- out because it is the whole reason the constraint is shaped this way -- skips
+-- the check when either column is null, which is what lets a posting name a
+-- security whose line is not known.
+--
+-- No ON DELETE. A merge repoints its loser's postings before deleting the loser,
+-- and a merge that forgot to should fail rather than quietly cascade.
+ALTER TABLE txs ADD CONSTRAINT txs_listing_id_fkey
+  FOREIGN KEY (instrument_id, listing_id)
+  REFERENCES instrument_listings (instrument_id, id) MATCH SIMPLE;
+
+-- MATCH SIMPLE also skips the check when only instrument_id is null, so without
+-- this a posting could name a line and no security at all.
+ALTER TABLE txs ADD CONSTRAINT chk_txs_listing_needs_instrument
+  CHECK (instrument_id IS NOT NULL OR listing_id IS NULL);
+
+CREATE INDEX idx_txs_listing_id ON txs (listing_id);
+
 -- Residual postings -- the IMBALANCE, TRANSFER_CLEARING and SOURCE_ROUNDING legs
 -- routed to balance a group its source data left one-sided -- are a small minority of
 -- txs, and the report that aggregates them reads every one across all users. A partial
@@ -1131,19 +1167,18 @@ FROM (
   GROUP BY listing_id
 ) s;
 
--- The line a holding is valued and priced at, while a transaction still names
--- the security rather than the line.
+-- The one line a security-grain identifier names, for the callers that reach a
+-- line through one. FX_PAIR is security-grain and a seeded pair has exactly one
+-- line, which is what valuation and the price cache use this for.
 --
--- A security with exactly one currency-bearing listing has one answer. A
--- security with two has none: nothing in a transaction says which line the
--- holding is on, and picking one would value it at a currency nobody stated --
--- the failure this level exists to remove. Such a holding reports unpriced until
--- its transactions name a listing.
+-- A security with exactly one currency-bearing listing has one answer. A security
+-- with two has none, and picking one would name a currency nobody stated. Holdings
+-- do not come through here: a posting names its own line, and one that named none
+-- reports unpriced rather than being resolved to a line by its security. See
+-- docs/adr/0072-a-posting-names-a-security-and-a-line.md.
 --
 -- The unknown listing is excluded because it is not priceable, so a security
 -- whose only line is unknown has no row here either.
---
--- Interim: deleted when txs carries listing_id and the question disappears.
 CREATE VIEW instrument_priced_listing AS
 SELECT instrument_id,
        (array_agg(id))[1]       AS listing_id,

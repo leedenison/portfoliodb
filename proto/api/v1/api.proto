@@ -485,14 +485,27 @@ message ListTxsResponse {
   string next_page_token = 2;
 }
 
-// Holding is the aggregate quantity of an instrument in a portfolio (or per account for user/portfolio views).
+// Holding is the aggregate quantity of one currency line of a security in a
+// portfolio (or per account for user/portfolio views).
+//
+// Per line rather than per security: two lines of one security are two holdings an
+// FX rate apart, and adding them would report a number in no currency at all. So a
+// security quoted in two currencies can appear twice, once per line.
 message Holding {
   portfoliodb.type.v1.Broker broker = 1;
-  string account = 2;  // account string from txs; holdings are grouped by (broker, account, instrument)
+  string account = 2;  // account string from txs; holdings are grouped by (broker, account, instrument, listing)
   string instrument_description = 3;
   // Resolved instrument id (UUID). Set when identification ran for the underlying txs.
   string instrument_id = 4;
   Instrument instrument = 5;  // optional; set when instrument_id was resolved
+  // The currency line the position is on, and the code it is quoted in.
+  //
+  // Empty where no posting of the holding named a line. The position is real and
+  // its quantity is right; what is unknown is which currency it is denominated in,
+  // so it is reported unpriced rather than valued at a rate nobody stated. See
+  // docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+  string listing_id = 7;
+  string currency = 8;
   // The position, in today's share count: a sum of the contributing postings'
   // split_adjusted_quantity, which is the only denomination they share. The raw
   // quantities are each in their own posting's share_count_basis and are not

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -49,7 +50,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		{OrderDate: ts2,
 			TradeDate: ts2, InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""},
 	}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil, nil)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{idA, idB}), nil, nil)
 	if err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
@@ -1106,7 +1107,7 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 		{Amount: decf(-10), Commodity: "inst:" + idA},
 		{Amount: decf(10), Commodity: "inst:" + idB},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, ws, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{idA, idB}), ws, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -1777,5 +1778,121 @@ func TestRecomputeInstrumentName_IgnoresClosedIdentifier(t *testing.T) {
 	}
 	if *row.Name != "NOW250117C00050000" {
 		t.Errorf("name = %q, want the name still in force %q", *row.Name, "NOW250117C00050000")
+	}
+}
+
+// A merge moves its loser's postings onto the survivor's line of the same currency
+// family. The loser's listings cascade away with it, so leaving a posting pointing
+// at one would either fail the foreign key or, worse, leave the ledger naming a
+// line of a security that no longer exists.
+func TestMergeInstruments_PostingsMoveToTheSurvivorsLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|merge-line", "U", "u@merge-line.com")
+
+	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "S", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SS1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	loser, loserLine, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "L", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000LL2"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure loser: %v", err)
+	}
+	if survivorLine == "" || loserLine == "" || survivorLine == loserLine {
+		t.Fatalf("fixture wants two distinct lines, got %q and %q", survivorLine, loserLine)
+	}
+
+	from := timestamppb.New(time.Now().Add(-time.Hour))
+	to := timestamppb.New(time.Now().Add(time.Hour))
+	txs := []*apiv1.Tx{{
+		OrderDate: timestamppb.New(time.Now()), TradeDate: timestamppb.New(time.Now()),
+		InstrumentDescription: "L", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "3", Account: "ACC",
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs,
+		[]db.Resolution{{InstrumentID: loser, ListingID: loserLine}}, nil, nil); err != nil {
+		t.Fatalf("seed posting on the loser's line: %v", err)
+	}
+
+	if err := p.runInTx(ctx, func(exec queryable) error {
+		return mergeInstruments(ctx, exec, uuid.MustParse(survivor), uuid.MustParse(loser))
+	}); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	var gotInst, gotLine string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT instrument_id::text, listing_id::text FROM txs WHERE instrument_description = 'L'
+	`).Scan(&gotInst, &gotLine); err != nil {
+		t.Fatalf("read posting: %v", err)
+	}
+	if gotInst != survivor {
+		t.Errorf("posting names security %s, want the survivor %s", gotInst, survivor)
+	}
+	if gotLine != survivorLine {
+		t.Errorf("posting names line %s, want the survivor's USD line %s", gotLine, survivorLine)
+	}
+}
+
+// Where the survivor has no line to match, the posting moves to no line at all.
+// That is exactly what is true of it -- this security, line not known -- and it is
+// recoverable, where a dangling reference would not be. See adr/0071 for the split
+// that finishes the job.
+func TestMergeInstruments_PostingOnAnUnmatchableLineLosesIt(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|merge-line-drop", "U", "u@merge-line-drop.com")
+
+	// The survivor has two currency lines, so nothing says which of them the
+	// loser's currency-unknown line belongs to.
+	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "S", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SS1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	if _, err := p.EnsureListing(ctx, survivor, "GBP"); err != nil {
+		t.Fatalf("second survivor line: %v", err)
+	}
+	loser, loserLine, err := p.EnsureInstrument(ctx, "STOCK", "", "", "L", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000LL2"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure loser: %v", err)
+	}
+	if loserLine == "" {
+		t.Fatalf("fixture wants the loser's unknown line")
+	}
+
+	from := timestamppb.New(time.Now().Add(-time.Hour))
+	to := timestamppb.New(time.Now().Add(time.Hour))
+	txs := []*apiv1.Tx{{
+		OrderDate: timestamppb.New(time.Now()), TradeDate: timestamppb.New(time.Now()),
+		InstrumentDescription: "L", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "3", Account: "ACC",
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs,
+		[]db.Resolution{{InstrumentID: loser, ListingID: loserLine}}, nil, nil); err != nil {
+		t.Fatalf("seed posting on the loser's unknown line: %v", err)
+	}
+
+	if err := p.runInTx(ctx, func(exec queryable) error {
+		return mergeInstruments(ctx, exec, uuid.MustParse(survivor), uuid.MustParse(loser))
+	}); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	var gotInst string
+	var gotLine *string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT instrument_id::text, listing_id::text FROM txs WHERE instrument_description = 'L'
+	`).Scan(&gotInst, &gotLine); err != nil {
+		t.Fatalf("read posting: %v", err)
+	}
+	if gotInst != survivor {
+		t.Errorf("posting names security %s, want the survivor %s", gotInst, survivor)
+	}
+	if gotLine != nil {
+		t.Errorf("posting names line %s, want none: nothing said which of the survivor's lines it is on", *gotLine)
 	}
 }

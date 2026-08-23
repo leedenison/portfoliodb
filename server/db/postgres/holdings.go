@@ -24,6 +24,12 @@ const holdingClosedTest = `HAVING NOT qty_is_zero(
 		SUM(t.split_adjusted_quantity),
 		COUNT(*) FILTER (WHERE t.split_adjusted_quantity <> t.quantity)::int)`
 
+// A holding is per currency line, not per security: two lines of one security are
+// two holdings an FX rate apart, and adding them would report a number in no
+// currency at all. A security whose line no posting named groups under the null
+// line, which reports unpriced. See
+// docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+
 // ComputeHoldings implements db.HoldingsDB.
 func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *typev1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error) {
 	userUUID, err := uuid.Parse(userID)
@@ -37,16 +43,19 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *t
 	qb := psql.Select("t.broker", "t.account",
 		"COALESCE(i.name, MAX(t.instrument_description)) AS instrument_description",
 		"t.instrument_id",
+		"t.listing_id",
+		"COALESCE(l.currency, '') AS currency",
 		"SUM(t.split_adjusted_quantity) AS split_adjusted_quantity").
 		From("txs t").
 		LeftJoin("instruments i ON i.id = t.instrument_id").
+		LeftJoin("instrument_listings l ON l.id = t.listing_id").
 		Where(sq.Eq{"t.user_id": userUUID}).
 		// Only the user's own postings are positions. The non-asset legs (income,
 		// charges, residuals, in-flight transfers) share the broker account and
 		// would otherwise net against the holding they belong to.
 		Where(sq.Eq{"t.account_type": "USER"}).
 		Where(sq.LtOrEq{"t.order_date": asOfT}).
-		GroupBy("t.broker", "t.account", "t.instrument_id", "i.name").
+		GroupBy("t.broker", "t.account", "t.instrument_id", "t.listing_id", "i.name", "l.currency").
 		Suffix(holdingClosedTest)
 	if broker != nil {
 		brokerStr, err := brokerToStr(*broker)
@@ -88,12 +97,15 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 		SELECT t.broker, t.account,
 			COALESCE(i.name, MAX(t.instrument_description)) AS instrument_description,
 			t.instrument_id,
+			t.listing_id,
+			COALESCE(l.currency, '') AS currency,
 			SUM(t.split_adjusted_quantity) AS split_adjusted_quantity
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
 		LEFT JOIN instruments i ON i.id = t.instrument_id
+		LEFT JOIN instrument_listings l ON l.id = t.listing_id
 		WHERE t.order_date <= $2 AND t.account_type = 'USER'
-		GROUP BY t.broker, t.account, t.instrument_id, i.name
+		GROUP BY t.broker, t.account, t.instrument_id, t.listing_id, i.name, l.currency
 		`+holdingClosedTest, portUUID, asOfT)
 	if err != nil {
 		return nil, nil, fmt.Errorf("compute holdings for portfolio: %w", err)

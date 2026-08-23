@@ -2,46 +2,52 @@
 status: open
 title: Postings and holdings name a listing
 milestone: M25
-dependencies: [0146]
+dependencies: [0146, 0156]
 ---
 
-A posting names a listing and never a security, so the balance check never sees
-two grains.
+A posting names a security always and the currency line within it when something
+said which, so a holding is per line and is valued at the currency it is
+actually quoted in.
 
 ## Motivation
 
-The alternative -- letting a posting name the security when the broker did not
-say which line -- fails first at the balance check. `weight_commodity` is
-`inst:<uuid>` and a group balances on an exact sum per commodity, so two legs
-stated at two grains are two commodities and the group grows a spurious
-residual. It is decided at ingest, before identification runs.
-
-Nothing has to be decided late, because the discriminator is already there:
-`txs.trading_currency` exists and a group's cash leg carries a currency
-regardless.
+With prices on the listing and postings on the security, a portfolio holding the
+GBP line of a dual-listed security is valued at whichever line a plugin fetched.
+`instrument_priced_listing` is the interim bridge 0148 left: it resolves a
+security to its line only where the security has exactly one, and reports every
+two-line security unpriced.
 
 ## Scope
 
-`txs.listing_id`, and `weight_commodity` becomes `lst:<uuid>` beside the
-existing `cur:<code>` and `desc:<text>`. The merge in
-`server/db/postgres/instruments.go` remains the only thing that rewrites these
-after ingest.
+`txs.listing_id`, nullable, beside `instrument_id`, with a composite
+`MATCH SIMPLE` foreign key against `instrument_listings (instrument_id, id)` so
+the two cannot name different securities, and a CHECK closing the case
+`MATCH SIMPLE` leaves open. Null is the posting naming no line -- a first-class
+state rather than a sentinel row. See
+adr/0072-a-posting-names-a-security-and-a-line.md, which supersedes adr/0070.
 
-`txs` gains no denormalised `instrument_id`. `portfolio_matched_txs` and the
-split-adjustment path reach the security by joining `instrument_listings`, which
-is PK-indexed and sized by the instrument count, and neither is in the per-day
-valuation loop. Two columns that can disagree on the largest table in the schema
-is the failure being removed one level up. If measurement later justifies it,
-the column returns derived by trigger, as `listing_venues` is, never
-independently written.
+`weight_commodity` keeps `inst:<uuid>`. A group's legs have to be weighed at one
+grain and the line is not available for every posting, so what a posting balances
+in is the security. The residual takes the line every leg it balances shares, and
+none where they differ.
 
-Listing resolution at ingest, in `server/service/ingestion/`: the stated
-`trading_currency`, then the group's cash-leg currency, then a stated
-listing-grain identifier including its ticker, then the security's sole listing,
-then its currency-unknown listing.
+The line is settled at ingest, in `server/service/ingestion/`, from what is in
+hand: the stated `trading_currency`, then the line identification named, then the
+security's sole line where it has one with a currency, then none. Every rung is
+find-only -- a broker states a currency to say what its figures are in, so a line
+is minted where a provider or a listing-grain identifier asserts one and nowhere
+else. `settlement_currency` is not a rung: it is the account's currency.
 
-Holdings aggregate by listing. `transfer_matches` keeps its security-grain key
-and gains `from_listing_id` and `to_listing_id`, so a transfer between accounts
-and a conversion between currency lines are one object; 0153 uses the second
-form. `holding_declarations` gains the listing in its unique key. Lots key on
-the acquiring posting and are unchanged.
+Holdings and valuation aggregate per line, and a holding on no line reports
+unpriced through the path 0148 added. Price fetching makes the opposite trade: a
+posting on a known line fetches that line, one on no line fetches every priceable
+line of its security.
+
+The merge moves its loser's postings onto the survivor's line of the same
+currency family, and onto no line where there is none to match.
+
+Declarations and transfers follow, each in its own change: `holding_declarations`
+gains the line in its unique key, and `transfer_matches` keeps its security-grain
+key and gains `from_listing_id` and `to_listing_id`, so a transfer between
+accounts and a conversion between currency lines are one object. 0153 uses the
+second form.

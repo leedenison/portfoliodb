@@ -23,6 +23,8 @@ into any sibling already holding it.
 
 The split is tractable because an unknown listing is not priceable and not
 event-bearing, so there are no prices, coverage rows, dividends or fetch blocks
-to divide -- only postings, each already labelled with its own trading currency.
-Each posting moves to the listing its currency names, postings with no currency
-stay, and an emptied unknown listing is deleted.
+to divide. Nor are there postings: a posting that could not say which line it is
+on names no line (0149). So an unknown listing that turns out to be several is
+renamed or deleted, and the postings of its security acquire a line as one comes
+to name them -- a fill-in over `txs.listing_id`, matching each posting's own
+trading currency, rather than a move off the row.

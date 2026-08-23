@@ -37,7 +37,7 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -148,7 +148,7 @@ func TestGetPortfolioValuation_DifferentDescriptionsNetToZero(t *testing.T) {
 	}
 	from := timestamppb.New(transferDate.Add(-1 * time.Hour))
 	to := timestamppb.New(sellDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID, instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -221,7 +221,7 @@ func TestGetPortfolioValuation_UnpricedDeduplication(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID, instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -274,7 +274,7 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instA, instB}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instA, instB}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -325,7 +325,7 @@ func TestGetUserValuation_Basic(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -405,7 +405,7 @@ func TestGetPortfolioValuation_ExcludesDateBefore(t *testing.T) {
 		{OrderDate: timestamppb.New(buyDate),
 			TradeDate: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "main"},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	prices := []db.EODPrice{
@@ -452,7 +452,7 @@ func TestGetPortfolioValuation_FromEqualsBeforeReturnsNothing(t *testing.T) {
 		{OrderDate: timestamppb.New(buyDate),
 			TradeDate: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "main"},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
@@ -505,7 +505,7 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -563,7 +563,7 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -620,7 +620,7 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -675,7 +675,7 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -731,7 +731,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -796,7 +796,7 @@ func TestGetUserValuation_CashInDisplayCurrency(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{usdInstID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{usdInstID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -851,7 +851,7 @@ func TestGetUserValuation_CashInForeignCurrency(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{gbpInstID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{gbpInstID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -893,7 +893,7 @@ func TestGetUserValuation_CashForeignMissingFXRate(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{gbpInstID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{gbpInstID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -959,7 +959,7 @@ func TestGetUserValuation_CashForeignCurrency_NonUSDDisplay(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{eurInstID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{eurInstID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -1014,7 +1014,7 @@ func TestGetUserValuation_ContinuousAcrossSplit(t *testing.T) {
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID,
 		"IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
-		txs, []string{instID}, nil, nil); err != nil {
+		txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -1080,7 +1080,7 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
 		timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
-		txs, []string{instID}, nil, nil); err != nil {
+		txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -1135,7 +1135,7 @@ func setupHeldInstrument(t *testing.T, p *Postgres, sub, desc string, qty string
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
 		timestamppb.New(ts.Add(-time.Hour)), timestamppb.New(ts.Add(time.Hour)),
-		txs, []string{instID}, nil, nil); err != nil {
+		txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	return userID, instID
@@ -1297,7 +1297,7 @@ func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
 		timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
-		txs, []string{instID}, nil, nil); err != nil {
+		txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	prices := []db.EODPrice{
@@ -1458,7 +1458,7 @@ func openingCash(t *testing.T, p *Postgres, userID, instID, account string, at t
 	}}
 	from := timestamppb.New(at.Add(-1 * time.Hour))
 	to := timestamppb.New(at.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("opening cash: %v", err)
 	}
 }
@@ -1709,7 +1709,7 @@ func TestGetPortfolioValuation_SecurityTransferValuedInTransit(t *testing.T) {
 	}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(april(1).Add(-time.Hour)), timestamppb.New(april(1).Add(time.Hour)),
-		openTxs, []string{instID}, nil, nil); err != nil {
+		openTxs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("opening shares: %v", err)
 	}
 	from, to := transferFixtureAt(t, p, userID, spec)
@@ -1823,7 +1823,7 @@ func TestGetUserValuation_MatchInAnotherCommodityIsNotAdmitted(t *testing.T) {
 	}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(april(2).Add(-time.Hour)), timestamppb.New(april(2).Add(time.Hour)),
-		openTxs, []string{secID}, nil, nil); err != nil {
+		openTxs, resolvedFor(t, p, []string{secID}), nil, nil); err != nil {
 		t.Fatalf("opening shares: %v", err)
 	}
 
@@ -1831,19 +1831,21 @@ func TestGetUserValuation_MatchInAnotherCommodityIsNotAdmitted(t *testing.T) {
 
 	// The departure group also moves the shares out, leaving a second residual in a
 	// commodity the match will not name. Written directly because the fixture builds
-	// one commodity, and as a balanced pair so the group invariant still holds.
+	// one commodity, and as a balanced pair so the group invariant still holds. Both
+	// legs name the line the opening shares are on: a holding is per line, so legs
+	// left on no line would not net against it.
 	for _, leg := range []struct {
 		qty         string
 		accountType string
 	}{{"-10", "USER"}, {"10", "TRANSFER_CLEARING"}} {
 		if _, err := p.q.ExecContext(ctx, `
 			INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
-				instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
+				instrument_id, listing_id, broker_tx_type, resolved_tx_type, quantity, account_type,
 				group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
-			VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $3::timestamptz, 'AAPL Corp', $4::uuid,
+			VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $3::timestamptz, 'AAPL Corp', $4::uuid, $8::uuid,
 				ARRAY['TRANSFER'], 'TRANSFER', $5::numeric, $6,
 				$7::uuid, $5::numeric, 'inst:'||$4, $3::timestamptz::date, $5::numeric)
-		`, userID, spec.fromAcct, april(15), secID, leg.qty, leg.accountType, from); err != nil {
+		`, userID, spec.fromAcct, april(15), secID, leg.qty, leg.accountType, from, pricedListing(t, p, secID)); err != nil {
 			t.Fatalf("insert %s security leg: %v", leg.accountType, err)
 		}
 	}
@@ -1893,7 +1895,7 @@ func TestGetUserValuation_HoldingWithNoLineIsUnpriced(t *testing.T) {
 	}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
 		timestamppb.New(buy.Add(-time.Hour)), timestamppb.New(buy.Add(time.Hour)),
-		txs, []string{instID}, nil, nil); err != nil {
+		txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -1942,7 +1944,7 @@ func TestGetUserValuation_CashWithNoLineIsUnpriced(t *testing.T) {
 	}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
 		timestamppb.New(buy.Add(-time.Hour)), timestamppb.New(buy.Add(time.Hour)),
-		txs, []string{instID}, nil, nil); err != nil {
+		txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 

@@ -46,8 +46,9 @@ line of its security.
 The merge moves its loser's postings onto the survivor's line of the same
 currency family, and onto no line where there is none to match.
 
-Declarations and transfers follow, each in its own change: `holding_declarations`
-gains the line in its unique key, and `transfer_matches` keeps its security-grain
-key and gains `from_listing_id` and `to_listing_id`, so a transfer between
-accounts and a conversion between currency lines are one object. 0153 uses the
-second form.
+Declarations and transfers follow, each in its own change. `holding_declarations`
+gains the line in its unique key -- done, alongside the INITIALIZE index that has
+to widen with it, so a security quoted in two currencies takes a declaration and a
+pad on each line. `transfer_matches` keeps its security-grain key and gains
+`from_listing_id` and `to_listing_id`, so a transfer between accounts and a
+conversion between currency lines are one object. 0153 uses the second form.

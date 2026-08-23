@@ -129,7 +129,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 	}
 
 	// Seed an INITIALIZE synthetic tx and an unrelated real tx, both inside the period.
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "", instID, db.InitializeTx{
+	if err := p.UpsertInitializeTx(ctx, held(userID, "", instID), db.InitializeTx{
 		Timestamp: initTs, Quantity: decf(42), ShareCountBasis: initTs,
 	}); err != nil {
 		t.Fatalf("upsert initialize: %v", err)
@@ -1644,7 +1644,7 @@ func TestListTxsForExport_ExcludesSyntheticGroups(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	now := time.Now().Truncate(time.Second)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(now, 50)); err != nil {
+	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(now, 50)); err != nil {
 		t.Fatalf("upsert initialize tx: %v", err)
 	}
 	tx := &apiv1.Tx{OrderDate: timestamppb.New(now),

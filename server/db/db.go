@@ -1420,6 +1420,17 @@ type ListingDB interface {
 	// when nothing matches. Passing a security-grain type is a programming
 	// error: its values name no listing, so there is no answer to give.
 	FindListingByIdentifier(ctx context.Context, identifierType, domain, value string) (instrumentID, listingID string, err error)
+	// SoleListing returns the security's only line, when it has exactly one and
+	// that line has a currency, and "" otherwise.
+	//
+	// It is the last rung of the ladder that names the line a posting or a
+	// declaration is on, for the callers that hold an instrument id rather than
+	// a loaded row -- soleListing in server/service/ingestion/listings.go is the
+	// same rule read off one that is already in hand. A security with several
+	// lines and nothing naming one is exactly what the split exists for, so
+	// there is no line to give; a security whose only line is the unknown one
+	// has none either, that row saying how many lines it has is unknown.
+	SoleListing(ctx context.Context, instrumentID string) (string, error)
 	// ListingForVenue returns the security's listing admitted to the given
 	// operating MIC.
 	//
@@ -1431,6 +1442,23 @@ type ListingDB interface {
 	ListingForVenue(ctx context.Context, instrumentID, mic string) (string, error)
 }
 
+// Holding names the aggregate a declaration is a statement about, and the pad
+// derived from it is posted to. A holding has no id -- it is computed from the
+// postings -- so this is the whole of what identifies one.
+//
+// ListingID is the currency line, and "" is the holding on no line. Two lines of
+// one security are two holdings an FX rate apart, so the line is part of the key
+// rather than an attribute of it; a security whose line nothing named collects
+// under the empty one, which reports unpriced. See
+// docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+type Holding struct {
+	UserID       string
+	Broker       string
+	Account      string
+	InstrumentID string
+	ListingID    string
+}
+
 // HoldingDeclarationRow is a single holding declaration for API responses.
 type HoldingDeclarationRow struct {
 	ID           string
@@ -1438,8 +1466,11 @@ type HoldingDeclarationRow struct {
 	Broker       string
 	Account      string
 	InstrumentID string
-	DeclaredQty  string // numeric as string to preserve precision
-	AsOfDate     time.Time
+	// The currency line the quantity is a quantity of, or "" where nothing named
+	// one. With the four fields above it is the Holding this declaration is about.
+	ListingID   string
+	DeclaredQty string // numeric as string to preserve precision
+	AsOfDate    time.Time
 	// ShareCountBasis is the date at which the share count DeclaredQty is
 	// denominated in was current. Defaults to AsOfDate. See docs/spec/bitemporality.md.
 	ShareCountBasis time.Time
@@ -1507,7 +1538,7 @@ type ExportDeclaration struct {
 
 // HoldingDeclarationDB provides holding declaration CRUD and INITIALIZE tx helpers.
 type HoldingDeclarationDB interface {
-	CreateHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
+	CreateHoldingDeclaration(ctx context.Context, h Holding, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
 	UpdateHoldingDeclaration(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
 	// UpsertHoldingDeclaration restates the declaration for a holding at a date,
 	// or creates it where there is none. It is what an archive import writes
@@ -1517,7 +1548,7 @@ type HoldingDeclarationDB interface {
 	//
 	// A zero shareCountBasis leaves the column NULL on insert so the table's
 	// trigger applies the as_of_date default, keeping that rule in one place.
-	UpsertHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) error
+	UpsertHoldingDeclaration(ctx context.Context, h Holding, declaredQty string, asOfDate, shareCountBasis time.Time) error
 	DeleteHoldingDeclaration(ctx context.Context, id string) error
 	GetHoldingDeclaration(ctx context.Context, id string) (*HoldingDeclarationRow, error)
 	ListHoldingDeclarations(ctx context.Context, userID string) ([]*HoldingDeclarationRow, error)
@@ -1531,20 +1562,22 @@ type HoldingDeclarationDB interface {
 	// where timestamp >= from and timestamp < to, expressed in the share count
 	// current at basis. Quantities are converted from each posting's own
 	// share_count_basis, so the sum is in one denomination rather than a mixture.
-	ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to, basis time.Time) (decimal.Decimal, error)
-	// UpsertInitializeTx creates or updates the INITIALIZE synthetic tx for the given holding.
-	UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID string, init InitializeTx) error
+	ComputeRunningBalance(ctx context.Context, h Holding, from, to, basis time.Time) (decimal.Decimal, error)
+	// UpsertInitializeTx creates or updates the INITIALIZE synthetic tx for the
+	// given holding. The pad offsets that holding, so it is posted to the same
+	// line -- a pad on a sibling line would leave both of them wrong.
+	UpsertInitializeTx(ctx context.Context, h Holding, init InitializeTx) error
 	// DeleteInitializeTx deletes the INITIALIZE synthetic tx for the given holding, if it exists.
-	DeleteInitializeTx(ctx context.Context, userID, broker, account, instrumentID string) error
+	DeleteInitializeTx(ctx context.Context, h Holding) error
 	// CreateDeclarationWithInitializeTx atomically creates a declaration and upserts its INITIALIZE tx.
-	CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time, init InitializeTx) (*HoldingDeclarationRow, error)
+	CreateDeclarationWithInitializeTx(ctx context.Context, h Holding, declaredQty string, asOfDate, shareCountBasis time.Time, init InitializeTx) (*HoldingDeclarationRow, error)
 	// UpdateDeclarationWithInitializeTx atomically updates a declaration and upserts its INITIALIZE tx.
-	UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time, userID, broker, account, instrumentID string, init InitializeTx) (*HoldingDeclarationRow, error)
+	UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time, h Holding, init InitializeTx) (*HoldingDeclarationRow, error)
 	// DeleteDeclarationWithInitializeTx atomically deletes a declaration and either
 	// rewrites the holding's pad from init or, when init is nil, deletes it. A
 	// deleted assertion leaves the pad alone; a deleted pad promotes the
 	// next-earliest declaration to take its place.
-	DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string, init *InitializeTx) error
+	DeleteDeclarationWithInitializeTx(ctx context.Context, id string, h Holding, init *InitializeTx) error
 }
 
 // InstrumentDB provides instrument resolution and plugin config.

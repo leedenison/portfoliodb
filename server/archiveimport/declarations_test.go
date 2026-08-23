@@ -11,6 +11,7 @@ import (
 
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 )
 
@@ -56,11 +57,28 @@ func declarationPart(sts ...*archivev1.Statement) *archivev1.DeclarationPart {
 	return &archivev1.DeclarationPart{Statements: sts}
 }
 
-// expectResolve stubs the DB-only lookup for one identifier value.
+// expectResolve stubs the DB-only lookup for one identifier value, and the line
+// the resolved security has: the file states no currency, so the import settles
+// the line from the security's sole one.
 func expectResolve(database *mock.MockDB, value, instrumentID string) {
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", value).
 		Return(instrumentID, nil)
+	database.EXPECT().
+		SoleListing(gomock.Any(), instrumentID).
+		Return(instrumentID+"-line", nil).AnyTimes()
+}
+
+// held is the holding a declaration in these fixtures is about: one user, one
+// broker, and the security's sole line.
+func held(account, instrumentID string) db.Holding {
+	return db.Holding{
+		UserID:       "user-1",
+		Broker:       "FIDELITY",
+		Account:      account,
+		InstrumentID: instrumentID,
+		ListingID:    instrumentID + "-line",
+	}
 }
 
 func applyDeclarations(t *testing.T, database *mock.MockDB, rep *PartReporter, part *archivev1.DeclarationPart) int32 {
@@ -80,11 +98,11 @@ func TestDeclarationPart_WritesEveryRow(t *testing.T) {
 	expectResolve(database, "AAPL", "inst-a")
 	expectResolve(database, "MSFT", "inst-m")
 	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
+		UpsertHoldingDeclaration(gomock.Any(), held("Z1", "inst-a"), "100",
 			day(t, "2024-01-31"), day(t, "2024-01-31")).
 		Return(nil)
 	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-m", "50",
+		UpsertHoldingDeclaration(gomock.Any(), held("Z1", "inst-m"), "50",
 			day(t, "2024-01-31"), day(t, "2024-01-31")).
 		Return(nil)
 
@@ -107,7 +125,7 @@ func TestDeclarationPart_DefaultsShareCountBasisToTheStatementDate(t *testing.T)
 	expectStartDate(t, database)
 	expectResolve(database, "AAPL", "inst-a")
 	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
+		UpsertHoldingDeclaration(gomock.Any(), held("Z1", "inst-a"), "100",
 			day(t, "2024-01-31"), day(t, "2026-08-13")).
 		Return(nil)
 
@@ -125,7 +143,7 @@ func TestDeclarationPart_RejectsAnUnresolvableInstrument(t *testing.T) {
 	expectResolve(database, "GONE", "")
 	expectResolve(database, "MSFT", "inst-m")
 	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-m", "50",
+		UpsertHoldingDeclaration(gomock.Any(), held("Z1", "inst-m"), "50",
 			day(t, "2024-01-31"), day(t, "2024-01-31")).
 		Return(nil)
 
@@ -168,7 +186,7 @@ func TestDeclarationPart_RowIndicesRunAcrossTheWholePart(t *testing.T) {
 	expectResolve(database, "AAPL", "inst-a")
 	expectResolve(database, "GONE", "")
 	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
+		UpsertHoldingDeclaration(gomock.Any(), held("Z1", "inst-a"), "100",
 			gomock.Any(), gomock.Any()).
 		Return(nil)
 
@@ -207,7 +225,7 @@ func TestDeclarationPart_LeavesWhatTheFileDoesNotNameAlone(t *testing.T) {
 	expectStartDate(t, database)
 	expectResolve(database, "AAPL", "inst-a")
 	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
+		UpsertHoldingDeclaration(gomock.Any(), held("Z1", "inst-a"), "100",
 			gomock.Any(), gomock.Any()).
 		Return(nil)
 
@@ -247,7 +265,7 @@ func TestDeclarationPart_AWriteFailureFailsThePart(t *testing.T) {
 	expectStartDate(t, database)
 	expectResolve(database, "AAPL", "inst-a")
 	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
+		UpsertHoldingDeclaration(gomock.Any(), held("Z1", "inst-a"), "100",
 			gomock.Any(), gomock.Any()).
 		Return(errors.New("disk on fire"))
 

@@ -109,8 +109,8 @@ are the two halves of one movement, not which postings are legs of one event.
 Currencies are instruments, so a cash movement is an ordinary posting and needs no
 separate representation. Nothing in the read path distinguishes a cash posting from a
 security posting: holdings, valuation, price coverage and holding declarations all
-aggregate `SUM(quantity)` grouped by instrument, and a cash balance is that sum over
-a currency instrument.
+aggregate `SUM(quantity)` grouped by security and line, and a cash balance is that
+sum over a currency instrument.
 
 ## Account types
 
@@ -294,6 +294,16 @@ said which -- the stated trading currency, the line identification resolved, or
 the security having exactly one. Where nothing did, `listing_id` is null: the
 position is real and its quantity is right, but which currency it is denominated
 in is unknown.
+
+A holding declaration says the same pair, for the same reason. It is a statement
+about a holding, a holding is per line, and two lines of one security are two
+holdings an FX rate apart -- so one security may carry a declaration on each of
+its lines at one date, each checked against that line's postings and each padded
+by its own INITIALIZE posting. A declaration that names no line is the statement
+about the holding nothing could place, and it is unpriced exactly as the postings
+under it are. Where a request states no line, the server settles it the way ingest
+settles a posting's last rung: the security's sole line, and no line where it has
+several.
 
 What it *balances* in is the security, which is why `weight_commodity` names one.
 A group's legs have to be weighed at one grain or a residual appears that nothing

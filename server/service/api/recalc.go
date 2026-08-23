@@ -10,14 +10,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// holdingKey identifies the holding a set of declarations belongs to. Holdings are
-// computed aggregates, so there is no id to key them by.
-type holdingKey struct {
-	broker       string
-	account      string
-	instrumentID string
-}
-
 // RecalcAllInitializeTxs recomputes every INITIALIZE tx for a user. Called when the
 // portfolio start date may have changed (e.g. after bulk tx replace).
 //
@@ -42,8 +34,8 @@ func RecalcAllInitializeTxs(ctx context.Context, database db.DB, userID string) 
 		// No real txs remain, so there is no start date to anchor a pad to. The
 		// declarations are what the user said and survive; the derived pads do not.
 		for key := range byHolding(decls) {
-			if err := database.DeleteInitializeTx(ctx, userID, key.broker, key.account, key.instrumentID); err != nil {
-				return fmt.Errorf("delete pad for %s/%s/%s: %w", key.broker, key.account, key.instrumentID, err)
+			if err := database.DeleteInitializeTx(ctx, key); err != nil {
+				return fmt.Errorf("delete pad for %s: %w", holdingLabel(key), err)
 			}
 		}
 		return nil
@@ -60,8 +52,8 @@ func RecalcAllInitializeTxs(ctx context.Context, database db.DB, userID string) 
 	// A holding whose last declaration was pruned has nothing left to pad to.
 	for key := range before {
 		if len(after[key]) == 0 {
-			if err := database.DeleteInitializeTx(ctx, userID, key.broker, key.account, key.instrumentID); err != nil {
-				return fmt.Errorf("delete pad for %s/%s/%s: %w", key.broker, key.account, key.instrumentID, err)
+			if err := database.DeleteInitializeTx(ctx, key); err != nil {
+				return fmt.Errorf("delete pad for %s: %w", holdingLabel(key), err)
 			}
 		}
 	}
@@ -85,7 +77,7 @@ func RecalcAllInitializeTxs(ctx context.Context, database db.DB, userID string) 
 	for key, group := range byHolding(kept) {
 		pad := padDeclaration(group)
 		if err := recalcHoldingPad(ctx, database, pad, startDay, instByID); err != nil {
-			return fmt.Errorf("recalc pad for %s/%s/%s: %w", key.broker, key.account, key.instrumentID, err)
+			return fmt.Errorf("recalc pad for %s: %w", holdingLabel(key), err)
 		}
 	}
 	return nil
@@ -122,7 +114,7 @@ func recalcHoldingPad(ctx context.Context, database db.DB, decl *db.HoldingDecla
 		return fmt.Errorf("parse declared_qty: %w", err)
 	}
 	dayAfterAsOf := decl.AsOfDate.AddDate(0, 0, 1)
-	runningBalance, err := database.ComputeRunningBalance(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, startDay, dayAfterAsOf, decl.ShareCountBasis)
+	runningBalance, err := database.ComputeRunningBalance(ctx, keyOf(decl), startDay, dayAfterAsOf, decl.ShareCountBasis)
 	if err != nil {
 		return fmt.Errorf("compute running balance: %w", err)
 	}
@@ -131,19 +123,37 @@ func recalcHoldingPad(ctx context.Context, database db.DB, decl *db.HoldingDecla
 	// superseded by it, and it is the outcome a checked declaration exists to
 	// report -- so the record stays and the pad is written as zero.
 	initQty := declaredQty.Sub(runningBalance)
-	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, db.InitializeTx{
+	return database.UpsertInitializeTx(ctx, keyOf(decl), db.InitializeTx{
 		Timestamp:       startDay,
 		Quantity:        initQty,
 		ShareCountBasis: decl.ShareCountBasis,
 	})
 }
 
-func keyOf(decl *db.HoldingDeclarationRow) holdingKey {
-	return holdingKey{broker: decl.Broker, account: decl.Account, instrumentID: decl.InstrumentID}
+// keyOf is the holding a declaration is about. db.Holding is comparable, so it is
+// the map key here as well as the argument the write paths take, and the two
+// cannot drift into disagreeing about what identifies a holding.
+func keyOf(decl *db.HoldingDeclarationRow) db.Holding {
+	return db.Holding{
+		UserID:       decl.UserID,
+		Broker:       decl.Broker,
+		Account:      decl.Account,
+		InstrumentID: decl.InstrumentID,
+		ListingID:    decl.ListingID,
+	}
 }
 
-func byHolding(decls []*db.HoldingDeclarationRow) map[holdingKey][]*db.HoldingDeclarationRow {
-	out := map[holdingKey][]*db.HoldingDeclarationRow{}
+// holdingLabel names a holding in an error. The line is included only when there
+// is one, so the ordinary single-line message reads as it did.
+func holdingLabel(h db.Holding) string {
+	if h.ListingID == "" {
+		return fmt.Sprintf("%s/%s/%s", h.Broker, h.Account, h.InstrumentID)
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", h.Broker, h.Account, h.InstrumentID, h.ListingID)
+}
+
+func byHolding(decls []*db.HoldingDeclarationRow) map[db.Holding][]*db.HoldingDeclarationRow {
+	out := map[db.Holding][]*db.HoldingDeclarationRow{}
 	for _, decl := range decls {
 		out[keyOf(decl)] = append(out[keyOf(decl)], decl)
 	}

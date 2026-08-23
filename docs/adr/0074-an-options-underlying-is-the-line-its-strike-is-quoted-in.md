@@ -41,10 +41,8 @@ postings: a line is minted where something asserts one and nowhere else. It hold
 whatever lines the underlying is already known to have -- a security already
 quoted in GBP gains a USD line rather than refusing the contract, because a
 dollar-struck contract on it is evidence that the USD line exists and not
-evidence that the contract is wrong. Where the underlying's only line is the
-currency-unknown one, minting is the relabelling
-[0068](0068-a-listing-is-a-currency-of-a-security.md) already describes, and
-nothing is lost.
+evidence that the contract is wrong. A security with no line at all gains its
+first from the contract.
 
 An identity nobody corroborated has no such authority. A whole-identity proposal
 that agreed with nothing the source stated is dropped as a guess before this
@@ -73,10 +71,9 @@ statement it arrived in.
 
 Storing it anyway would mean a strike denominated in nothing, which every later
 reader has to guess at -- and a wrong guess is silent, because a strike is a
-plausible number in any currency.
-[0068](0068-a-listing-is-a-currency-of-a-security.md) already says an unknown
-listing is not priceable and not event-bearing; this is that claim reaching the
-contract written on it.
+plausible number in any currency. A line nobody named is not priceable and not
+event-bearing ([0075](0075-a-name-that-could-not-be-placed-names-no-line.md));
+this is that claim reaching the contract written on it.
 
 Two alternative rungs were rejected. Taking whichever line the underlying's own
 resolution happened to land on makes the answer depend on how the underlying was

@@ -1347,12 +1347,14 @@ type Listing struct {
 // AllIdentifiers is the security's identifiers followed by those of each of its
 // listings, in listing order.
 //
-// It exists for the callers that have not yet been told which grain they mean:
-// the corporate event fetcher, and the API boundary that still hands the UI one
-// flat list. Each of those picks a grain in its own issue (0150, 0154), and
-// until then this is the one place the two sets are put back together --
-// deliberately named, so the list of callers still to migrate is a search for it
-// rather than a reading of every query.
+// It exists for the callers that want every name the security answers to,
+// whichever grain it sits at. The corporate event fetcher is one by choice: the
+// fetch unit is the security, and an events request is keyed on a ticker as
+// often as on anything else, so narrowing the list would drop the names most
+// providers answer to. The API boundary is the other, and there it stands in for
+// a caller that has not been told which grain it means -- saying so in the UI is
+// 0154. Deliberately named, so either set of callers is a search for it rather
+// than a reading of every query.
 //
 // The archive no longer uses it. A file nests a security's listings and writes
 // each name on the line it names, which is what the flattening stood in for
@@ -1730,8 +1732,9 @@ type InstrumentDB interface {
 	// FindProviderIdentifiers returns provider-specific identifiers for an
 	// instrument and provider, at both grains: the caller is a plugin
 	// orchestrator asking what it can key a request on, which is a question
-	// about the security and every line of it. Narrowing that to one listing is
-	// 0148 and 0150.
+	// about the security and every line of it. Both fetchers settled there --
+	// the price one narrows its eligibility to the listing but still offers
+	// every name, and the events one is keyed on the security outright.
 	FindProviderIdentifiers(ctx context.Context, instrumentID, provider string) ([]ProviderIdentifierInput, error)
 	// LookupOperatingMIC returns the operating MIC for the given MIC code.
 	// If mic is already an operating MIC it returns itself. Returns ("", error) if not found.

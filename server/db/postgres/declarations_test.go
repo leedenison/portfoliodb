@@ -13,6 +13,21 @@ import (
 	"time"
 )
 
+// held is the holding a test declares against. The line is empty because
+// EnsureInstrument with no currency mints the security's unknown listing, which
+// says how many lines it has is unknown and so is not a line a holding sits on.
+// The tests that are about the line name one.
+func held(userID, account, instrumentID string) db.Holding {
+	return db.Holding{UserID: userID, Broker: "IBKR", Account: account, InstrumentID: instrumentID}
+}
+
+// onLine is held with a line named, for the tests where two lines of one security
+// are two holdings.
+func onLine(h db.Holding, listingID string) db.Holding {
+	h.ListingID = listingID
+	return h
+}
+
 // initTx builds a pad denominated in the share count current on its own date, which
 // is what the tests that are not about denomination want.
 func initTx(at time.Time, qty float64) db.InitializeTx {
@@ -42,7 +57,7 @@ func TestCreateHoldingDeclaration(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "150.5", asOf, time.Time{})
+	row, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "150.5", asOf, time.Time{})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -69,14 +84,14 @@ func TestCreateHoldingDeclaration_ManyPerHolding(t *testing.T) {
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	later := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{}); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, time.Time{}); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "200", later, time.Time{}); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "200", later, time.Time{}); err != nil {
 		t.Fatalf("second create at a later date: %v", err)
 	}
 
-	_, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "300", asOf, time.Time{})
+	_, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "300", asOf, time.Time{})
 	if !errors.Is(err, db.ErrDuplicate) {
 		t.Fatalf("second create at the same date: want db.ErrDuplicate, got %v", err)
 	}
@@ -113,7 +128,7 @@ func TestListHoldingDeclarations_DerivesKind(t *testing.T) {
 		{instA, d2021, "500"},
 		{instB, d2022, "10"},
 	} {
-		if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", seed.inst, seed.qty, seed.asOf, time.Time{}); err != nil {
+		if _, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", seed.inst), seed.qty, seed.asOf, time.Time{}); err != nil {
 			t.Fatalf("seed %s at %s: %v", seed.inst, seed.asOf.Format("2006-01-02"), err)
 		}
 	}
@@ -160,7 +175,7 @@ func TestUpdateHoldingDeclaration(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{})
+	row, _ := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, time.Time{})
 
 	newDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
 	updated, err := p.UpdateHoldingDeclaration(ctx, row.ID, "200", newDate, time.Time{})
@@ -185,7 +200,7 @@ func TestDeleteHoldingDeclaration(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "50", asOf, time.Time{})
+	row, _ := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "50", asOf, time.Time{})
 
 	if err := p.DeleteHoldingDeclaration(ctx, row.ID); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -220,10 +235,10 @@ func TestListHoldingDeclarations(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst1, "100", asOf, time.Time{}); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", inst1), "100", asOf, time.Time{}); err != nil {
 		t.Fatalf("create decl 1: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst2, "200", asOf, time.Time{}); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", inst2), "200", asOf, time.Time{}); err != nil {
 		t.Fatalf("create decl 2: %v", err)
 	}
 
@@ -274,6 +289,144 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	}
 }
 
+// TestDeclarationsAreLineGrain is the whole of what makes a declaration a
+// statement about a holding rather than about a security. Two lines of one
+// security are two holdings an FX rate apart, so at one date they take two
+// declarations, each checked against its own line's postings and each padded
+// separately.
+func TestDeclarationsAreLineGrain(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-lines", "U", "u@u.com")
+	instID, gbp, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "ISIN", Value: "GB00TWOLINE1"},
+		Canonical: true,
+	}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	usd, err := p.EnsureListing(ctx, instID, "USD")
+	if err != nil {
+		t.Fatalf("ensure usd listing: %v", err)
+	}
+
+	// One buy on each line, of different sizes, so a balance read for one line
+	// cannot be the other's by coincidence.
+	ts := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
+	for _, leg := range []struct {
+		listing string
+		qty     string
+	}{{gbp, "100"}, {usd, "40"}} {
+		tx := &apiv1.Tx{
+			OrderDate: timestamppb.New(ts), TradeDate: timestamppb.New(ts),
+			InstrumentDescription: "TWO LINES", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET},
+			ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: leg.qty, Account: "acct1",
+		}
+		resolved := []db.Resolution{{InstrumentID: instID, ListingID: leg.listing}}
+		if err := p.CreateTxGroup(ctx, userID, "IBKR", "acct1", "", []*apiv1.Tx{tx}, resolved,
+			weightlessFor([]string{instID}), []*time.Time{nil}); err != nil {
+			t.Fatalf("create buy on %s: %v", leg.listing, err)
+		}
+	}
+
+	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		listing string
+		want    string
+	}{{gbp, "100"}, {usd, "40"}} {
+		bal, err := p.ComputeRunningBalance(ctx, onLine(held(userID, "acct1", instID), tc.listing), from, to, from)
+		if err != nil {
+			t.Fatalf("running balance on %s: %v", tc.listing, err)
+		}
+		if bal.String() != tc.want {
+			t.Fatalf("running balance on %s = %s, want %s", tc.listing, bal, tc.want)
+		}
+	}
+
+	// Two declarations at one date on one security: not a duplicate, because they
+	// are about different holdings.
+	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	gbpRow, err := p.CreateHoldingDeclaration(ctx, onLine(held(userID, "acct1", instID), gbp), "100", asOf, time.Time{})
+	if err != nil {
+		t.Fatalf("declare the GBP line: %v", err)
+	}
+	usdRow, err := p.CreateHoldingDeclaration(ctx, onLine(held(userID, "acct1", instID), usd), "40", asOf, time.Time{})
+	if err != nil {
+		t.Fatalf("declare the USD line: %v", err)
+	}
+	if gbpRow.ListingID != gbp || usdRow.ListingID != usd {
+		t.Fatalf("declarations landed on %q and %q, want %q and %q", gbpRow.ListingID, usdRow.ListingID, gbp, usd)
+	}
+	// Each declaration is the pad of its own holding, and each pad is posted to
+	// the line it pads.
+	for _, tc := range []struct {
+		listing string
+		qty     float64
+	}{{gbp, 25}, {usd, 5}} {
+		if err := p.UpsertInitializeTx(ctx, onLine(held(userID, "acct1", instID), tc.listing), initTx(from, tc.qty)); err != nil {
+			t.Fatalf("pad %s: %v", tc.listing, err)
+		}
+	}
+	var pads int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*)::int FROM txs
+		WHERE user_id = $1 AND synthetic_purpose = 'INITIALIZE' AND account_type = 'USER'
+	`, userID).Scan(&pads); err != nil {
+		t.Fatalf("count pads: %v", err)
+	}
+	if pads != 2 {
+		t.Fatalf("wrote %d pads, want one per line", pads)
+	}
+	for _, tc := range []struct {
+		listing string
+		want    string
+	}{{gbp, "25"}, {usd, "5"}} {
+		var qty string
+		if err := p.q.QueryRowContext(ctx, `
+			SELECT quantity::text FROM txs
+			WHERE user_id = $1 AND listing_id = $2
+			  AND synthetic_purpose = 'INITIALIZE' AND account_type = 'USER'
+		`, userID, tc.listing).Scan(&qty); err != nil {
+			t.Fatalf("read pad on %s: %v", tc.listing, err)
+		}
+		if qty != tc.want {
+			t.Fatalf("pad on %s = %s, want %s", tc.listing, qty, tc.want)
+		}
+	}
+
+	// And each declaration reads back checked against its own line.
+	rows, err := p.ListHoldingDeclarations(ctx, userID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("listed %d declarations, want 2", len(rows))
+	}
+	for _, r := range rows {
+		want := "125"
+		if r.ListingID == usd {
+			want = "45"
+		}
+		if r.Verified == nil {
+			t.Fatalf("declaration on %s came back unchecked", r.ListingID)
+		}
+		// The buy plus this line's pad, and nothing from the sibling line.
+		if got := r.Verified.ComputedQty.String(); got != want {
+			t.Fatalf("computed qty on %s = %s, want %s", r.ListingID, got, want)
+		}
+		if r.Kind != apiv1.DeclarationKind_DECLARATION_KIND_PAD {
+			t.Fatalf("declaration on %s is %v, want PAD: each line's earliest declaration pads it", r.ListingID, r.Kind)
+		}
+	}
+
+	// The same line twice at one date is still one answer too many. Last,
+	// because the violation aborts the transaction the whole test runs in.
+	if _, err := p.CreateHoldingDeclaration(ctx, onLine(held(userID, "acct1", instID), gbp), "999", asOf, time.Time{}); !errors.Is(err, db.ErrDuplicate) {
+		t.Fatalf("second GBP declaration at one date: got %v, want ErrDuplicate", err)
+	}
+}
+
 func TestComputeRunningBalance(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -296,7 +449,7 @@ func TestComputeRunningBalance(t *testing.T) {
 
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)
-	bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to, from)
+	bal, err := p.ComputeRunningBalance(ctx, held(userID, "acct1", instID), from, to, from)
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
@@ -315,7 +468,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(ts, 50))
+	err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(ts, 50))
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -347,7 +500,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	// Upsert again with different qty (should update, not duplicate). Both legs
 	// move together: a recalculation that shifted only the pad would leave the
 	// group unbalanced.
-	err = p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(ts, 75))
+	err = p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(ts, 75))
 	if err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
@@ -360,7 +513,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 
 	// Deleting takes both legs: the group is the unit of deletion, so no code path
 	// can leave half the event behind.
-	err = p.DeleteInitializeTx(ctx, userID, "IBKR", "acct1", instID)
+	err = p.DeleteInitializeTx(ctx, held(userID, "acct1", instID))
 	if err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -405,7 +558,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(at, 50)); err != nil {
+	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(at, 50)); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -430,7 +583,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	// Recalculating a declaration must move the existing group rather than
 	// replacing it, or every recalc would orphan one.
 	moved := at.Add(48 * time.Hour)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(moved, 75)); err != nil {
+	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(moved, 75)); err != nil {
 		t.Fatalf("re-upsert: %v", err)
 	}
 	var groupID2 string
@@ -452,7 +605,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 		t.Errorf("tx_groups after re-upsert: want 1, got %d", got)
 	}
 
-	if err := p.DeleteInitializeTx(ctx, userID, "IBKR", "acct1", instID); err != nil {
+	if err := p.DeleteInitializeTx(ctx, held(userID, "acct1", instID)); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if got := countGroups(t, p, userID); got != 0 {
@@ -475,7 +628,7 @@ func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(at, 50)); err != nil {
+	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(at, 50)); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -537,7 +690,7 @@ func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
 
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)
-	bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to, from)
+	bal, err := p.ComputeRunningBalance(ctx, held(userID, "acct1", instID), from, to, from)
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
@@ -559,7 +712,7 @@ func TestCreateHoldingDeclaration_DefaultsShareCountBasis(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	asOf := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
-	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "500", asOf, time.Time{})
+	row, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "500", asOf, time.Time{})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -570,7 +723,7 @@ func TestCreateHoldingDeclaration_DefaultsShareCountBasis(t *testing.T) {
 	// A stated basis survives, and moving as_of_date afterwards does not restate it:
 	// the denomination is what the user said, not a function of the date.
 	stated := time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
-	row, err = p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct2", instID, "500", asOf, stated)
+	row, err = p.CreateHoldingDeclaration(ctx, held(userID, "acct2", instID), "500", asOf, stated)
 	if err != nil {
 		t.Fatalf("create with basis: %v", err)
 	}
@@ -629,7 +782,7 @@ func TestComputeRunningBalance_ConvertsToDeclarationBasis(t *testing.T) {
 		{"post-split basis", postSplit, "150"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to, tc.basis)
+			bal, err := p.ComputeRunningBalance(ctx, held(userID, "acct1", instID), from, to, tc.basis)
 			if err != nil {
 				t.Fatalf("compute: %v", err)
 			}
@@ -659,7 +812,7 @@ func TestListHoldingDeclarations_ChecksAgainstTheHolding(t *testing.T) {
 	assertDate := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
 
 	// A pad of 500 at the start, one real buy of 150, and an assertion of 650.
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
+	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), db.InitializeTx{
 		Timestamp: padDate, Quantity: decf(500), ShareCountBasis: padDate,
 	}); err != nil {
 		t.Fatalf("upsert pad: %v", err)
@@ -668,10 +821,10 @@ func TestListHoldingDeclarations_ChecksAgainstTheHolding(t *testing.T) {
 		TradeDate: timestamppb.New(buyAt), InstrumentDescription: "VF1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "150", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create buy: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "500", padDate, time.Time{}); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "500", padDate, time.Time{}); err != nil {
 		t.Fatalf("create pad declaration: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "650", assertDate, time.Time{}); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "650", assertDate, time.Time{}); err != nil {
 		t.Fatalf("create assertion: %v", err)
 	}
 
@@ -750,7 +903,7 @@ func TestListHoldingDeclarations_ChecksAcrossASplit(t *testing.T) {
 		{"post-split basis", time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC), postSplit, "150"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, tc.want, tc.asOf, tc.basis)
+			row, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), tc.want, tc.asOf, tc.basis)
 			if err != nil {
 				t.Fatalf("create declaration: %v", err)
 			}
@@ -783,18 +936,18 @@ func TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors(t *testing.T)
 
 	pad := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	next := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
-	padRow, err := p.CreateDeclarationWithInitializeTx(ctx, userID, "IBKR", "acct1", instID, "500", pad, time.Time{}, initTx(pad, 500))
+	padRow, err := p.CreateDeclarationWithInitializeTx(ctx, held(userID, "acct1", instID), "500", pad, time.Time{}, initTx(pad, 500))
 	if err != nil {
 		t.Fatalf("create pad declaration: %v", err)
 	}
-	nextRow, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "650", next, time.Time{})
+	nextRow, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "650", next, time.Time{})
 	if err != nil {
 		t.Fatalf("create assertion: %v", err)
 	}
 
 	// Delete the pad's declaration, promoting the assertion behind it.
 	promoted := initTx(next, 650)
-	if err := p.DeleteDeclarationWithInitializeTx(ctx, padRow.ID, userID, "IBKR", "acct1", instID, &promoted); err != nil {
+	if err := p.DeleteDeclarationWithInitializeTx(ctx, padRow.ID, held(userID, "acct1", instID), &promoted); err != nil {
 		t.Fatalf("delete pad declaration: %v", err)
 	}
 	if got := initQtyByAccountType(t, p, userID); !maps.Equal(got, map[typev1.AccountType]string{
@@ -805,7 +958,7 @@ func TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors(t *testing.T)
 	}
 
 	// Delete the last declaration and the pad goes with it.
-	if err := p.DeleteDeclarationWithInitializeTx(ctx, nextRow.ID, userID, "IBKR", "acct1", instID, nil); err != nil {
+	if err := p.DeleteDeclarationWithInitializeTx(ctx, nextRow.ID, held(userID, "acct1", instID), nil); err != nil {
 		t.Fatalf("delete last declaration: %v", err)
 	}
 	if got := initQtyByAccountType(t, p, userID); len(got) != 0 {
@@ -831,7 +984,7 @@ func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
 
 	startDay := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	basis := time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
+	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), db.InitializeTx{
 		Timestamp: startDay, Quantity: decf(50), ShareCountBasis: basis,
 	}); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -856,7 +1009,7 @@ func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
 	// Moving the portfolio start date moves the pad's timestamp. Its denomination is
 	// the declaration's and must not follow.
 	moved := startDay.AddDate(0, 0, -30)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
+	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), db.InitializeTx{
 		Timestamp: moved, Quantity: decf(75), ShareCountBasis: basis,
 	}); err != nil {
 		t.Fatalf("re-upsert: %v", err)
@@ -877,15 +1030,15 @@ func TestUpsertHoldingDeclaration_RestatesRatherThanColliding(t *testing.T) {
 	}}, nil, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, asOf); err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
 	// The same row again changes nothing and must not be an error.
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, asOf); err != nil {
 		t.Fatalf("re-import: %v", err)
 	}
 	// A changed quantity restates the declaration in place.
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "120", asOf, asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "120", asOf, asOf); err != nil {
 		t.Fatalf("restate: %v", err)
 	}
 
@@ -916,10 +1069,10 @@ func TestUpsertHoldingDeclaration_LetsTheTriggerDefaultTheBasis(t *testing.T) {
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	other := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	// Stated first, so the update branch has something to overwrite.
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, other); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, other); err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{}); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, time.Time{}); err != nil {
 		t.Fatalf("second upsert: %v", err)
 	}
 
@@ -957,11 +1110,11 @@ func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	basis := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, asOf); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 	later := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "120", later, basis); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "120", later, basis); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -1010,7 +1163,7 @@ func TestListHoldingDeclarationsForExport_KeepsAnUnidentifiedInstrument(t *testi
 	}
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, asOf); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 

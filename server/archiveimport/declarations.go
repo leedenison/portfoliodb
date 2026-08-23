@@ -111,9 +111,23 @@ func DeclarationPart(ctx context.Context, database db.DB, userID string, part *a
 			if instrumentID == "" {
 				continue
 			}
+			// The line the declaration is on. The file states no currency of its
+			// own yet -- naming the listing in the archive is 0151 -- so this is
+			// the last rung of the ladder, the security's sole line, and no line
+			// where it has several.
+			listingID, err := database.SoleListing(ctx, instrumentID)
+			if err != nil {
+				return written, fmt.Errorf("resolve listing: %w", err)
+			}
 
-			if err := database.UpsertHoldingDeclaration(ctx, userID, broker, st.GetAccount(),
-				instrumentID, qty.String(), asOfDate, basis); err != nil {
+			holding := db.Holding{
+				UserID:       userID,
+				Broker:       broker,
+				Account:      st.GetAccount(),
+				InstrumentID: instrumentID,
+				ListingID:    listingID,
+			}
+			if err := database.UpsertHoldingDeclaration(ctx, holding, qty.String(), asOfDate, basis); err != nil {
 				return written, fmt.Errorf("upsert holding declaration: %w", err)
 			}
 			written++

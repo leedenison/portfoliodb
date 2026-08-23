@@ -315,9 +315,12 @@ func TestProcessUserImport_DeclarationsPartStoresAndEarnsTheRecalc(t *testing.T)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-a", nil)
+	database.EXPECT().SoleListing(gomock.Any(), "inst-a").Return("line-a", nil)
 	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-7", "FIDELITY", "Z1", "inst-a", "100",
-			gomock.Any(), gomock.Any()).
+		UpsertHoldingDeclaration(gomock.Any(), db.Holding{
+			UserID: "user-7", Broker: "FIDELITY", Account: "Z1",
+			InstrumentID: "inst-a", ListingID: "line-a",
+		}, "100", gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	res := processUserImport(context.Background(), ingestDeps{DB: database}, j)

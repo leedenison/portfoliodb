@@ -939,9 +939,19 @@ CREATE INDEX idx_txs_residual_postings
 -- the key because the pad's counterparty is an equal-and-opposite posting of the same
 -- instrument in the same broker account, and is synthetic for the same reason the pad
 -- is; without it the two collide.
-CREATE UNIQUE INDEX idx_txs_initialize_unique
+--
+-- The line is part of what makes a holding, so it is part of the key: a security
+-- quoted in two currencies is two holdings and takes two pads. Two partial
+-- indexes because the line is nullable and a key over a nullable column would
+-- call two pads of the same unplaced holding distinct -- the same shape as
+-- uq_holding_declarations_on_listing and uq_holding_declarations_no_listing, and
+-- for the same reason.
+CREATE UNIQUE INDEX idx_txs_initialize_unique_on_listing
+  ON txs (user_id, broker, account, instrument_id, listing_id, account_type)
+  WHERE synthetic_purpose = 'INITIALIZE' AND listing_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_txs_initialize_unique_no_listing
   ON txs (user_id, broker, account, instrument_id, account_type)
-  WHERE synthetic_purpose = 'INITIALIZE';
+  WHERE synthetic_purpose = 'INITIALIZE' AND listing_id IS NULL;
 
 -- The two sides of a transfer, paired after the fact.
 --
@@ -1566,6 +1576,11 @@ $$;
 -- window, converted into a single share count basis, together with the two numbers
 -- a caller needs to bound the rounding in that conversion.
 --
+-- A holding is per currency line, so p_listing_id is part of what names it, and a
+-- null one names the holding no posting could place rather than every line at
+-- once. The split factor stays a question about the security: a split is an
+-- action on the shares, not on one of the lines they are quoted in.
+--
 -- Postings are grouped by their own share_count_basis and summed before conversion,
 -- so the division happens once per distinct basis rather than once per posting. That
 -- is what makes the bound stateable: each group converts by an exact rational
@@ -1586,6 +1601,7 @@ CREATE OR REPLACE FUNCTION holding_qty_in_basis(
   p_broker TEXT,
   p_account TEXT,
   p_instrument_id UUID,
+  p_listing_id UUID,
   p_from TIMESTAMPTZ,
   p_before TIMESTAMPTZ,
   p_basis DATE,
@@ -1601,6 +1617,10 @@ CREATE OR REPLACE FUNCTION holding_qty_in_basis(
       AND t.broker = p_broker
       AND t.account = p_account
       AND t.instrument_id = p_instrument_id
+      -- IS NOT DISTINCT FROM rather than =, because the line is nullable at both
+      -- ends and a holding on no line is a holding: a null asked for selects the
+      -- postings nothing placed, not none of them.
+      AND t.listing_id IS NOT DISTINCT FROM p_listing_id
       AND t.account_type = 'USER'
       AND (p_include_synthetic OR t.synthetic_purpose IS NULL)
       AND (p_from IS NULL OR t.order_date >= p_from)
@@ -1616,7 +1636,8 @@ CREATE OR REPLACE FUNCTION holding_qty_in_basis(
 $$;
 
 -- Holding declarations: user-provided statement of known holding quantity at a date.
--- Holdings are computed aggregates identified by (broker, account, instrument_id).
+-- Holdings are computed aggregates identified by (broker, account, instrument_id,
+-- listing_id).
 --
 -- share_count_basis is the date at which the share count declared_qty is denominated
 -- in was current. It defaults to as_of_date: a user reading a quantity off a
@@ -1640,13 +1661,48 @@ CREATE TABLE holding_declarations (
   broker            TEXT NOT NULL,
   account           TEXT NOT NULL,
   instrument_id     UUID NOT NULL REFERENCES instruments(id),
+  -- The currency line the declared quantity is a quantity of, and NULL where
+  -- nothing said which. A declaration is a statement about a holding, and a
+  -- holding is per line, so the two carry the same pair and the same null: two
+  -- lines of one security are two holdings an FX rate apart, and a declaration
+  -- that could not say which line is on no line rather than on a sentinel one.
+  -- See docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+  listing_id        UUID,
   declared_qty      NUMERIC NOT NULL,
   as_of_date        DATE NOT NULL,
   share_count_basis DATE NOT NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, broker, account, instrument_id, as_of_date)
+  -- The line and the security it belongs to, referenced as a pair, so a
+  -- declaration cannot name a line of some other security. MATCH SIMPLE skips
+  -- the check when either column is null, which is what lets a declaration name
+  -- a security whose line is not known; instrument_id is NOT NULL here, so
+  -- unlike txs there is no second case for a CHECK to close.
+  --
+  -- No ON DELETE, for the reason txs_listing_id_fkey gives: a merge repoints its
+  -- loser's rows before deleting the loser, and one that forgot to should fail
+  -- rather than quietly cascade.
+  FOREIGN KEY (instrument_id, listing_id)
+    REFERENCES instrument_listings (instrument_id, id) MATCH SIMPLE
 );
+
+-- One declaration per holding per date. Two partial indexes rather than one key
+-- over a nullable column, which would call two declarations of the same
+-- unknown-line holding distinct and let a re-import write a second row where it
+-- meant to restate the first. Same shape and same reason as
+-- uq_instrument_listings_currency and uq_instrument_listings_unknown: no
+-- NULLS NOT DISTINCT, so no PostgreSQL 15 dependency.
+--
+-- A write picks its ON CONFLICT target from whether the line is named, which is
+-- the one thing the caller always knows.
+CREATE UNIQUE INDEX uq_holding_declarations_on_listing
+  ON holding_declarations (user_id, broker, account, instrument_id, listing_id, as_of_date)
+  WHERE listing_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_holding_declarations_no_listing
+  ON holding_declarations (user_id, broker, account, instrument_id, as_of_date)
+  WHERE listing_id IS NULL;
+
+CREATE INDEX idx_holding_declarations_listing_id ON holding_declarations (listing_id);
 
 -- The default lives here rather than in the application so that every path into the
 -- table -- the API, an integration test, a psql session -- lands on the same

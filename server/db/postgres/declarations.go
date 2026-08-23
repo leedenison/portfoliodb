@@ -17,18 +17,23 @@ import (
 // paths return: kind cannot be derived there, because an INSERT's own row is not
 // visible to a subquery in its RETURNING clause, so a create would always call
 // itself the pad.
-const declarationCols = `id, user_id, broker, account, instrument_id, declared_qty, as_of_date, share_count_basis`
+const declarationCols = `id, user_id, broker, account, instrument_id, listing_id, declared_qty, as_of_date, share_count_basis`
 
 // declarationKind derives the pad/assert discriminator rather than storing it, so
 // there is no column to keep in step with the rows. The earliest declaration for a
 // holding seeds its opening balance; every later one is checked against the computed
 // holding. Written as a correlated subquery rather than a window so that it is
 // correct for a single-row read too, and the unique key on (user_id, broker,
-// account, instrument_id, as_of_date) serves the lookup directly.
+// account, instrument_id, listing_id, as_of_date) serves the lookup directly.
+//
+// The line is part of what makes a holding, so a declaration on the GBP line does
+// not pad the USD one. IS NOT DISTINCT FROM rather than =, because a holding on no
+// line is a holding and its declarations are its own.
 const declarationKind = `CASE WHEN d.as_of_date = (
 	    SELECT MIN(e.as_of_date) FROM holding_declarations e
 	    WHERE e.user_id = d.user_id AND e.broker = d.broker
-	      AND e.account = d.account AND e.instrument_id = d.instrument_id)
+	      AND e.account = d.account AND e.instrument_id = d.instrument_id
+	      AND e.listing_id IS NOT DISTINCT FROM d.listing_id)
 	  THEN 'PAD' ELSE 'ASSERT' END AS kind`
 
 // declarationVerify computes what the transactions actually add up to at a
@@ -46,24 +51,25 @@ const declarationKind = `CASE WHEN d.as_of_date = (
 // as the user sees it, opening balance and all. That is also why a pad's own
 // assertion always reconciles -- the INITIALIZE tx is what makes it true.
 const declarationVerify = `LATERAL holding_qty_in_basis(
-	    d.user_id, d.broker, d.account, d.instrument_id,
+	    d.user_id, d.broker, d.account, d.instrument_id, d.listing_id,
 	    NULL, (d.as_of_date + 1)::timestamptz, d.share_count_basis, true) v`
 
 // declarationReadCols is the projection for reads, qualified for declarationKind and
 // declarationVerify.
-const declarationReadCols = `d.id, d.user_id, d.broker, d.account, d.instrument_id,
+const declarationReadCols = `d.id, d.user_id, d.broker, d.account, d.instrument_id, d.listing_id,
 	d.declared_qty, d.as_of_date, d.share_count_basis,
 	v.qty AS computed_qty, v.posting_count, v.inexact_bases, ` + declarationKind
 
 type declarationRow struct {
-	ID              uuid.UUID `db:"id"`
-	UserID          uuid.UUID `db:"user_id"`
-	Broker          string    `db:"broker"`
-	Account         string    `db:"account"`
-	InstrumentID    uuid.UUID `db:"instrument_id"`
-	DeclaredQty     string    `db:"declared_qty"`
-	AsOfDate        time.Time `db:"as_of_date"`
-	ShareCountBasis time.Time `db:"share_count_basis"`
+	ID              uuid.UUID     `db:"id"`
+	UserID          uuid.UUID     `db:"user_id"`
+	Broker          string        `db:"broker"`
+	Account         string        `db:"account"`
+	InstrumentID    uuid.UUID     `db:"instrument_id"`
+	ListingID       uuid.NullUUID `db:"listing_id"`
+	DeclaredQty     string        `db:"declared_qty"`
+	AsOfDate        time.Time     `db:"as_of_date"`
+	ShareCountBasis time.Time     `db:"share_count_basis"`
 	// The verification columns and kind are absent from the write paths' projection.
 	ComputedQty  *decimal.Decimal `db:"computed_qty"`
 	PostingCount *int32           `db:"posting_count"`
@@ -78,6 +84,7 @@ func (r *declarationRow) toRow() *db.HoldingDeclarationRow {
 		Broker:          r.Broker,
 		Account:         r.Account,
 		InstrumentID:    r.InstrumentID.String(),
+		ListingID:       uuidStr(r.ListingID),
 		DeclaredQty:     r.DeclaredQty,
 		AsOfDate:        r.AsOfDate,
 		ShareCountBasis: r.ShareCountBasis,
@@ -93,6 +100,15 @@ func (r *declarationRow) toRow() *db.HoldingDeclarationRow {
 		}
 	}
 	return out
+}
+
+// uuidStr renders a nullable id as the empty string the domain types use for
+// absent. A declaration on no line is a first-class state, not a missing row.
+func uuidStr(v uuid.NullUUID) string {
+	if !v.Valid {
+		return ""
+	}
+	return v.UUID.String()
 }
 
 func derefInt32(v *int32) int32 {
@@ -113,17 +129,41 @@ func strToDeclarationKind(s string) apiv1.DeclarationKind {
 	}
 }
 
+// holdingIDs is the two ids in a db.Holding parsed once, so every write below
+// takes the same view of what the key is. The line is nullable: "" is the holding
+// no posting could place, not a malformed one.
+type holdingIDs struct {
+	user       uuid.UUID
+	instrument uuid.UUID
+	listing    uuid.NullUUID
+}
+
+func parseHolding(h db.Holding) (holdingIDs, error) {
+	var out holdingIDs
+	var err error
+	if out.user, err = uuid.Parse(h.UserID); err != nil {
+		return out, fmt.Errorf("invalid user id: %w", err)
+	}
+	if out.instrument, err = uuid.Parse(h.InstrumentID); err != nil {
+		return out, fmt.Errorf("invalid instrument id: %w", err)
+	}
+	if h.ListingID != "" {
+		id, err := uuid.Parse(h.ListingID)
+		if err != nil {
+			return out, fmt.Errorf("invalid listing id: %w", err)
+		}
+		out.listing = uuid.NullUUID{UUID: id, Valid: true}
+	}
+	return out, nil
+}
+
 // CreateHoldingDeclaration implements db.HoldingDeclarationDB. A zero
 // shareCountBasis leaves the column NULL so the table's trigger applies the
 // as_of_date default, keeping the rule in one place.
-func (p *Postgres) CreateHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) (*db.HoldingDeclarationRow, error) {
-	userUUID, err := uuid.Parse(userID)
+func (p *Postgres) CreateHoldingDeclaration(ctx context.Context, h db.Holding, declaredQty string, asOfDate, shareCountBasis time.Time) (*db.HoldingDeclarationRow, error) {
+	ids, err := parseHolding(h)
 	if err != nil {
-		return nil, fmt.Errorf("invalid user id: %w", err)
-	}
-	instUUID, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid instrument id: %w", err)
+		return nil, err
 	}
 	var basis *time.Time
 	if !shareCountBasis.IsZero() {
@@ -131,10 +171,10 @@ func (p *Postgres) CreateHoldingDeclaration(ctx context.Context, userID, broker,
 	}
 	var row declarationRow
 	err = p.q.QueryRowxContext(ctx, `
-		INSERT INTO holding_declarations (user_id, broker, account, instrument_id, declared_qty, as_of_date, share_count_basis)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO holding_declarations (user_id, broker, account, instrument_id, listing_id, declared_qty, as_of_date, share_count_basis)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING `+declarationCols,
-		userUUID, broker, account, instUUID, declaredQty, asOfDate, basis).StructScan(&row)
+		ids.user, h.Broker, h.Account, ids.instrument, ids.listing, declaredQty, asOfDate, basis).StructScan(&row)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, fmt.Errorf("create holding declaration: %w", db.ErrDuplicate)
@@ -275,7 +315,7 @@ func (p *Postgres) ListHoldingDeclarationsForExport(ctx context.Context, userID 
 		FROM holding_declarations d
 		`+bestIdentifierJoinOn("LEFT JOIN", "d.instrument_id", "best_id")+`
 		WHERE d.user_id = $1
-		ORDER BY d.broker, d.account, d.as_of_date, d.instrument_id
+		ORDER BY d.broker, d.account, d.as_of_date, d.instrument_id, d.listing_id
 	`, userUUID)
 	if err != nil {
 		return nil, fmt.Errorf("list holding declarations for export: %w", err)
@@ -299,27 +339,30 @@ func (p *Postgres) ListHoldingDeclarationsForExport(ctx context.Context, userID 
 // The BEFORE INSERT trigger fills a NULL share_count_basis from as_of_date, and
 // it runs before the conflict is detected, so EXCLUDED carries the defaulted
 // value on the update branch too and the two branches agree on the denomination.
-func (p *Postgres) UpsertHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) error {
-	userUUID, err := uuid.Parse(userID)
+func (p *Postgres) UpsertHoldingDeclaration(ctx context.Context, h db.Holding, declaredQty string, asOfDate, shareCountBasis time.Time) error {
+	ids, err := parseHolding(h)
 	if err != nil {
-		return fmt.Errorf("invalid user id: %w", err)
-	}
-	instUUID, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("invalid instrument id: %w", err)
+		return err
 	}
 	var basis *time.Time
 	if !shareCountBasis.IsZero() {
 		basis = &shareCountBasis
 	}
+	// Two unique indexes, so two inference clauses: a partial index is only
+	// usable as a conflict target by a statement that repeats its predicate, and
+	// the caller always knows which of the two it is writing.
+	conflict := `(user_id, broker, account, instrument_id, listing_id, as_of_date) WHERE listing_id IS NOT NULL`
+	if !ids.listing.Valid {
+		conflict = `(user_id, broker, account, instrument_id, as_of_date) WHERE listing_id IS NULL`
+	}
 	_, err = p.q.ExecContext(ctx, `
-		INSERT INTO holding_declarations (user_id, broker, account, instrument_id, declared_qty, as_of_date, share_count_basis)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (user_id, broker, account, instrument_id, as_of_date)
+		INSERT INTO holding_declarations (user_id, broker, account, instrument_id, listing_id, declared_qty, as_of_date, share_count_basis)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT `+conflict+`
 		DO UPDATE SET declared_qty = EXCLUDED.declared_qty,
 		              share_count_basis = EXCLUDED.share_count_basis,
 		              updated_at = now()
-	`, userUUID, broker, account, instUUID, declaredQty, asOfDate, basis)
+	`, ids.user, h.Broker, h.Account, ids.instrument, ids.listing, declaredQty, asOfDate, basis)
 	if err != nil {
 		return fmt.Errorf("upsert holding declaration: %w", err)
 	}
@@ -353,19 +396,15 @@ func (p *Postgres) GetPortfolioStartDate(ctx context.Context, userID string) (*t
 // declaration's basis first, so the pad reconciles a holding to a declaration
 // denominated the same way. Synthetics are excluded -- a pad must not feed back
 // into its own recomputation.
-func (p *Postgres) ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to, basis time.Time) (decimal.Decimal, error) {
-	userUUID, err := uuid.Parse(userID)
+func (p *Postgres) ComputeRunningBalance(ctx context.Context, h db.Holding, from, to, basis time.Time) (decimal.Decimal, error) {
+	ids, err := parseHolding(h)
 	if err != nil {
-		return decimal.Decimal{}, fmt.Errorf("invalid user id: %w", err)
-	}
-	instUUID, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return decimal.Decimal{}, fmt.Errorf("invalid instrument id: %w", err)
+		return decimal.Decimal{}, err
 	}
 	var balance decimal.NullDecimal
 	err = p.q.QueryRowContext(ctx, `
-		SELECT qty FROM holding_qty_in_basis($1, $2, $3, $4, $5, $6, $7, false)
-	`, userUUID, broker, account, instUUID, from, to, basis).Scan(&balance)
+		SELECT qty FROM holding_qty_in_basis($1, $2, $3, $4, $5, $6, $7, $8, false)
+	`, ids.user, h.Broker, h.Account, ids.instrument, ids.listing, from, to, basis).Scan(&balance)
 	if err != nil {
 		return decimal.Decimal{}, fmt.Errorf("compute running balance: %w", err)
 	}
@@ -373,14 +412,10 @@ func (p *Postgres) ComputeRunningBalance(ctx context.Context, userID, broker, ac
 }
 
 // UpsertInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID string, init db.InitializeTx) error {
-	userUUID, err := uuid.Parse(userID)
+func (p *Postgres) UpsertInitializeTx(ctx context.Context, h db.Holding, init db.InitializeTx) error {
+	ids, err := parseHolding(h)
 	if err != nil {
-		return fmt.Errorf("invalid user id: %w", err)
-	}
-	instUUID, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("invalid instrument id: %w", err)
+		return err
 	}
 	// The INITIALIZE postings and their group are updated in place rather than
 	// re-inserted, so that recalculating a declaration does not orphan a group.
@@ -397,14 +432,15 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 		err := exec.QueryRowContext(ctx, `
 			SELECT group_id FROM txs
 			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
+			  AND listing_id IS NOT DISTINCT FROM $5
 			  AND synthetic_purpose = 'INITIALIZE'
 			  AND account_type = 'USER'
-		`, userUUID, broker, account, instUUID).Scan(&groupID)
+		`, ids.user, h.Broker, h.Account, ids.instrument, ids.listing).Scan(&groupID)
 		switch {
 		case err == sql.ErrNoRows:
 			if err := exec.QueryRowContext(ctx, `
 				INSERT INTO tx_groups (user_id, timestamp) VALUES ($1, $2) RETURNING id
-			`, userUUID, init.Timestamp).Scan(&groupID); err != nil {
+			`, ids.user, init.Timestamp).Scan(&groupID); err != nil {
 				return fmt.Errorf("insert initialize tx group: %w", err)
 			}
 		case err != nil:
@@ -414,7 +450,15 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 		// before it existed, and inserting it there is the same operation as
 		// keeping it in step afterwards. The conflict target is the partial unique
 		// index on INITIALIZE postings, which has account_type in its key so the
-		// two legs do not collide.
+		// two legs do not collide, and the line in it so two lines of one security
+		// take two pads. Two indexes, so the inference clause repeats the predicate
+		// of whichever one this write belongs to.
+		conflict := `(user_id, broker, account, instrument_id, listing_id, account_type)
+			  WHERE synthetic_purpose = 'INITIALIZE' AND listing_id IS NOT NULL`
+		if !ids.listing.Valid {
+			conflict = `(user_id, broker, account, instrument_id, account_type)
+			  WHERE synthetic_purpose = 'INITIALIZE' AND listing_id IS NULL`
+		}
 		for _, leg := range []struct {
 			accountType string
 			quantity    decimal.Decimal
@@ -453,23 +497,16 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 				SELECT $1, $2, $3, $4, $4, 'INITIALIZE',
 				       ARRAY['TRANSFER_EXTERNAL'], 'TRANSFER_EXTERNAL', $5, $6,
 				       -- The pad offsets a holding, and a holding is per line, so it
-				       -- has to be on the same one. The security's sole line where it
-				       -- has exactly one, and none otherwise -- the same rungs the
-				       -- ingest ladder runs, since a declaration states no currency of
-				       -- its own. Naming the line on the declaration is 0149's next
-				       -- step.
-				       (SELECT l.id FROM instrument_listings l
-				        WHERE l.instrument_id = i.id AND l.currency IS NOT NULL
-				          AND NOT EXISTS (SELECT 1 FROM instrument_listings o
-				                          WHERE o.instrument_id = i.id AND o.id <> l.id)),
-				       'INITIALIZE', $7, $5,
+				       -- is posted to the line the declaration named. A pad on a
+				       -- sibling line would leave both of them wrong.
+				       $7,
+				       'INITIALIZE', $8, $5,
 				       CASE WHEN i.asset_class = 'CASH' AND i.currency IS NOT NULL
 				            THEN 'cur:' || upper(i.currency)
 				            ELSE 'inst:' || i.id::text END,
-				       $8, $9
+				       $9, $10
 				FROM instruments i WHERE i.id = $6
-				ON CONFLICT (user_id, broker, account, instrument_id, account_type)
-				  WHERE synthetic_purpose = 'INITIALIZE'
+				ON CONFLICT `+conflict+`
 				DO UPDATE SET order_date = EXCLUDED.order_date,
 				              trade_date = EXCLUDED.trade_date,
 				              quantity = EXCLUDED.quantity,
@@ -477,7 +514,7 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 				              weight = EXCLUDED.weight,
 				              weight_commodity = EXCLUDED.weight_commodity,
 				              share_count_basis = EXCLUDED.share_count_basis
-			`, userUUID, broker, account, init.Timestamp, leg.quantity, instUUID, leg.accountType, init.ShareCountBasis, groupID); err != nil {
+			`, ids.user, h.Broker, h.Account, init.Timestamp, leg.quantity, ids.instrument, ids.listing, leg.accountType, init.ShareCountBasis, groupID); err != nil {
 				return fmt.Errorf("upsert initialize %s posting: %w", leg.accountType, err)
 			}
 		}
@@ -491,14 +528,10 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 }
 
 // DeleteInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, account, instrumentID string) error {
-	userUUID, err := uuid.Parse(userID)
+func (p *Postgres) DeleteInitializeTx(ctx context.Context, h db.Holding) error {
+	ids, err := parseHolding(h)
 	if err != nil {
-		return fmt.Errorf("invalid user id: %w", err)
-	}
-	instUUID, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("invalid instrument id: %w", err)
+		return err
 	}
 	// Delete the group and let the FK cascade take both legs of the pad, so neither
 	// an empty group nor a lone counterparty is left behind.
@@ -510,9 +543,10 @@ func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, accou
 			    SELECT 1 FROM txs t
 			    WHERE t.group_id = g.id
 			      AND t.broker = $2 AND t.account = $3 AND t.instrument_id = $4
+			      AND t.listing_id IS NOT DISTINCT FROM $5
 			      AND t.synthetic_purpose = 'INITIALIZE'
 			  )
-		`, userUUID, broker, account, instUUID)
+		`, ids.user, h.Broker, h.Account, ids.instrument, ids.listing)
 		if err != nil {
 			return fmt.Errorf("delete initialize tx group: %w", err)
 		}
@@ -521,22 +555,22 @@ func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, accou
 }
 
 // CreateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time, init db.InitializeTx) (*db.HoldingDeclarationRow, error) {
+func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, h db.Holding, declaredQty string, asOfDate, shareCountBasis time.Time, init db.InitializeTx) (*db.HoldingDeclarationRow, error) {
 	var row *db.HoldingDeclarationRow
 	err := p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
-		r, err := txp.CreateHoldingDeclaration(ctx, userID, broker, account, instrumentID, declaredQty, asOfDate, shareCountBasis)
+		r, err := txp.CreateHoldingDeclaration(ctx, h, declaredQty, asOfDate, shareCountBasis)
 		if err != nil {
 			return err
 		}
 		row = r
-		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, init)
+		return txp.UpsertInitializeTx(ctx, h, init)
 	})
 	return row, err
 }
 
 // UpdateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time, userID, broker, account, instrumentID string, init db.InitializeTx) (*db.HoldingDeclarationRow, error) {
+func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time, h db.Holding, init db.InitializeTx) (*db.HoldingDeclarationRow, error) {
 	var row *db.HoldingDeclarationRow
 	err := p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
@@ -545,13 +579,13 @@ func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, de
 			return err
 		}
 		row = r
-		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, init)
+		return txp.UpsertInitializeTx(ctx, h, init)
 	})
 	return row, err
 }
 
 // DeleteDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string, init *db.InitializeTx) error {
+func (p *Postgres) DeleteDeclarationWithInitializeTx(ctx context.Context, id string, h db.Holding, init *db.InitializeTx) error {
 	return p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
 		if err := txp.DeleteHoldingDeclaration(ctx, id); err != nil {
@@ -561,8 +595,8 @@ func (p *Postgres) DeleteDeclarationWithInitializeTx(ctx context.Context, id, us
 		// was deleted may have been an assertion, or the pad with a later
 		// declaration behind it ready to take over. Only an empty holding loses it.
 		if init == nil {
-			return txp.DeleteInitializeTx(ctx, userID, broker, account, instrumentID)
+			return txp.DeleteInitializeTx(ctx, h)
 		}
-		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, *init)
+		return txp.UpsertInitializeTx(ctx, h, *init)
 	})
 }

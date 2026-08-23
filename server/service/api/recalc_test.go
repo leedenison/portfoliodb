@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,9 +47,12 @@ var (
 	testBasis = time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
 )
 
+// testDecl is one declaration on the sole line of its security, which is what a
+// declaration written against a single-listing security carries.
 func testDecl(id, instrumentID, declaredQty string) *db.HoldingDeclarationRow {
 	return &db.HoldingDeclarationRow{
 		ID: id, UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: instrumentID,
+		ListingID:   strings.Replace(instrumentID, "inst-", "line-", 1),
 		DeclaredQty: declaredQty, AsOfDate: testAsOf, ShareCountBasis: testBasis,
 	}
 }
@@ -72,8 +76,8 @@ func TestRecalcAllInitializeTxs_RecomputesQty(t *testing.T) {
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
 	// The balance is asked for in the declaration's denomination, not in whatever
 	// mixture the postings happen to be recorded in.
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), testBasis).Return(decimal.NewFromInt(40), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", padEq("60", testBasis)).Return(nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), testBasis).Return(decimal.NewFromInt(40), nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), held("inst-1", "line-1"), padEq("60", testBasis)).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)
@@ -100,8 +104,8 @@ func TestRecalcAllInitializeTxs_PadsTheEarliest(t *testing.T) {
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
 	// Exactly one balance and one upsert: the assertion is not padded to.
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), pad).Return(decimal.NewFromInt(100), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", padEq("400", pad)).Return(nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), pad).Return(decimal.NewFromInt(100), nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), held("inst-1", "line-1"), padEq("400", pad)).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)
@@ -116,7 +120,7 @@ func TestRecalcAllInitializeTxs_NoRealTxs_DeletesInitialize(t *testing.T) {
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return([]*db.HoldingDeclarationRow{testDecl("d1", "inst-1", "100")}, nil)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(nil, nil)
 	// The declaration is what the user said and survives; only the derived pad goes.
-	mockDB.EXPECT().DeleteInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1").Return(nil)
+	mockDB.EXPECT().DeleteInitializeTx(gomock.Any(), held("inst-1", "line-1")).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)
@@ -142,8 +146,8 @@ func TestRecalcAllInitializeTxs_StartDatePastDeclaration_PromotesTheNext(t *test
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().DeleteHoldingDeclaration(gomock.Any(), "d1").Return(nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), next).Return(decimal.NewFromInt(50), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", padEq("600", next)).Return(nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), next).Return(decimal.NewFromInt(50), nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), held("inst-1", "line-1"), padEq("600", next)).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)
@@ -161,7 +165,7 @@ func TestRecalcAllInitializeTxs_StartDatePastAll_DeletesTheHoldingsPad(t *testin
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return([]*db.HoldingDeclarationRow{testDecl("d1", "inst-1", "100")}, nil)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().DeleteHoldingDeclaration(gomock.Any(), "d1").Return(nil)
-	mockDB.EXPECT().DeleteInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1").Return(nil)
+	mockDB.EXPECT().DeleteInitializeTx(gomock.Any(), held("inst-1", "line-1")).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)
@@ -181,8 +185,8 @@ func TestRecalcAllInitializeTxs_ZeroQty_KeepsDeclaration(t *testing.T) {
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return([]*db.HoldingDeclarationRow{testDecl("d1", "inst-1", "100")}, nil)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), testBasis).Return(decimal.NewFromInt(100), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", padEq("0", testBasis)).Return(nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), testBasis).Return(decimal.NewFromInt(100), nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), held("inst-1", "line-1"), padEq("0", testBasis)).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)
@@ -201,10 +205,10 @@ func TestRecalcAllInitializeTxs_RecalcsEachHolding(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), testBasis).Return(decimal.NewFromInt(20), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", padEq("80", testBasis)).Return(nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", gomock.Any(), gomock.Any(), testBasis).Return(decimal.NewFromInt(10), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", padEq("40", testBasis)).Return(nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), testBasis).Return(decimal.NewFromInt(20), nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), held("inst-1", "line-1"), padEq("80", testBasis)).Return(nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-2", "line-2"), gomock.Any(), gomock.Any(), testBasis).Return(decimal.NewFromInt(10), nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), held("inst-2", "line-2"), padEq("40", testBasis)).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)

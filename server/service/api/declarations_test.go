@@ -14,6 +14,19 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+// held is the holding these fixtures declare against. A declaration is a
+// statement about a holding, and a holding is per currency line, so the line is
+// part of the key rather than an attribute hanging off it.
+func held(instrumentID, listingID string) db.Holding {
+	return db.Holding{
+		UserID:       "user-1",
+		Broker:       "IBKR",
+		Account:      "acct1",
+		InstrumentID: instrumentID,
+		ListingID:    listingID,
+	}
+}
+
 var (
 	asOfJun1 = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	// storedBasis is a denomination the declaration already carries, distinct from
@@ -27,7 +40,7 @@ func TestListHoldingDeclarations_Success(t *testing.T) {
 	mockDB.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return([]*db.HoldingDeclarationRow{
-			{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "100", AsOfDate: asOfJun1, ShareCountBasis: storedBasis},
+			{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1", DeclaredQty: "100", AsOfDate: asOfJun1, ShareCountBasis: storedBasis},
 		}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{"inst-1"}).Return(nil, nil)
 
@@ -124,13 +137,14 @@ func TestCreateHoldingDeclaration_Success(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().SoleListing(gomock.Any(), "inst-1").Return("line-1", nil)
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return(nil, nil)
 	// Unset in the request, so the balance is asked for at as_of_date -- as-traded.
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), asOfJun1).Return(decimal.NewFromInt(30), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), asOfJun1).Return(decimal.NewFromInt(30), nil)
 	mockDB.EXPECT().
-		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", asOfJun1, asOfJun1, padEq("70", asOfJun1)).
+		CreateDeclarationWithInitializeTx(gomock.Any(), held("inst-1", "line-1"), "100", asOfJun1, asOfJun1, padEq("70", asOfJun1)).
 		Return(&db.HoldingDeclarationRow{
-			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "100",
+			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1", DeclaredQty: "100",
 			AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
 		}, nil)
 
@@ -155,10 +169,11 @@ func TestCreateHoldingDeclaration_StatedShareCountBasis(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().SoleListing(gomock.Any(), "inst-1").Return("line-1", nil)
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return(nil, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), storedBasis).Return(decimal.NewFromInt(30), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), storedBasis).Return(decimal.NewFromInt(30), nil)
 	mockDB.EXPECT().
-		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", asOfJun1, storedBasis, padEq("70", storedBasis)).
+		CreateDeclarationWithInitializeTx(gomock.Any(), held("inst-1", "line-1"), "100", asOfJun1, storedBasis, padEq("70", storedBasis)).
 		Return(&db.HoldingDeclarationRow{ID: "d1", UserID: "user-1", AsOfDate: asOfJun1, ShareCountBasis: storedBasis}, nil)
 
 	_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
@@ -182,13 +197,14 @@ func TestCreateHoldingDeclaration_LaterIsAnAssertion(t *testing.T) {
 	assertAsOf := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
 
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().SoleListing(gomock.Any(), "inst-1").Return("line-1", nil)
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return([]*db.HoldingDeclarationRow{
-		{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "500", AsOfDate: padAsOf, ShareCountBasis: padAsOf},
+		{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1", DeclaredQty: "500", AsOfDate: padAsOf, ShareCountBasis: padAsOf},
 	}, nil)
 	// Balanced and padded at the existing declaration's date, not the new one's.
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), padAsOf).Return(decimal.NewFromInt(100), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), padAsOf).Return(decimal.NewFromInt(100), nil)
 	mockDB.EXPECT().
-		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "650", assertAsOf, assertAsOf, padEq("400", padAsOf)).
+		CreateDeclarationWithInitializeTx(gomock.Any(), held("inst-1", "line-1"), "650", assertAsOf, assertAsOf, padEq("400", padAsOf)).
 		Return(&db.HoldingDeclarationRow{ID: "d2", UserID: "user-1", AsOfDate: assertAsOf, ShareCountBasis: assertAsOf}, nil)
 
 	resp, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
@@ -214,12 +230,13 @@ func TestCreateHoldingDeclaration_EarlierTakesOverThePad(t *testing.T) {
 	newPad := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().SoleListing(gomock.Any(), "inst-1").Return("line-1", nil)
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return([]*db.HoldingDeclarationRow{
-		{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "650", AsOfDate: oldPad, ShareCountBasis: oldPad},
+		{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1", DeclaredQty: "650", AsOfDate: oldPad, ShareCountBasis: oldPad},
 	}, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), newPad).Return(decimal.NewFromInt(100), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), newPad).Return(decimal.NewFromInt(100), nil)
 	mockDB.EXPECT().
-		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "500", newPad, newPad, padEq("400", newPad)).
+		CreateDeclarationWithInitializeTx(gomock.Any(), held("inst-1", "line-1"), "500", newPad, newPad, padEq("400", newPad)).
 		Return(&db.HoldingDeclarationRow{ID: "d2", UserID: "user-1", AsOfDate: newPad, ShareCountBasis: newPad}, nil)
 
 	resp, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
@@ -242,10 +259,11 @@ func TestCreateHoldingDeclaration_SameDate(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().SoleListing(gomock.Any(), "inst-1").Return("line-1", nil)
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return(nil, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), asOfJun1).Return(decimal.NewFromInt(30), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), asOfJun1).Return(decimal.NewFromInt(30), nil)
 	mockDB.EXPECT().
-		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", asOfJun1, asOfJun1, gomock.Any()).
+		CreateDeclarationWithInitializeTx(gomock.Any(), held("inst-1", "line-1"), "100", asOfJun1, asOfJun1, gomock.Any()).
 		Return(nil, fmt.Errorf("create holding declaration: %w", db.ErrDuplicate))
 
 	_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
@@ -266,16 +284,16 @@ func TestDeleteHoldingDeclaration_PromotesTheNextPad(t *testing.T) {
 	next := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
 
 	mockDB.EXPECT().GetHoldingDeclaration(gomock.Any(), "d1").Return(&db.HoldingDeclarationRow{
-		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", AsOfDate: oldPad, ShareCountBasis: oldPad,
+		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1", AsOfDate: oldPad, ShareCountBasis: oldPad,
 	}, nil)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return([]*db.HoldingDeclarationRow{
-		{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "500", AsOfDate: oldPad, ShareCountBasis: oldPad},
-		{ID: "d2", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "650", AsOfDate: next, ShareCountBasis: next},
+		{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1", DeclaredQty: "500", AsOfDate: oldPad, ShareCountBasis: oldPad},
+		{ID: "d2", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1", DeclaredQty: "650", AsOfDate: next, ShareCountBasis: next},
 	}, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), next).Return(decimal.NewFromInt(50), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), next).Return(decimal.NewFromInt(50), nil)
 	mockDB.EXPECT().
-		DeleteDeclarationWithInitializeTx(gomock.Any(), "d1", "user-1", "IBKR", "acct1", "inst-1", padEq("600", next)).
+		DeleteDeclarationWithInitializeTx(gomock.Any(), "d1", held("inst-1", "line-1"), padEq("600", next)).
 		Return(nil)
 
 	if _, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d1"}); err != nil {
@@ -317,18 +335,18 @@ func TestUpdateHoldingDeclaration_Success(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
 	existing := &db.HoldingDeclarationRow{
-		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
+		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1",
 		DeclaredQty: "100", AsOfDate: asOfJun1, ShareCountBasis: storedBasis,
 	}
 	mockDB.EXPECT().GetHoldingDeclaration(gomock.Any(), "d1").Return(existing, nil)
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return(nil, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), storedBasis).Return(decimal.NewFromInt(50), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), held("inst-1", "line-1"), gomock.Any(), gomock.Any(), storedBasis).Return(decimal.NewFromInt(50), nil)
 	mockDB.EXPECT().
-		UpdateDeclarationWithInitializeTx(gomock.Any(), "d1", "200", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), storedBasis, "user-1", "IBKR", "acct1", "inst-1", padEq("150", storedBasis)).
+		UpdateDeclarationWithInitializeTx(gomock.Any(), "d1", "200", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), storedBasis, held("inst-1", "line-1"), padEq("150", storedBasis)).
 		Return(&db.HoldingDeclarationRow{
-			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
+			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1",
 			DeclaredQty: "200", AsOfDate: time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC),
 		}, nil)
 
@@ -359,11 +377,11 @@ func TestDeleteHoldingDeclaration_Success(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
 	existing := &db.HoldingDeclarationRow{
-		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
+		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", ListingID: "line-1",
 	}
 	mockDB.EXPECT().GetHoldingDeclaration(gomock.Any(), "d1").Return(existing, nil)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(nil, nil)
-	mockDB.EXPECT().DeleteDeclarationWithInitializeTx(gomock.Any(), "d1", "user-1", "IBKR", "acct1", "inst-1", gomock.Nil()).Return(nil)
+	mockDB.EXPECT().DeleteDeclarationWithInitializeTx(gomock.Any(), "d1", held("inst-1", "line-1"), gomock.Nil()).Return(nil)
 
 	_, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d1"})
 	if err != nil {

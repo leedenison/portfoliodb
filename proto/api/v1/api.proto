@@ -1022,33 +1022,37 @@ message HoldingDeclaration {
   string account = 3;
   string instrument_id = 4;
   Instrument instrument = 5;  // optional; populated when listing
-  string declared_qty = 6;           // numeric string to preserve precision
-  google.type.Date as_of_date = 7;
+  // The currency line the quantity is a quantity of, and empty where nothing
+  // named one -- a holding on no line, which is unpriced. Read-only: the server
+  // settles it from the create request's listing_id or the security's sole line.
+  string listing_id = 6;
+  string declared_qty = 7;           // numeric string to preserve precision
+  google.type.Date as_of_date = 8;
   // The date at which the share count declared_qty is denominated in was current.
   // as_of_date means the quantity was read off a record of that date; today means it
   // was read off a current holdings view. Always populated on read.
   // See docs/spec/bitemporality.md.
-  google.type.Date share_count_basis = 8;
+  google.type.Date share_count_basis = 9;
   // Read-only; derived from the declaration dates for this holding.
-  DeclarationKind kind = 9;
+  DeclarationKind kind = 10;
   // What the transactions add up to at as_of_date, in share_count_basis, including
   // the holding's pad. Numeric string. Read-only, and recomputed on every read, so
   // it follows an ingestion, an instrument merge or a split recompute with nothing
   // to invalidate. See docs/spec/fixed-point.md#verification.
-  string computed_qty = 10;
+  string computed_qty = 11;
   // computed_qty - declared_qty. Numeric string; positive means the transactions
   // account for more than was declared. Read-only.
-  string delta = 11;
+  string delta = 12;
   // How far delta may stray from zero before it means something. Numeric string,
   // derived from the rounding scale of the split conversion and the number of share
   // count bases that contribute one; zero when no split falls in the window, which
   // is the common case. Read-only.
-  string tolerance = 12;
+  string tolerance = 13;
   // Whether the declaration reconciles: abs(delta) <= tolerance. Always true for a
   // pad, which is made true by construction. Read-only.
-  bool matched = 13;
+  bool matched = 14;
   // How many postings the computed quantity was summed from. Read-only.
-  int32 posting_count = 14;
+  int32 posting_count = 15;
 }
 
 message ListHoldingDeclarationsRequest {}
@@ -1065,6 +1069,12 @@ message CreateHoldingDeclarationRequest {
   google.type.Date as_of_date = 5 [(buf.validate.field).required = true];
   // Optional; unset means as_of_date, the as-traded assumption.
   google.type.Date share_count_basis = 6;
+  // Which currency line of the security is being declared. Optional: unset falls
+  // back to the security's sole line, and to no line at all where it has several
+  // and nothing said which. A holding is per line, so two lines of one security
+  // are declared separately.
+  // See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
+  string listing_id = 7;
 }
 
 message CreateHoldingDeclarationResponse {

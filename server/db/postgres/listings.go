@@ -283,6 +283,34 @@ func (p *Postgres) FindListing(ctx context.Context, instrumentID, currency strin
 	return nilUUIDToString(listingID), nil
 }
 
+// SoleListing implements db.ListingDB.
+//
+// The NOT EXISTS covers the unknown listing too: a security holding a currency
+// line beside its unknown one has two rows and so no sole line, which is the
+// same answer as a security quoted in two currencies. Both are cases where
+// nothing has said which line, and picking one would value a holding at an FX
+// rate nobody stated.
+func (p *Postgres) SoleListing(ctx context.Context, instrumentID string) (string, error) {
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return "", fmt.Errorf("sole listing: invalid instrument id %q: %w", instrumentID, err)
+	}
+	var listingID uuid.UUID
+	err = p.q.QueryRowContext(ctx, `
+		SELECT l.id FROM instrument_listings l
+		WHERE l.instrument_id = $1 AND l.currency IS NOT NULL
+		  AND NOT EXISTS (SELECT 1 FROM instrument_listings o
+		                  WHERE o.instrument_id = $1 AND o.id <> l.id)
+	`, id).Scan(&listingID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("sole listing: %w", err)
+	}
+	return listingID.String(), nil
+}
+
 // EnsureListing implements db.ListingDB.
 func (p *Postgres) EnsureListing(ctx context.Context, instrumentID, currency string) (string, error) {
 	id, err := uuid.Parse(instrumentID)

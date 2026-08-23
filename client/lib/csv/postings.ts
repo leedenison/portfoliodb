@@ -25,6 +25,7 @@
 
 import { clone, create } from "@bufbuild/protobuf";
 import { Big } from "@/lib/decimal";
+import { settlesIn } from "@/lib/currency";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import type { Correlation, Posting } from "@/gen/archive/v1/txs_pb";
 import { CorrelationSchema, PostingSchema } from "@/gen/archive/v1/txs_pb";
@@ -63,7 +64,7 @@ export function currencyHint(currency: string) {
  * wrote, and neither has an identifier of its own to be found by.
  */
 function moneyLeg(from: Posting, types: TxType[], accountType: AccountType, quantity: Big): Posting {
-  const currency = from.settlementCurrency || from.tradingCurrency;
+  const currency = settlesIn(from);
   return create(PostingSchema, {
     // Both dates, because a derived leg is another leg of the same record and so
     // happened on the same days. Cloning one and not the other would leave the

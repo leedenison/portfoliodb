@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"testing"
@@ -74,7 +76,11 @@ func testDBTx(t *testing.T) *Postgres {
 // routed leg beside every seed row. The tests that are about balancing state their
 // weights, which is what makes them about it.
 func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
-	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, weightlessFor([]string{instrumentID}), []*time.Time{shareCountBasis})
+	resolved, err := soleResolutions(ctx, p, []string{instrumentID})
+	if err != nil {
+		return err
+	}
+	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, resolved, weightlessFor([]string{instrumentID}), []*time.Time{shareCountBasis})
 }
 
 // oneGroupSettler puts everything a write stored into one group, standing in for an
@@ -105,6 +111,42 @@ func weightlessFor(instrumentIDs []string) []db.Weight {
 	out := make([]db.Weight, len(instrumentIDs))
 	for i, id := range instrumentIDs {
 		out[i] = db.Weight{Amount: decimal.Zero, Commodity: "inst:" + id}
+	}
+	return out
+}
+
+// soleResolutions names each instrument's sole currency line, which is what the
+// ingest ladder settles for a posting whose source stated no currency. An
+// instrument with several lines, or with only the currency-unknown one, names none
+// -- the same refusal the ladder makes. A test about a specific line builds its own
+// []db.Resolution.
+func soleResolutions(ctx context.Context, p *Postgres, instrumentIDs []string) ([]db.Resolution, error) {
+	out := make([]db.Resolution, len(instrumentIDs))
+	for i, id := range instrumentIDs {
+		out[i].InstrumentID = id
+		var listingID string
+		err := p.q.QueryRowContext(ctx, `
+			SELECT id FROM instrument_listings
+			WHERE instrument_id = $1 AND currency IS NOT NULL
+		`, id).Scan(&listingID)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return nil, fmt.Errorf("sole listing for %s: %w", id, err)
+		default:
+			out[i].ListingID = listingID
+		}
+	}
+	return out, nil
+}
+
+// resolvedFor is soleResolutions for a test or benchmark that would only fail on
+// the error.
+func resolvedFor(t testing.TB, p *Postgres, instrumentIDs []string) []db.Resolution {
+	t.Helper()
+	out, err := soleResolutions(context.Background(), p, instrumentIDs)
+	if err != nil {
+		t.Fatalf("%v", err)
 	}
 	return out
 }

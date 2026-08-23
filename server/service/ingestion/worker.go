@@ -506,19 +506,23 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 	return prePass{resolved: cache, conflicts: conflicts, proposed: proposedHintsCache, descOnly: descOnly, outcome: outcome}, nil
 }
 
-// resolveInstruments resolves each tx to an instrument ID using the pre-populated
-// cache and extracted hints. Returns the instrument IDs (parallel to txs) and any
-// identification errors collected from the cache.
+// resolveInstruments resolves each tx to a security using the pre-populated cache
+// and extracted hints. Returns what each posting resolved to (parallel to txs) and
+// any identification errors collected from the cache.
+//
+// The listing on each result is the line identification itself named, from a
+// listing-grain identifier or an unambiguous venue, and is empty where it named
+// none. resolveListings settles the rest, once the securities have been loaded.
 //
 // exportedAt is the vintage every posting's identifier hints are stated as of,
 // and it is one value for the batch rather than one per row: a file names an
 // option under the symbol current when the file was written, not under the one
 // the contract wore on each trade date. See docs/adr/0055-identifier-validity-is-an-interval.md
 // for the convention and docs/spec/bitemporality.md for where it is recorded.
-func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, txHints [][]identifier.Identifier, pre prePass, exportedAt *time.Time, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
+func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, txHints [][]identifier.Identifier, pre prePass, exportedAt *time.Time, rep *archiveimport.PartReporter) ([]db.Resolution, []db.IdentificationError, error) {
 	keys := newResolutionKeys(ctx, deps.Telemetry, deps.RunID, source, txs, txHints, pre)
 
-	instrumentIDs := make([]string, len(txs))
+	resolved := make([]db.Resolution, len(txs))
 	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
 		rowIndex := int32(originalIndices[i])
@@ -526,7 +530,7 @@ func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source str
 		if err != nil {
 			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}
-		instrumentIDs[i] = r.InstrumentID
+		resolved[i] = db.Resolution{InstrumentID: r.InstrumentID, ListingID: r.ListingID}
 		rep.Advance(ctx, 1)
 	}
 	var idErrs []db.IdentificationError
@@ -535,5 +539,5 @@ func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source str
 			idErrs = append(idErrs, *r.IdErr)
 		}
 	}
-	return instrumentIDs, idErrs, nil
+	return resolved, idErrs, nil
 }

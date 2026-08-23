@@ -163,11 +163,12 @@ Compute the date ranges during which any user held a non-zero position in each i
 
 1. Aggregate daily net quantity changes per listing from the transaction history (system-wide, all users). A listing with no currency is skipped, being unpriceable.
 
-   Until a posting names a listing, the position is aggregated per security and
-   attributed to each of its currency-bearing listings. A security with two lines
-   yields both, and both are fetched: it costs requests for a line nobody holds
-   and no correctness, and the history is then already cached when a transaction
-   can say which line it is on. Valuation makes the opposite trade -- see
+   A posting on a known line contributes to that line alone. One that named none
+   contributes to every currency-bearing line of its security instead, so the
+   history is there for whichever line it turns out to be on: it costs requests
+   for a line nobody holds and no correctness, the bars landing on the line they
+   were quoted for. Valuation makes the opposite trade, reporting such a holding
+   unpriced rather than picking a line -- see
    [display-currency.md](display-currency.md).
 2. Compute the cumulative position per listing using SQL window functions.
 3. In Go, iterate the daily positions and detect zero-crossings:

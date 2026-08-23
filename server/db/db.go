@@ -296,6 +296,33 @@ type Weight struct {
 	Commodity string
 }
 
+// Resolution is what a posting resolved to: the security always, and the
+// currency line within it where something named one.
+//
+// ListingID is empty where nothing did. That is a first-class state rather than
+// a gap to be filled by picking a line: a security quoted in two currencies is
+// two holdings an FX rate apart, and naming one of them on a posting that stated
+// neither would value the position at a rate nobody could state. It is not the
+// same as the security's currency-unknown listing either, which says how many
+// lines the security has is unknown.
+//
+// See docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+type Resolution struct {
+	InstrumentID string
+	ListingID    string
+}
+
+// InstrumentIDsOf is the security half of a batch of resolutions, for the passes
+// that ask only what a posting is of -- the asset-class check, the weight rule
+// and the instrument load itself.
+func InstrumentIDsOf(rs []Resolution) []string {
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = r.InstrumentID
+	}
+	return out
+}
+
 // Correlation is a stored statement of why a posting might belong with another
 // one: an identifier its source issued, what may be compared about it, and over
 // what set of postings. See
@@ -413,12 +440,15 @@ type TxDB interface {
 	// returns for a posting with no price. What the weights leave over is what the
 	// store routes a counterparty for, so a caller that supplies none is asking for
 	// one to be routed against that default.
-	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
+	//
+	// resolved is parallel to txs and carries what each posting names: the
+	// security, and the currency line within it where one was named.
+	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, resolved []Resolution, weights []Weight, shareCountBasis []*time.Time) error
 	// CreateTxGroup appends the postings of one economic event as a single group,
 	// rather than one posting as a group of its own. It takes a slice because the
 	// legs of one event have to arrive together to be grouped together; what the
 	// group owes is settled from them.
-	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
+	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, resolved []Resolution, weights []Weight, shareCountBasis []*time.Time) error
 	// ListTxs and ListTxsByPortfolio page by group rather than by posting: pageSize
 	// counts groups, a page carries every posting of the groups it covers, and the
 	// postings of one group are contiguous in the result. A group whose legs

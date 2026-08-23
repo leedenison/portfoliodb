@@ -30,3 +30,14 @@ quantity-preserving on one security, which makes it a transfer: it rides the
 `from_listing_id` and `to_listing_id` columns 0149 adds to `transfer_matches`,
 with its transaction type in docs/spec/tx-types.md and converter support in
 `client/lib/csv/converters/`.
+
+Reported as one group, both legs are on one security and balance, so nothing is
+routed and the holding moves because the two postings name different lines.
+Reported as two, each leaves a `TRANSFER_CLEARING` residual and the pair matches
+as any transfer does -- but the netting rule in
+`server/db/postgres/valuation.go` has to be suppressed for it. That rule admits a
+matched clearing leg so the departure and arrival groups each contribute zero,
+which assumes both sides sit on the same commodity at the grain being
+partitioned. Valuation partitions by line, so a conversion left to it nets to
+zero on the old line and zero on the new, and the holding never moves. Suppress
+the netting where `from_listing_id <> to_listing_id`.

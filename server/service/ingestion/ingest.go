@@ -190,7 +190,7 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		rep.Errf(-1, "txs", err.Error())
 		return out, fmt.Errorf("propose candidates: %w", err)
 	}
-	instrumentIDs, idErrs, err := resolveInstruments(ctx, deps, p.Broker, p.Source, txs, rowIdx, txHints, pre, p.ExportedAt, rep)
+	resolved, idErrs, err := resolveInstruments(ctx, deps, p.Broker, p.Source, txs, rowIdx, txHints, pre, p.ExportedAt, rep)
 	if err != nil {
 		rep.Errf(-1, "instrument_description", err.Error())
 		return out, fmt.Errorf("resolve instruments: %w", err)
@@ -198,12 +198,17 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 	if len(idErrs) > 0 {
 		_ = deps.DB.AppendIdentificationErrors(ctx, p.JobID, idErrs)
 	}
+	instrumentIDs := db.InstrumentIDsOf(resolved)
 	// The resolved instruments feed both the asset-class check and balancing.
 	instByID, err := instrumentsByID(ctx, deps.DB, instrumentIDs)
 	if err != nil {
 		rep.Errf(-1, "txs", err.Error())
 		return out, fmt.Errorf("load instruments: %w", err)
 	}
+	// Which currency line each posting is on, for the postings identification did
+	// not already settle. It reads the securities loaded just above, so it runs
+	// here rather than beside the resolution it completes.
+	resolveListings(txs, resolved, instByID)
 	// Catches contradictions that arise when two txs share (source, description)
 	// but state different asset classes (e.g. a trade stating STOCK beside
 	// income stating CASH), as well as any other path where resolution lands on
@@ -230,9 +235,9 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 	txWeights := weights(txs, instrumentIDs, balanceInsts)
 
 	if replacing {
-		err = deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, txs, instrumentIDs, txWeights, p.ShareCountBasis)
+		err = deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, txs, resolved, txWeights, p.ShareCountBasis)
 	} else {
-		err = deps.DB.CreateTxGroup(ctx, p.UserID, p.Broker, txs[0].GetAccount(), p.JobID, txs, instrumentIDs, txWeights, p.ShareCountBasis)
+		err = deps.DB.CreateTxGroup(ctx, p.UserID, p.Broker, txs[0].GetAccount(), p.JobID, txs, resolved, txWeights, p.ShareCountBasis)
 	}
 	if err != nil {
 		rep.Errf(-1, "txs", err.Error())

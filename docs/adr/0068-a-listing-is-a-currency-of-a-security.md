@@ -19,11 +19,9 @@ costing the thing that actually matters.
 **Keying a listing on the venue, or on the pair.** Rejected on the two grounds
 above and on a third: the discriminator has to be available when a posting is
 written, before any plugin runs
-([0070](0070-a-posting-names-a-listing.md)). A broker routinely omits the venue
-and routinely states the currency -- `txs.trading_currency` already exists, and
-a group's cash leg carries a currency regardless -- so a venue-keyed listing
-would be unknown on ingest for most rows and a currency-keyed one is known for
-almost all of them.
+([0072](0072-a-posting-names-a-security-and-a-line.md)). A broker routinely omits
+the venue and routinely states a currency, so a venue-keyed listing would be
+unknown on ingest for almost every row where a currency-keyed one is not.
 
 ## Venues
 
@@ -63,8 +61,11 @@ asked apart: exactly one line is a listing with a currency and no siblings, and
 
 **An unknown listing is not priceable and not event-bearing.** A price with no
 stated currency asserts nothing, so the fetchers skip it and its holding reports
-unpriced. This is also what makes the split in
-[0071](0071-listings-merge-by-currency-and-an-unknown-one-splits.md) possible.
+unpriced.
+
+It says something about the security, not about a posting. A posting that could
+not say which line it is on names no line at all
+([0072](0072-a-posting-names-a-security-and-a-line.md)); it does not point here.
 
 ## Grain is re-declared, not inherited
 

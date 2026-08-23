@@ -90,7 +90,7 @@ func settled(t *testing.T, p *Postgres, sub string, legs []statedLeg, instByComm
 	userID := instByCommodity["user"]
 	if err := p.ReplaceTxsInPeriod(context.Background(), userID, "FIDELITY", "",
 		timestamppb.New(at.Add(-time.Hour)), timestamppb.New(at.Add(time.Hour)),
-		txs, ids, weights, nil); err != nil {
+		txs, resolvedFor(t, p, ids), weights, nil); err != nil {
 		t.Fatalf("%s: store: %v", sub, err)
 	}
 	return derivedLegs(t, p, userID)
@@ -313,7 +313,7 @@ func TestSettle_KeepsAttribution(t *testing.T) {
 	weights := []db.Weight{{Amount: decimal.RequireFromString("1855"), Commodity: "cur:USD"}}
 	if err := p.ReplaceTxsInPeriod(context.Background(), userID, "FIDELITY", "",
 		timestamppb.New(at.Add(-time.Hour)), timestamppb.New(at.Add(time.Hour)),
-		[]*apiv1.Tx{tx}, []string{usd}, weights, nil); err != nil {
+		[]*apiv1.Tx{tx}, resolvedFor(t, p, []string{usd}), weights, nil); err != nil {
 		t.Fatalf("store: %v", err)
 	}
 
@@ -373,7 +373,7 @@ func TestSettle_UngroupedPostingsAreSettledSeparately(t *testing.T) {
 	}
 	if err := p.ReplaceTxsInPeriod(context.Background(), userID, "FIDELITY", "",
 		timestamppb.New(at.Add(-time.Hour)), timestamppb.New(at.Add(time.Hour)),
-		txs, []string{usd, usd}, weights, nil); err != nil {
+		txs, resolvedFor(t, p, []string{usd, usd}), weights, nil); err != nil {
 		t.Fatalf("store: %v", err)
 	}
 
@@ -436,7 +436,7 @@ func priceRoundingSeed(t *testing.T, sub, qty, price, cash string) string {
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(at.Add(-time.Hour)), timestamppb.New(at.Add(time.Hour)),
-		txs, []string{inst, usd}, weights, nil); err != nil {
+		txs, resolvedFor(t, p, []string{inst, usd}), weights, nil); err != nil {
 		t.Fatalf("store: %v", err)
 	}
 	var acct string

@@ -63,6 +63,17 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	if survivor == mergedAway {
 		return nil
 	}
+	// The loser's listings cascade away with the delete below, so the postings on
+	// them are moved onto the survivor's line of the same currency family first,
+	// and onto no line at all where the survivor has none to move them to. Nulling
+	// degrades a posting to "this security, line not known", which is exactly what
+	// is true of it once the line it named has gone -- and it is recoverable, where
+	// a dangling reference would not be. See
+	// docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+	from, to, err := listingMap(ctx, exec, survivor, mergedAway)
+	if err != nil {
+		return err
+	}
 	// weight_commodity moves with instrument_id, in the same statement: a posting
 	// weighing in its own security names it by instrument, so leaving the name behind
 	// would split one commodity into two and unbalance the group. Only the 'inst:'
@@ -70,14 +81,21 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	// which the merge does not change. Both legs of a same-instrument group move
 	// together, so the group stays balanced across the merge. See
 	// docs/adr/0029-posting-weight-is-stored.md.
+	//
+	// The line moves in the same statement for the same reason the name does: the
+	// three say one thing about the posting and a reader that saw them apart would
+	// see a line belonging to a security the posting no longer names.
 	if _, err := exec.ExecContext(ctx, `
 		UPDATE txs
 		SET instrument_id = $1::uuid,
+		    listing_id = (SELECT m.to_id
+		                  FROM unnest($3::uuid[], $4::uuid[]) AS m(from_id, to_id)
+		                  WHERE m.from_id = txs.listing_id),
 		    weight_commodity = CASE WHEN weight_commodity = 'inst:' || $2::uuid::text
 		                            THEN 'inst:' || $1::uuid::text
 		                            ELSE weight_commodity END
 		WHERE instrument_id = $2::uuid
-	`, survivor, mergedAway); err != nil {
+	`, survivor, mergedAway, pq.Array(from), pq.Array(to)); err != nil {
 		return fmt.Errorf("update txs: %w", err)
 	}
 	// A transfer match is keyed on the commodity in flight, so it moves with the
@@ -141,7 +159,7 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 			return fmt.Errorf("insert identifier: %w", err)
 		}
 	}
-	if err := mergeListingIdentifiers(ctx, exec, survivor, mergedAway); err != nil {
+	if err := mergeListingIdentifiers(ctx, exec, from, to); err != nil {
 		return err
 	}
 	// Update any instruments that referenced mergedAway as their underlying.
@@ -154,60 +172,81 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	return nil
 }
 
-// mergeListingIdentifiers moves the names on each of mergedAway's listings onto
-// the survivor's listing of the same currency family, minting one where the
-// survivor has no line in that family yet.
+// listingMap pairs each of the loser's listings with the survivor's line of the
+// same currency family, minting one where the survivor has no line in that family
+// yet, as two parallel arrays. It is worked out once and used twice -- for the
+// postings on a line and for the names on it -- so the two cannot disagree.
 //
 // The family and not the code, so a line stored in GBX and one stored in GBP are
-// one line and their names end up together -- which is the whole reason listing
-// uniqueness is on the family.
+// one line and everything on them ends up together, which is the whole reason
+// listing uniqueness is on the family.
+//
+// A pair whose target is nil is a line the survivor has nothing to match: the
+// loser's line has no currency and the survivor has several, so nothing says which
+// of them the postings on it belong to. They move to no line rather than to one
+// nobody named, which is the same refusal ensureListing makes.
+func listingMap(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) ([]uuid.UUID, []*uuid.UUID, error) {
+	rows, err := exec.QueryContext(ctx, `
+		SELECT id, COALESCE(currency, '') FROM instrument_listings WHERE instrument_id = $1
+	`, mergedAway)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list merged listings: %w", err)
+	}
+	defer rows.Close()
+	var from []uuid.UUID
+	var currencies []string
+	for rows.Next() {
+		var id uuid.UUID
+		var code string
+		if err := rows.Scan(&id, &code); err != nil {
+			return nil, nil, fmt.Errorf("scan merged listing: %w", err)
+		}
+		from = append(from, id)
+		currencies = append(currencies, code)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	to := make([]*uuid.UUID, len(from))
+	for i, code := range currencies {
+		target, err := ensureListing(ctx, exec, survivor, code)
+		if err != nil {
+			return nil, nil, fmt.Errorf("merge listing %s: %w", from[i], err)
+		}
+		if target != uuid.Nil {
+			t := target
+			to[i] = &t
+		}
+	}
+	return from, to, nil
+}
+
+// mergeListingIdentifiers moves the names on each of mergedAway's listings onto
+// the survivor's line of the same currency family, over the pairing listingMap
+// worked out for the postings -- so the names and the postings on a line end up in
+// the same place, which two independent walks of the listing set could not promise.
+//
+// A pair with no target is skipped: the loser's line has no currency and the
+// survivor has several, so nothing says which of them these names belong to. They
+// go with the listing rather than being filed under a currency nobody stated.
+// Splitting an unknown listing across known ones is adr/0071.
 //
 // Delete-then-insert rather than an UPDATE of listing_id, for the reason the
 // security-grain move above has it: the overlap constraint is global, so a name
 // the survivor already holds over the same interval would fail the merge, and
 // skipping it is right -- the survivor holding it already is the two rows saying
 // the same thing.
-func mergeListingIdentifiers(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
-	rows, err := exec.QueryContext(ctx, `
-		SELECT id, COALESCE(currency, '') FROM instrument_listings WHERE instrument_id = $1
-	`, mergedAway)
-	if err != nil {
-		return fmt.Errorf("list merged listings: %w", err)
-	}
-	defer rows.Close()
-	type listing struct {
-		id       uuid.UUID
-		currency string
-	}
-	var listings []listing
-	for rows.Next() {
-		var l listing
-		if err := rows.Scan(&l.id, &l.currency); err != nil {
-			return fmt.Errorf("scan merged listing: %w", err)
-		}
-		listings = append(listings, l)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, l := range listings {
-		target, err := ensureListing(ctx, exec, survivor, l.currency)
-		if err != nil {
-			return fmt.Errorf("merge listing %s: %w", l.id, err)
-		}
-		if target == uuid.Nil {
-			// The loser's line has no currency and the survivor has several, so
-			// nothing says which of them these names belong to. They go with the
-			// listing rather than being filed under a currency nobody stated.
-			// Splitting an unknown listing across known ones is adr/0071.
+func mergeListingIdentifiers(ctx context.Context, exec queryable, from []uuid.UUID, to []*uuid.UUID) error {
+	for i, source := range from {
+		if to[i] == nil {
 			continue
 		}
-		idns, err := readListingIdentifiers(ctx, exec, l.id)
+		target := *to[i]
+		idns, err := readListingIdentifiers(ctx, exec, source)
 		if err != nil {
 			return err
 		}
-		if _, err := exec.ExecContext(ctx, `DELETE FROM instrument_listing_identifiers WHERE listing_id = $1`, l.id); err != nil {
+		if _, err := exec.ExecContext(ctx, `DELETE FROM instrument_listing_identifiers WHERE listing_id = $1`, source); err != nil {
 			return fmt.Errorf("delete merged listing identifiers: %w", err)
 		}
 		for _, idn := range idns {

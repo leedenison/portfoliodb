@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,7 +40,7 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	instrumentIDs := []string{instID, instID}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, instrumentIDs, nil, nil)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, instrumentIDs), nil, nil)
 	if err != nil {
 		t.Fatalf("replace: %v", err)
 	}
@@ -137,7 +138,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 		{OrderDate: timestamppb.New(now.Add(-80 * time.Minute)),
 			TradeDate: timestamppb.New(now.Add(-80 * time.Minute)), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, oldTx, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, oldTx, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("seed real tx: %v", err)
 	}
 
@@ -148,7 +149,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 		{OrderDate: timestamppb.New(now.Add(-20 * time.Minute)),
 			TradeDate: timestamppb.New(now.Add(-20 * time.Minute)), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-2", Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, newTxs, []string{instID, instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, newTxs, resolvedFor(t, p, []string{instID, instID}), nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -282,7 +283,7 @@ func TestCreateTxGroup_BalancesWhatItAppends(t *testing.T) {
 		SettlementCurrency: "USD", TradingCurrency: "USD",
 	}}
 	w := []db.Weight{{Amount: decimal.RequireFromString("4"), Commodity: "cur:USD"}}
-	if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, []string{usd}, w, nil); err != nil {
+	if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, resolvedFor(t, p, []string{usd}), w, nil); err != nil {
 		t.Fatalf("create tx group: %v", err)
 	}
 	if got := countGroups(t, p, userID); got != 1 {
@@ -322,7 +323,7 @@ func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
 		{OrderDate: timestamppb.New(base.Add(time.Hour)),
 			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A", AccountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID, instID}), nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, nil, nil, nil, nil); err != nil {
@@ -395,7 +396,7 @@ func TestReplaceTxsInPeriod_ReDerivesABoundaryLeg(t *testing.T) {
 	weights := []db.Weight{weight("90"), weight("10")}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day2.Add(time.Hour)),
-		legs, []string{usd, usd}, weights, nil); err != nil {
+		legs, resolvedFor(t, p, []string{usd, usd}), weights, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if got := boundaryPostings(t, p, userID); len(got) != 2 {
@@ -445,7 +446,7 @@ func TestReplaceTxsInPeriod_KeepsAStatedLegInADerivedAccountType(t *testing.T) {
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(outside.Add(-time.Hour)), timestamppb.New(outside.Add(time.Hour)),
-		legs, []string{usd, usd}, weights, nil); err != nil {
+		legs, resolvedFor(t, p, []string{usd, usd}), weights, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -488,7 +489,7 @@ func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	ids := []string{instID, instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, ids, weightlessFor(ids), nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, ids), weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -534,7 +535,7 @@ func TestReplaceTxsInPeriod_WritesTheSettlersPartition(t *testing.T) {
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs,
-		[]string{usd, usd}, []db.Weight{w("-125"), w("125")}, nil); err != nil {
+		resolvedFor(t, p, []string{usd, usd}), []db.Weight{w("-125"), w("125")}, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -584,7 +585,7 @@ func TestReplaceTxsInPeriod_DeletesWholeGroups(t *testing.T) {
 		{OrderDate: timestamppb.New(base.Add(time.Hour)),
 			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "-50", Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, []string{instID, instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, resolvedFor(t, p, []string{instID, instID}), nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, nil, nil, nil, nil); err != nil {
@@ -624,14 +625,14 @@ func TestReplaceTxsInPeriod_DeletesGroupsInPeriod(t *testing.T) {
 		{OrderDate: timestamppb.New(base.Add(2 * time.Hour)),
 			TradeDate: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "AMD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2", Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, []string{instID, instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, resolvedFor(t, p, []string{instID, instID}), nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	replacement := []*apiv1.Tx{
 		{OrderDate: timestamppb.New(base.Add(3 * time.Hour)),
 			TradeDate: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "AMD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "9", Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, replacement, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, replacement, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -825,7 +826,7 @@ func TestListTxs_PagesWholeGroups(t *testing.T) {
 			SettlementCurrency: "USD", TradingCurrency: "USD",
 		}}
 		w := []db.Weight{{Amount: decimal.RequireFromString(qty), Commodity: "cur:USD"}}
-		if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, []string{usd}, w, nil); err != nil {
+		if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, resolvedFor(t, p, []string{usd}), w, nil); err != nil {
 			t.Fatalf("create tx group %d: %v", i, err)
 		}
 	}
@@ -920,7 +921,7 @@ func TestListTxsByPortfolio_ShowsOnlyTheMatchedLegs(t *testing.T) {
 	}}
 	w := []db.Weight{{Amount: decimal.RequireFromString("-1900"), Commodity: "cur:USD"}}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{aapl}, w, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{aapl}), w, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	all, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
@@ -1063,7 +1064,7 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	ids := []string{instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txList, ids, weightlessFor(ids), nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txList, resolvedFor(t, p, ids), weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	txs, tok, err = p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")
@@ -1180,7 +1181,7 @@ func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
 	}
 	weights := []db.Weight{{Amount: decimal.RequireFromString("23.4"), Commodity: "cur:USD"}}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, weights, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), weights, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -1265,7 +1266,7 @@ func TestReplaceTxsInPeriod_RoundTripsCorrelations(t *testing.T) {
 		t.Fatalf("create job: %v", err)
 	}
 	ids := []string{instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", jobID, from, to, txs, ids, weightlessFor(ids), nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", jobID, from, to, txs, resolvedFor(t, p, ids), weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -1345,7 +1346,7 @@ func TestReplaceTxsInPeriod_DeletesCorrelationsWithTheirPosting(t *testing.T) {
 		BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "100", Account: "A", Correlations: []*archivev1.Correlation{
 			{Token: "971613411", Scope: typev1.Scope_SCOPE_FILE, Match: []typev1.Match{typev1.Match_MATCH_EXACT}},
 		}}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", "", from, to, []*apiv1.Tx{tx}, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", "", from, to, []*apiv1.Tx{tx}, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("first replace: %v", err)
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", "", from, to, nil, nil, nil, nil); err != nil {
@@ -1452,7 +1453,7 @@ func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	ids := []string{instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, ids, weightlessFor(ids), nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, ids), weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -1522,7 +1523,7 @@ func TestReplaceTxsInPeriod_StoresWeight(t *testing.T) {
 		{Amount: decf(1855), Commodity: "cur:USD"},
 		{Amount: decf(-1855), Commodity: "cur:USD"},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, ws, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID, instID}), ws, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -1560,7 +1561,7 @@ func TestReplaceTxsInPeriod_DefaultsWeightWhenAbsent(t *testing.T) {
 		{OrderDate: timestamppb.New(now),
 			TradeDate: timestamppb.New(now), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "7"},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -1847,7 +1848,7 @@ func straddlingRun(t *testing.T, p *Postgres, sub string, txType typev1.TxType, 
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day2.Add(time.Hour)),
-		txs, []string{usd, usd}, weights, nil); err != nil {
+		txs, resolvedFor(t, p, []string{usd, usd}), weights, nil); err != nil {
 		t.Fatalf("seed straddling run: %v", err)
 	}
 	return userID, usd, day1, day2
@@ -1861,7 +1862,7 @@ func replaceDay(t *testing.T, p *Postgres, userID, usd string, from time.Time, t
 		ids[i] = usd
 	}
 	if err := p.ReplaceTxsInPeriod(context.Background(), userID, "FIDELITY", "",
-		timestamppb.New(from), timestamppb.New(from.Add(24*time.Hour)), txs, ids, weights, nil); err != nil {
+		timestamppb.New(from), timestamppb.New(from.Add(24*time.Hour)), txs, resolvedFor(t, p, ids), weights, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 }
@@ -2078,7 +2079,7 @@ func TestReplaceTxsInPeriod_ResidualIsReDerivedNotStacked(t *testing.T) {
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day3.Add(time.Hour)),
-		legs, []string{usd, usd, usd}, weights, nil); err != nil {
+		legs, resolvedFor(t, p, []string{usd, usd, usd}), weights, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -2308,7 +2309,7 @@ func TestReplaceTxsInPeriod_KeepsSplitAdjustmentOnASurvivor(t *testing.T) {
 	ws := []db.Weight{{Amount: decf(1000), Commodity: "cur:USD"}, {Amount: decf(-1000), Commodity: "cur:USD"}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day2.Add(time.Hour)),
-		txs, []string{instID, usd}, ws, nil); err != nil {
+		txs, resolvedFor(t, p, []string{instID, usd}), ws, nil); err != nil {
 		t.Fatalf("seed straddling trade: %v", err)
 	}
 	if _, err := p.q.ExecContext(ctx, `
@@ -2357,7 +2358,7 @@ func TestReplaceTxsInPeriod_KeepsRestatedShareCountBasis(t *testing.T) {
 	ws := []db.Weight{{Amount: decf(-5000), Commodity: "cur:USD"}, {Amount: decf(5000), Commodity: "cur:USD"}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day2.Add(time.Hour)),
-		txs, []string{usd, usd}, ws, []*time.Time{&restated, &restated}); err != nil {
+		txs, resolvedFor(t, p, []string{usd, usd}), ws, []*time.Time{&restated, &restated}); err != nil {
 		t.Fatalf("seed straddling run: %v", err)
 	}
 
@@ -2402,5 +2403,96 @@ func TestListTxsForExport_ClipsAStraddlingGroup(t *testing.T) {
 	}
 	if !clipped[0].OrderDate.Equal(day2) {
 		t.Errorf("exported posting at %v, want the day-two leg at %v", clipped[0].OrderDate, day2)
+	}
+}
+
+// The composite foreign key is what makes instrument_id and listing_id unable to
+// disagree, which is the reason a posting is allowed to carry both. Without it a
+// posting could name a line of some other security and every reader would compute
+// a wrong answer from a well-formed row. See
+// docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+func TestPostingLine_ForeignKeyRejectsAnotherSecuritysLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|line-fk", "U", "u@line-fk.com")
+
+	instA, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "A", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000AA1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure A: %v", err)
+	}
+	instB, listingB, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "B", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000BB2"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure B: %v", err)
+	}
+	if listingB == "" {
+		t.Fatalf("B has no line to borrow")
+	}
+
+	groupID := newTxGroup(t, p, userID)
+	_, err = p.q.ExecContext(ctx, `
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
+		                 instrument_id, listing_id, broker_tx_type, resolved_tx_type, quantity,
+		                 account_type, group_id, weight, weight_commodity, share_count_basis)
+		VALUES ($1::uuid, 'IBKR', 'ACC', now(), now(), 'A', $2::uuid, $3::uuid,
+		        ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, 'USER', $4::uuid, 0, 'inst:'||$2, now()::date)
+	`, userID, instA, listingB, groupID)
+	if err == nil {
+		t.Fatalf("a posting named security A and a line of security B, and the schema allowed it")
+	}
+	if !strings.Contains(err.Error(), "txs_listing_id_fkey") {
+		t.Fatalf("rejected for the wrong reason: %v", err)
+	}
+	_ = instB
+}
+
+// The null line is the whole point of MATCH SIMPLE: a posting that could not say
+// which line it is on still names its security.
+func TestPostingLine_NullLineIsAccepted(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|line-null", "U", "u@line-null.com")
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "A", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000AA1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	groupID := newTxGroup(t, p, userID)
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
+		                 instrument_id, broker_tx_type, resolved_tx_type, quantity,
+		                 account_type, group_id, weight, weight_commodity, share_count_basis)
+		VALUES ($1::uuid, 'IBKR', 'ACC', now(), now(), 'A', $2::uuid,
+		        ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, 'USER', $3::uuid, 0, 'inst:'||$2, now()::date)
+	`, userID, instID, groupID); err != nil {
+		t.Fatalf("a posting naming no line was rejected: %v", err)
+	}
+}
+
+// MATCH SIMPLE skips the check when either column is null, so a line with no
+// security would slip past the foreign key. The CHECK is what closes it.
+func TestPostingLine_LineWithoutSecurityIsRejected(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|line-orphan", "U", "u@line-orphan.com")
+	_, listingID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "A", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000AA1"}, Canonical: true}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	groupID := newTxGroup(t, p, userID)
+	_, err = p.q.ExecContext(ctx, `
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
+		                 listing_id, broker_tx_type, resolved_tx_type, quantity,
+		                 account_type, group_id, weight, weight_commodity, share_count_basis)
+		VALUES ($1::uuid, 'IBKR', 'ACC', now(), now(), 'A', $2::uuid,
+		        ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, 'USER', $3::uuid, 0, 'desc:A', now()::date)
+	`, userID, listingID, groupID)
+	if err == nil {
+		t.Fatalf("a posting named a line and no security, and the schema allowed it")
+	}
+	if !strings.Contains(err.Error(), "chk_txs_listing_needs_instrument") {
+		t.Fatalf("rejected for the wrong reason: %v", err)
 	}
 }

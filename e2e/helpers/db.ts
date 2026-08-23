@@ -79,6 +79,15 @@ export async function resetData(): Promise<void> {
 }
 
 // Execute a SQL fixture file by name (relative to e2e/fixtures/).
+//
+// Postings written by a fixture are then put on the line of their security, which
+// every fixture security has exactly one of. A posting names a security and the
+// currency line within it, and a holding is per line -- so a fixture leaving the
+// line unset would produce holdings that report unpriced, which is not what any of
+// these fixtures is about. Doing it here rather than in each INSERT keeps the
+// fixtures readable and stops a new one forgetting. A security with more than one
+// line is left alone: which line its postings are on is then a real question, and
+// a fixture about that states it itself.
 export async function seedFixture(filename: string): Promise<void> {
   const c = await getClient();
   const sql = fs.readFileSync(
@@ -86,6 +95,16 @@ export async function seedFixture(filename: string): Promise<void> {
     "utf-8"
   );
   await c.query(sql);
+  await c.query(`
+    UPDATE txs t
+    SET listing_id = l.id
+    FROM instrument_listings l
+    WHERE l.instrument_id = t.instrument_id
+      AND l.currency IS NOT NULL
+      AND t.listing_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM instrument_listings o
+                      WHERE o.instrument_id = t.instrument_id AND o.id <> l.id)
+  `);
 }
 
 // Seed plugin config.

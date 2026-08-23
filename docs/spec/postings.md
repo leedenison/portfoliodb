@@ -11,7 +11,7 @@ A posting is a signed amount of one commodity in one account at one point in tim
 | --------- | ----------------------------- |
 | Account   | `broker` + `account`          |
 | Kind      | `account_type`                |
-| Commodity | `listing_id`                  |
+| Commodity | `instrument_id` + `listing_id` |
 | Amount    | `quantity` (signed)           |
 | Date      | `order_date` + `trade_date`   |
 | Evidence  | `tx_correlations`             |
@@ -287,15 +287,20 @@ Each posting **stores** what it contributes to that balance, in two columns:
 | Column             | Notes                                                              |
 | ------------------ | ------------------------------------------------------------------ |
 | `weight`           | The amount contributed. `NUMERIC`, exact.                           |
-| `weight_commodity` | What it is contributed in: `cur:<code>`, `lst:<uuid>` or `desc:<text>`. Never empty. |
+| `weight_commodity` | What it is contributed in: `cur:<code>`, `inst:<uuid>` or `desc:<text>`. Never empty. |
 
-A posting names a listing -- one currency of a security -- and never the security
-above it, so two legs of a group are never stated at two grains and no residual
-appears that nothing put there. Where the source did not say which line it traded
-on, the posting names that security's unknown listing. The listing is settled at
-ingest, from the stated trading currency or the group's cash leg, because the
-weight is computed once and stored before resolution has run. See
-adr/0070-a-posting-names-a-listing.md.
+A posting names a security always, and the currency line within it when something
+said which -- the stated trading currency, the line identification resolved, or
+the security having exactly one. Where nothing did, `listing_id` is null: the
+position is real and its quantity is right, but which currency it is denominated
+in is unknown.
+
+What it *balances* in is the security, which is why `weight_commodity` names one.
+A group's legs have to be weighed at one grain or a residual appears that nothing
+put there, and the line is not available for every posting. So two lines of one
+security are one commodity for balance and two holdings for valuation: the same
+security, an FX rate apart. See
+adr/0072-a-posting-names-a-security-and-a-line.md.
 
 A group balances when `SUM(weight)` is zero for each `weight_commodity`, and a
 `DEFERRABLE INITIALLY DEFERRED` constraint trigger enforces exactly that. Enforcing it
@@ -322,14 +327,15 @@ It costs about 5% of an import: 21us per posting at COMMIT against 413us to inse
 (see `server/db/postgres/balance_bench_test.go`).
 
 The weight is stored rather than re-derived on read because instrument state moves
-under a posting after ingest: a merge rewrites `listing_id` wholesale and
-`contract_multiplier` records what a corporate action left behind, so a re-derived
-weight could disagree with the one the group was balanced on. The cost is that the
+under a posting after ingest: a merge rewrites `instrument_id` and `listing_id`
+wholesale and `contract_multiplier` records what a corporate action left behind,
+so a re-derived weight could disagree with the one the group was balanced on. The cost is that the
 constraint proves the *declared* weights of a group sum to zero rather than that its
 postings balance; see adr/0029-posting-weight-is-stored.md for why that is the right
-trade. Nothing maintains the columns after ingest except the merge and the listing
-split, each of which rewrites `weight_commodity` alongside `listing_id` in the
-same statement.
+trade. Nothing maintains the columns after ingest except the merge, which rewrites
+`weight_commodity` alongside `instrument_id` in the same statement. The line moves
+with them and is never the commodity, so a listing split leaves the weights
+alone.
 
 A group's postings are in different commodities, so a plain `SUM(quantity)` cannot
 say whether it balances: a buy is `+10 AAPL` and `-1855 USD`. Balance is checked on
@@ -384,8 +390,10 @@ of the group's legs resolved under `TRANSFER`; a leg whose declared set nothing
 has narrowed resolves `AMBIGUOUS` and routes to `IMBALANCE`, because it is not a
 transfer under every reading. The posting keeps the broker, account, date,
 declared set and resolved type of the group it balances, so the residual stays
-attributable to the account and the kind of event that produced it. Its commodity is carried by `listing_id`, never encoded
-in a name. It is written into the group it balances, and a replace that cuts that group
+attributable to the account and the kind of event that produced it. Its commodity is
+carried by `instrument_id`, never encoded in a name, and it takes the line every leg
+it balances shares -- none where they differ, the sum being per security-grain
+commodity and so silent about which line the leftover is on. It is written into the group it balances, and a replace that cuts that group
 deletes it along with the in-period postings: the remainder is routed fresh, so a group
 carries one residual per commodity however many replaces have reached it.
 

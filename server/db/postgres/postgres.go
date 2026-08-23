@@ -325,6 +325,8 @@ type holdingRow struct {
 	Account     string          `db:"account"`
 	InstDesc    string          `db:"instrument_description"`
 	InstID      *string         `db:"instrument_id"`
+	ListingID   *string         `db:"listing_id"`
+	Currency    string          `db:"currency"`
 	SplitAdjQty decimal.Decimal `db:"split_adjusted_quantity"`
 }
 
@@ -334,9 +336,13 @@ func (r *holdingRow) toProto() *apiv1.Holding {
 		InstrumentDescription: r.InstDesc,
 		SplitAdjustedQuantity: r.SplitAdjQty.String(),
 		Account:               r.Account,
+		Currency:              r.Currency,
 	}
 	if r.InstID != nil {
 		h.InstrumentId = *r.InstID
+	}
+	if r.ListingID != nil {
+		h.ListingId = *r.ListingID
 	}
 	return h
 }

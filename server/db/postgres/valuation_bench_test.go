@@ -155,7 +155,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "BENCH", "",
 		timestamppb.New(open.Add(-time.Hour)), timestamppb.New(before.Add(time.Hour)),
-		txs, instIDs, nil, nil); err != nil {
+		txs, resolvedFor(t, p, instIDs), nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 

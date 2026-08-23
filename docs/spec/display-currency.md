@@ -162,13 +162,17 @@ from the total rather than using a stale or assumed rate.
 line is **unpriced**, not converted. It used to be treated as already in the
 display currency, which valued it at an implied FX rate of 1; a value nobody can
 state is reported as missing rather than guessed. See
-adr/0068-a-listing-is-a-currency-of-a-security.md.
+adr/0068-a-listing-is-a-currency-of-a-security.md and
+adr/0072-a-posting-names-a-security-and-a-line.md.
 
-Two shapes reach it. A security that states no currency has only its unknown
-listing, which is never priceable and holds no bars. A security with two currency
-lines has bars on both and, until a posting names a listing, nothing saying which
-line the holding is on; picking one would value the position at a currency nobody
-stated, which is the failure this level exists to remove.
+Two shapes reach it, and both leave `txs.listing_id` null. The security is quoted
+in more than one currency and no posting of the holding said which line it is on.
+Or the security states no currency at all, so it has only its unknown listing,
+which is not a line a posting can be on and holds no bars either way.
+
+In both the quantity is right and the currency is unknown. Picking a line would
+value the position at a currency nobody stated, which is the failure this level
+exists to remove.
 
 Cash does not reach it: a cash instrument resolves through a `CURRENCY`
 identifier, so it always has exactly one line and that line always has a

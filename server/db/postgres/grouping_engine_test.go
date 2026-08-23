@@ -160,7 +160,7 @@ func TestGroupWritten_JoinsTheLegsOfOneUpload(t *testing.T) {
 		leg(base, "A", "-1855", typev1.TxType_TRADE_CASH, fileRef("971613414")),
 	}
 	ids := []string{instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", jobID, from, to, txs, ids, weightlessFor(ids), nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", jobID, from, to, txs, resolvedFor(t, p, ids), weightlessFor(ids), nil); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
@@ -231,7 +231,7 @@ func TestGroupWritten_LeavesUnrelatedRecordsApart(t *testing.T) {
 		leg(base, "A", "-9400", typev1.TxType_TRADE_CASH, fileRef("880000001")),
 	}
 	ids := []string{instID, instID, instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", jobID, from, to, txs, ids, weightlessFor(ids), nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", jobID, from, to, txs, resolvedFor(t, p, ids), weightlessFor(ids), nil); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 

@@ -34,6 +34,7 @@ func systemArchivePayload(t *testing.T) []byte {
 		}}},
 		Prices: &archivev1.PricePart{Groups: []*archivev1.PriceGroup{{
 			Instrument: ref,
+			Currency:   "USD",
 			Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 		}}},
 		CorporateEvents: &archivev1.CorporateEventPart{Groups: []*archivev1.CorporateEventGroup{{
@@ -69,6 +70,8 @@ func TestProcessSystemImport_RunsPartsInRestoreOrder(t *testing.T) {
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", "listing-id", nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).Return("listing-id", nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).Return("listing-id", nil).AnyTimes()
 	database.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().UpsertPricesForRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().SetJobPartTotalCount(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -126,6 +129,7 @@ func TestProcessSystemImport_FailedPartDoesNotStopTheRest(t *testing.T) {
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", "listing-id", nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).Return("listing-id", nil).AnyTimes()
 	database.EXPECT().SetJobPartTotalCount(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().AddJobPartProcessedCount(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().AppendValidationErrors(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -189,6 +193,7 @@ func TestProcessSystemImport_ResumeSkipsFinishedParts(t *testing.T) {
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).Return("listing-id", nil).AnyTimes()
 	database.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().UpsertPricesForRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().SetJobPartTotalCount(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()

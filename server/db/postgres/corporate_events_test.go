@@ -485,8 +485,8 @@ func TestRecomputeSplitAdjustments_Prices(t *testing.T) {
 	insertPriceFull(t, p, instID, d(2005, 1, 3), 80, 82, 79, 81, 1_000_000, "test")
 	// Backdate last_fetched_at to 2010-01-01 so future-dated splits apply.
 	if _, err := p.q.ExecContext(ctx, `
-		UPDATE eod_prices SET last_fetched_at = $1 WHERE instrument_id = $2::uuid
-	`, d(2010, 1, 1), instID); err != nil {
+		UPDATE eod_prices SET last_fetched_at = $1 WHERE listing_id = $2::uuid
+	`, d(2010, 1, 1), pricedListing(t, p, instID)); err != nil {
 		t.Fatalf("backdate last_fetched_at: %v", err)
 	}
 
@@ -516,8 +516,8 @@ func TestRecomputeSplitAdjustments_Prices(t *testing.T) {
 	if err := p.q.QueryRowContext(ctx, `
 		SELECT split_adjusted_open, split_adjusted_high, split_adjusted_low,
 			split_adjusted_close, split_adjusted_volume
-		FROM eod_prices WHERE instrument_id = $1::uuid
-	`, instID).Scan(&saOpen, &saHigh, &saLow, &saClose, &saVolume); err != nil {
+		FROM eod_prices WHERE listing_id = $1::uuid
+	`, pricedListing(t, p, instID)).Scan(&saOpen, &saHigh, &saLow, &saClose, &saVolume); err != nil {
 		t.Fatalf("read adjusted: %v", err)
 	}
 	const factor = 14.0
@@ -544,8 +544,8 @@ func TestRecomputeSplitAdjustments_Prices(t *testing.T) {
 	}
 	var saClose2 float64
 	if err := p.q.QueryRowContext(ctx, `
-		SELECT split_adjusted_close FROM eod_prices WHERE instrument_id = $1::uuid
-	`, instID).Scan(&saClose2); err != nil {
+		SELECT split_adjusted_close FROM eod_prices WHERE listing_id = $1::uuid
+	`, pricedListing(t, p, instID)).Scan(&saClose2); err != nil {
 		t.Fatalf("read adjusted (2): %v", err)
 	}
 	if saClose != saClose2 {
@@ -630,8 +630,8 @@ func TestRecomputeSplitAdjustments_FutureSplitNotApplied(t *testing.T) {
 	// applies it. Without backdating, the price's last_fetched_at would be
 	// today and the 2024 past split would be excluded as "before fetch".
 	if _, err := p.q.ExecContext(ctx, `
-		UPDATE eod_prices SET last_fetched_at = $1 WHERE instrument_id = $2::uuid
-	`, d(2024, 1, 15), instID); err != nil {
+		UPDATE eod_prices SET last_fetched_at = $1 WHERE listing_id = $2::uuid
+	`, d(2024, 1, 15), pricedListing(t, p, instID)); err != nil {
 		t.Fatalf("backdate last_fetched_at: %v", err)
 	}
 
@@ -650,8 +650,8 @@ func TestRecomputeSplitAdjustments_FutureSplitNotApplied(t *testing.T) {
 
 	var saClose, rawClose float64
 	if err := p.q.QueryRowContext(ctx, `
-		SELECT close, split_adjusted_close FROM eod_prices WHERE instrument_id = $1::uuid
-	`, instID).Scan(&rawClose, &saClose); err != nil {
+		SELECT close, split_adjusted_close FROM eod_prices WHERE listing_id = $1::uuid
+	`, pricedListing(t, p, instID)).Scan(&rawClose, &saClose); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	if rawClose != 181 {
@@ -674,8 +674,8 @@ func TestRecomputeSplitAdjustments_FutureSplitNotApplied(t *testing.T) {
 		t.Fatalf("recompute (2): %v", err)
 	}
 	if err := p.q.QueryRowContext(ctx, `
-		SELECT split_adjusted_close FROM eod_prices WHERE instrument_id = $1::uuid
-	`, instID).Scan(&saClose); err != nil {
+		SELECT split_adjusted_close FROM eod_prices WHERE listing_id = $1::uuid
+	`, pricedListing(t, p, instID)).Scan(&saClose); err != nil {
 		t.Fatalf("read (2): %v", err)
 	}
 	// Past split with factor=4 applies; future split is still inert.
@@ -701,8 +701,8 @@ func TestRecomputeSplitAdjustments_NoSplits(t *testing.T) {
 
 	var saClose float64
 	if err := p.q.QueryRowContext(ctx, `
-		SELECT split_adjusted_close FROM eod_prices WHERE instrument_id = $1::uuid
-	`, instID).Scan(&saClose); err != nil {
+		SELECT split_adjusted_close FROM eod_prices WHERE listing_id = $1::uuid
+	`, pricedListing(t, p, instID)).Scan(&saClose); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	if saClose != 102 {
@@ -977,7 +977,7 @@ func TestSplitAdjustment_TriggerSeeds(t *testing.T) {
 	open, high, low := decf(380), decf(385), decf(378)
 	vol := int64(123456)
 	if err := p.UpsertPrices(ctx, []db.EODPrice{{
-		InstrumentID: instID,
+		ListingID:    pricedListing(t, p, instID),
 		PriceDate:    d(2024, 3, 1),
 		Open:         &open,
 		High:         &high,
@@ -994,8 +994,8 @@ func TestSplitAdjustment_TriggerSeeds(t *testing.T) {
 	if err := p.q.QueryRowContext(ctx, `
 		SELECT split_adjusted_open, split_adjusted_high, split_adjusted_low,
 			split_adjusted_close, split_adjusted_volume
-		FROM eod_prices WHERE instrument_id = $1::uuid
-	`, instID).Scan(&saOpen, &saHigh, &saLow, &saClose, &saVolume); err != nil {
+		FROM eod_prices WHERE listing_id = $1::uuid
+	`, pricedListing(t, p, instID)).Scan(&saOpen, &saHigh, &saLow, &saClose, &saVolume); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	if saOpen != 380 || saHigh != 385 || saLow != 378 || saClose != 382.5 || saVolume != 123456 {
@@ -1288,8 +1288,8 @@ func adjustedClose(t *testing.T, p *Postgres, instID string, priceDate time.Time
 	var v float64
 	err := p.q.QueryRowContext(context.Background(), `
 		SELECT split_adjusted_close FROM eod_prices
-		WHERE instrument_id = $1::uuid AND price_date = $2
-	`, instID, priceDate).Scan(&v)
+		WHERE listing_id = $1::uuid AND price_date = $2
+	`, pricedListing(t, p, instID), priceDate).Scan(&v)
 	if err != nil {
 		t.Fatalf("read split_adjusted_close for %s: %v", priceDate.Format("2006-01-02"), err)
 	}
@@ -1342,7 +1342,7 @@ func TestRecomputeSplitAdjustments_BackAdjustedSourceDeclaresItsBasis(t *testing
 	// provider, which declares that its series is current as of today.
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	if err := p.UpsertPrices(ctx, []db.EODPrice{{
-		InstrumentID:    instID,
+		ListingID:       pricedListing(t, p, instID),
 		PriceDate:       d(2020, 8, 28),
 		Close:           decf(124.75),
 		DataProvider:    "test",
@@ -1374,7 +1374,7 @@ func TestUpsertPrices_BasisTravelsWithTheRawValues(t *testing.T) {
 
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	row := db.EODPrice{
-		InstrumentID: instID, PriceDate: d(2020, 8, 28),
+		ListingID: pricedListing(t, p, instID), PriceDate: d(2020, 8, 28),
 		Close: decf(499), DataProvider: "test",
 	}
 	if err := p.UpsertPrices(ctx, []db.EODPrice{row}); err != nil {
@@ -1396,8 +1396,8 @@ func assertBasis(t *testing.T, p *Postgres, instID string, priceDate, want time.
 	var got time.Time
 	if err := p.q.QueryRowContext(context.Background(), `
 		SELECT share_count_basis FROM eod_prices
-		WHERE instrument_id = $1::uuid AND price_date = $2
-	`, instID, priceDate).Scan(&got); err != nil {
+		WHERE listing_id = $1::uuid AND price_date = $2
+	`, pricedListing(t, p, instID), priceDate).Scan(&got); err != nil {
 		t.Fatalf("read share_count_basis: %v", err)
 	}
 	if !got.Equal(want) {

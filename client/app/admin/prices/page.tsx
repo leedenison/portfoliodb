@@ -220,7 +220,7 @@ function PriceList({
                   </tr>
                 ) : (
                   prices.map((p) => (
-                    <PriceRow key={`${p.instrumentId}-${p.priceDate}`} price={p} />
+                    <PriceRow key={`${p.instrumentId}-${p.currency}-${p.priceDate}`} price={p} />
                   ))
                 )}
               </tbody>
@@ -244,8 +244,14 @@ function PriceList({
 function PriceRow({ price: p }: { price: EODPriceProto }) {
   return (
     <tr className="border-b border-border/40 last:border-0 hover:bg-primary-light/10">
+      {/* A price belongs to one currency line of a security, and the display
+          name is a label its lines share, so the currency is what tells two of
+          them apart. */}
       <td className="px-4 py-2 font-medium text-text-primary">
         {p.instrumentDisplayName}
+        {p.currency && (
+          <span className="ml-1.5 font-normal text-text-muted">({p.currency})</span>
+        )}
       </td>
       <td className="px-4 py-2 text-text-muted">{p.priceDate}</td>
       <td className="px-4 py-2 text-right font-mono text-text-muted">

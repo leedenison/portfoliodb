@@ -40,6 +40,7 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 		p := &apiv1.EODPriceProto{
 			InstrumentId:          r.InstrumentID,
 			InstrumentDisplayName: r.InstrumentDisplayName,
+			Currency:              r.Currency,
 			PriceDate:             r.PriceDate.Format("2006-01-02"),
 			Close:                 decStr(r.Close),
 			DataProvider:          r.DataProvider,
@@ -63,20 +64,29 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 	}, nil
 }
 
-// priceGroups turns the flat export rows and the per-instrument coverage spans
-// into archive groups, one per instrument.
+// listingKey names one listing the way a file has to: the security's identifier
+// and the currency saying which of its lines. A UUID means nothing in another
+// instance, and an identifier alone no longer picks a line out. See
+// docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+type listingKey struct {
+	ref      db.InstrumentRef
+	currency string
+}
+
+// priceGroups turns the flat export rows and the per-listing coverage spans into
+// archive groups, one per listing.
 //
-// An instrument that was covered and has no rows still gets a group, with empty
+// A listing that was covered and has no rows still gets a group, with empty
 // rows. It is the only way a file can say a provider was asked about those
 // dates and had nothing, and the coverage row is where such a group's asset
 // class and currency come from.
 //
-// Both inputs arrive ordered by identifier, so the rows are grouped by a scan
-// and the output order follows the query's.
+// Both inputs arrive ordered by identifier and then currency, so the rows are
+// grouped by a scan and the output order follows the query's.
 func priceGroups(rows []db.ExportPriceRow, coverage []db.ExportPriceCoverageRow) []*archivev1.PriceGroup {
-	spans := make(map[db.InstrumentRef][]*archivev1.DateInterval, len(coverage))
+	spans := make(map[listingKey][]*archivev1.DateInterval, len(coverage))
 	for _, c := range coverage {
-		k := c.Ref
+		k := listingKey{c.Ref, c.Currency}
 		spans[k] = append(spans[k], &archivev1.DateInterval{
 			From:   c.From.Format("2006-01-02"),
 			Before: c.Before.Format("2006-01-02"),
@@ -85,9 +95,9 @@ func priceGroups(rows []db.ExportPriceRow, coverage []db.ExportPriceCoverageRow)
 
 	var out []*archivev1.PriceGroup
 	var cur *archivev1.PriceGroup
-	var curKey db.InstrumentRef
+	var curKey listingKey
 	for _, r := range rows {
-		k := r.Ref
+		k := listingKey{r.Ref, r.Currency}
 		if cur == nil || k != curKey {
 			cur = &archivev1.PriceGroup{
 				Instrument: archiveRef(r.Ref),
@@ -102,9 +112,9 @@ func priceGroups(rows []db.ExportPriceRow, coverage []db.ExportPriceCoverageRow)
 		cur.Rows = append(cur.Rows, priceRow(r))
 	}
 
-	// Whatever coverage is left names an instrument with no rows at all.
+	// Whatever coverage is left names a listing with no rows at all.
 	for _, c := range coverage {
-		k := c.Ref
+		k := listingKey{c.Ref, c.Currency}
 		cov, ok := spans[k]
 		if !ok {
 			continue

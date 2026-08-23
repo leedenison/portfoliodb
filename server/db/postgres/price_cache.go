@@ -13,18 +13,33 @@ import (
 )
 
 // HeldRanges implements db.PriceCacheDB.
-func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
+//
+// A transaction still names the security rather than the line, so the position
+// is aggregated per security and then attributed to each of its priceable
+// listings. A listing with no currency is skipped: it is not priceable, and a
+// price with no stated currency asserts nothing.
+//
+// A security with two currency lines yields both, and both are fetched. It costs
+// requests for a line nobody holds and no correctness -- the bars land on the
+// line they were quoted for -- and it means the history is already cached when a
+// transaction can say which line it is on. Valuation makes the opposite trade
+// and reports such a holding unpriced; see instrument_priced_listing.
+//
+// The join becomes txs.listing_id when a posting names a listing.
+func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db.ListingDateRanges, error) {
 	rows, err := p.q.QueryContext(ctx, `
 		WITH daily_net AS (
-			SELECT instrument_id, order_date::date AS tx_date, SUM(quantity) AS day_qty
-			FROM txs
-			WHERE instrument_id IS NOT NULL AND account_type = 'USER'
-			GROUP BY instrument_id, order_date::date
+			SELECT l.id AS listing_id, t.order_date::date AS tx_date, SUM(t.quantity) AS day_qty
+			FROM txs t
+			JOIN instrument_listings l
+				ON l.instrument_id = t.instrument_id AND l.currency IS NOT NULL
+			WHERE t.instrument_id IS NOT NULL AND t.account_type = 'USER'
+			GROUP BY l.id, t.order_date::date
 		)
-		SELECT instrument_id, tx_date,
-			SUM(day_qty) OVER (PARTITION BY instrument_id ORDER BY tx_date) AS eod_pos
+		SELECT listing_id, tx_date,
+			SUM(day_qty) OVER (PARTITION BY listing_id ORDER BY tx_date) AS eod_pos
 		FROM daily_net
-		ORDER BY instrument_id, tx_date
+		ORDER BY listing_id, tx_date
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("held ranges query: %w", err)
@@ -33,8 +48,8 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 
 	today := time.Now().UTC().Truncate(db.Day)
 
-	var result []db.InstrumentDateRanges
-	var curInst uuid.UUID
+	var result []db.ListingDateRanges
+	var curListing uuid.UUID
 	var ranges []db.DateRange
 	var rangeStart time.Time
 	inRange := false
@@ -43,22 +58,22 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 		if len(ranges) == 0 {
 			return
 		}
-		result = append(result, db.InstrumentDateRanges{
-			InstrumentID: curInst.String(),
-			Ranges:       ranges,
+		result = append(result, db.ListingDateRanges{
+			ListingID: curListing.String(),
+			Ranges:    ranges,
 		})
 	}
 
 	for rows.Next() {
-		var instID uuid.UUID
+		var listingID uuid.UUID
 		var txDate time.Time
 		var eodPos decimal.Decimal
-		if err := rows.Scan(&instID, &txDate, &eodPos); err != nil {
+		if err := rows.Scan(&listingID, &txDate, &eodPos); err != nil {
 			return nil, fmt.Errorf("held ranges scan: %w", err)
 		}
 
-		if instID != curInst {
-			// Close open range for previous instrument.
+		if listingID != curListing {
+			// Close open range for previous listing.
 			if inRange {
 				before := today.Add(db.Day)
 				if !opts.ExtendToToday {
@@ -69,7 +84,7 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 				inRange = false
 			}
 			flush()
-			curInst = instID
+			curListing = listingID
 			ranges = nil
 		}
 
@@ -98,13 +113,13 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 	return result, nil
 }
 
-// coverageFilter turns instrument IDs into a query argument, or nil for all.
-func coverageFilter(instrumentIDs []string) (interface{}, error) {
+// coverageFilter turns listing IDs into a query argument, or nil for all.
+func coverageFilter(listingIDs []string) (interface{}, error) {
 	var uuids []uuid.UUID
-	for _, id := range instrumentIDs {
+	for _, id := range listingIDs {
 		u, err := uuid.Parse(id)
 		if err != nil {
-			return nil, fmt.Errorf("invalid instrument id %q: %w", id, err)
+			return nil, fmt.Errorf("invalid listing id %q: %w", id, err)
 		}
 		uuids = append(uuids, u)
 	}
@@ -120,36 +135,36 @@ func coverageFilter(instrumentIDs []string) (interface{}, error) {
 // have rows: a span a provider answered with no bars at all is coverage, and
 // row presence cannot say so. Spans are merged across plugins, since for "has
 // anyone answered for this range" it does not matter who did.
-func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([]db.InstrumentDateRanges, error) {
-	filter, err := coverageFilter(instrumentIDs)
+func (p *Postgres) PriceCoverage(ctx context.Context, listingIDs []string) ([]db.ListingDateRanges, error) {
+	filter, err := coverageFilter(listingIDs)
 	if err != nil {
 		return nil, fmt.Errorf("price coverage: %w", err)
 	}
 
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT instrument_id, covered_from AS range_from, covered_before AS range_before
+		SELECT listing_id, covered_from AS range_from, covered_before AS range_before
 		FROM merged_price_coverage
-		WHERE ($1::uuid[] IS NULL OR instrument_id = ANY($1))
-		ORDER BY instrument_id, range_from
+		WHERE ($1::uuid[] IS NULL OR listing_id = ANY($1))
+		ORDER BY listing_id, range_from
 	`, filter)
 	if err != nil {
 		return nil, fmt.Errorf("price coverage query: %w", err)
 	}
 	defer rows.Close()
 
-	byInst := make(map[string]*db.InstrumentDateRanges)
+	byListing := make(map[string]*db.ListingDateRanges)
 	var order []string
 	for rows.Next() {
-		var instID uuid.UUID
+		var listingID uuid.UUID
 		var from, before time.Time
-		if err := rows.Scan(&instID, &from, &before); err != nil {
+		if err := rows.Scan(&listingID, &from, &before); err != nil {
 			return nil, fmt.Errorf("price coverage scan: %w", err)
 		}
-		id := instID.String()
-		entry, ok := byInst[id]
+		id := listingID.String()
+		entry, ok := byListing[id]
 		if !ok {
-			entry = &db.InstrumentDateRanges{InstrumentID: id}
-			byInst[id] = entry
+			entry = &db.ListingDateRanges{ListingID: id}
+			byListing[id] = entry
 			order = append(order, id)
 		}
 		entry.Ranges = append(entry.Ranges, db.DateRange{From: from, Before: before})
@@ -158,9 +173,9 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 		return nil, fmt.Errorf("price coverage rows: %w", err)
 	}
 
-	result := make([]db.InstrumentDateRanges, len(order))
+	result := make([]db.ListingDateRanges, len(order))
 	for i, id := range order {
-		result[i] = *byInst[id]
+		result[i] = *byListing[id]
 	}
 	return result, nil
 }
@@ -170,17 +185,17 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 // Keeping the plugin distinction is what lets a range one plugin declined still
 // be offered to another, and lets a newly configured plugin be asked about
 // history the existing ones could not reach.
-func (p *Postgres) PriceCoverageByPlugin(ctx context.Context, instrumentIDs []string) (map[string]map[string][]db.DateRange, error) {
-	filter, err := coverageFilter(instrumentIDs)
+func (p *Postgres) PriceCoverageByPlugin(ctx context.Context, listingIDs []string) (map[string]map[string][]db.DateRange, error) {
+	filter, err := coverageFilter(listingIDs)
 	if err != nil {
 		return nil, fmt.Errorf("price coverage by plugin: %w", err)
 	}
 
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT instrument_id, plugin_id, covered_from, covered_before
+		SELECT listing_id, plugin_id, covered_from, covered_before
 		FROM price_coverage
-		WHERE ($1::uuid[] IS NULL OR instrument_id = ANY($1))
-		ORDER BY instrument_id, plugin_id, covered_from
+		WHERE ($1::uuid[] IS NULL OR listing_id = ANY($1))
+		ORDER BY listing_id, plugin_id, covered_from
 	`, filter)
 	if err != nil {
 		return nil, fmt.Errorf("price coverage by plugin query: %w", err)
@@ -189,13 +204,13 @@ func (p *Postgres) PriceCoverageByPlugin(ctx context.Context, instrumentIDs []st
 
 	result := make(map[string]map[string][]db.DateRange)
 	for rows.Next() {
-		var instID uuid.UUID
+		var listingID uuid.UUID
 		var pluginID string
 		var from, before time.Time
-		if err := rows.Scan(&instID, &pluginID, &from, &before); err != nil {
+		if err := rows.Scan(&listingID, &pluginID, &from, &before); err != nil {
 			return nil, fmt.Errorf("price coverage by plugin scan: %w", err)
 		}
-		id := instID.String()
+		id := listingID.String()
 		if result[id] == nil {
 			result[id] = make(map[string][]db.DateRange)
 		}
@@ -208,8 +223,8 @@ func (p *Postgres) PriceCoverageByPlugin(ctx context.Context, instrumentIDs []st
 }
 
 // PriceGaps implements db.PriceCacheDB.
-// It computes held ranges minus price coverage per instrument using SubtractRanges.
-func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
+// It computes held ranges minus price coverage per listing using SubtractRanges.
+func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.ListingDateRanges, error) {
 	held, err := p.HeldRanges(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("price gaps: held ranges: %w", err)
@@ -218,10 +233,10 @@ func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.
 		return nil, nil
 	}
 
-	// Collect instrument IDs for coverage lookup.
+	// Collect listing IDs for coverage lookup.
 	ids := make([]string, len(held))
 	for i, h := range held {
-		ids[i] = h.InstrumentID
+		ids[i] = h.ListingID
 	}
 
 	coverage, err := p.PriceCoverage(ctx, ids)
@@ -229,19 +244,19 @@ func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.
 		return nil, fmt.Errorf("price gaps: coverage: %w", err)
 	}
 
-	// Index coverage by instrument ID.
-	coverageByInst := make(map[string][]db.DateRange, len(coverage))
+	// Index coverage by listing ID.
+	coverageByListing := make(map[string][]db.DateRange, len(coverage))
 	for _, c := range coverage {
-		coverageByInst[c.InstrumentID] = c.Ranges
+		coverageByListing[c.ListingID] = c.Ranges
 	}
 
-	var result []db.InstrumentDateRanges
+	var result []db.ListingDateRanges
 	for _, h := range held {
-		gaps := db.SubtractRanges(h.Ranges, coverageByInst[h.InstrumentID])
+		gaps := db.SubtractRanges(h.Ranges, coverageByListing[h.ListingID])
 		if len(gaps) > 0 {
-			result = append(result, db.InstrumentDateRanges{
-				InstrumentID: h.InstrumentID,
-				Ranges:       gaps,
+			result = append(result, db.ListingDateRanges{
+				ListingID: h.ListingID,
+				Ranges:    gaps,
 			})
 		}
 	}
@@ -251,10 +266,14 @@ func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.
 // FXGaps implements db.PriceCacheDB.
 // It computes date ranges where FX rates are needed but not yet cached.
 // Two sources of demand:
-//  1. Held instruments with non-USD currencies need their currency's FX pair.
+//  1. Held listings in a currency other than USD need that currency's FX pair.
 //  2. Active display currencies (from users table) need their FX pair for any
-//     date where instruments not in that currency are held.
-func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
+//     date where listings not in that currency are held.
+//
+// An FX pair is itself a security with one listing, quoted in USD under the
+// pivot in docs/adr/0006-fx-as-synthetic-instruments.md, and the gaps are keyed
+// on that listing like any other.
+func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.ListingDateRanges, error) {
 	held, err := p.HeldRanges(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("fx gaps: held ranges: %w", err)
@@ -263,53 +282,56 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Ins
 		return nil, nil
 	}
 
-	// Collect held instrument IDs.
+	// Collect held listing IDs.
 	heldIDs := make([]string, len(held))
 	for i, h := range held {
-		heldIDs[i] = h.InstrumentID
+		heldIDs[i] = h.ListingID
 	}
 
-	// Batch query: for each held instrument, get its currency and the
-	// corresponding FX pair instrument ID (if any).
+	// Batch query: for each held listing, get its currency and the listing of the
+	// corresponding FX pair (if any). FX_PAIR names the security, so the pair's
+	// own line is reached through it.
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT
-			i.id::text AS held_id,
-			i.currency,
-			fx_ii.instrument_id::text AS fx_instrument_id
-		FROM instruments i
+			l.id::text AS held_id,
+			l.currency,
+			fx_pl.listing_id::text AS fx_listing_id
+		FROM instrument_listings l
 		INNER JOIN instrument_identifiers fx_ii
 			ON fx_ii.identifier_type = 'FX_PAIR'
-			AND fx_ii.value = i.currency || 'USD'
+			AND fx_ii.value = l.currency || 'USD'
 			AND fx_ii.valid_before IS NULL
-		WHERE i.id = ANY($1::uuid[])
-			AND i.currency IS NOT NULL
-			AND i.currency != 'USD'
+		INNER JOIN instrument_priced_listing fx_pl
+			ON fx_pl.instrument_id = fx_ii.instrument_id
+		WHERE l.id = ANY($1::uuid[])
+			AND l.currency IS NOT NULL
+			AND l.currency != 'USD'
 	`, pq.Array(heldIDs))
 	if err != nil {
 		return nil, fmt.Errorf("fx gaps: currency lookup: %w", err)
 	}
 	defer rows.Close()
 
-	// Map held instrument ID -> FX pair instrument ID, and instrument ID -> currency.
+	// Map held listing ID -> FX pair listing ID, and held listing ID -> currency.
 	heldToFX := make(map[string]string)
 	heldToCurrency := make(map[string]string)
 	for rows.Next() {
-		var heldID, currency, fxInstID string
-		if err := rows.Scan(&heldID, &currency, &fxInstID); err != nil {
+		var heldID, currency, fxListingID string
+		if err := rows.Scan(&heldID, &currency, &fxListingID); err != nil {
 			return nil, fmt.Errorf("fx gaps: scan: %w", err)
 		}
-		heldToFX[heldID] = fxInstID
+		heldToFX[heldID] = fxListingID
 		heldToCurrency[heldID] = currency
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("fx gaps: rows: %w", err)
 	}
 
-	// Build needed ranges per FX pair instrument by merging held ranges.
-	// Source 1: held instruments with non-USD currencies.
+	// Build needed ranges per FX pair listing by merging held ranges.
+	// Source 1: held listings in a currency other than USD.
 	fxNeeded := make(map[string][]db.DateRange)
 	for _, h := range held {
-		fxID, ok := heldToFX[h.InstrumentID]
+		fxID, ok := heldToFX[h.ListingID]
 		if !ok {
 			continue
 		}
@@ -327,7 +349,7 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Ins
 		return nil, nil
 	}
 
-	// Merge overlapping ranges and collect FX instrument IDs.
+	// Merge overlapping ranges and collect FX listing IDs.
 	var fxIDs []string
 	for fxID, ranges := range fxNeeded {
 		fxNeeded[fxID] = db.MergeRanges(ranges)
@@ -339,19 +361,19 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Ins
 	if err != nil {
 		return nil, fmt.Errorf("fx gaps: coverage: %w", err)
 	}
-	coverageByInst := make(map[string][]db.DateRange, len(coverage))
+	coverageByListing := make(map[string][]db.DateRange, len(coverage))
 	for _, c := range coverage {
-		coverageByInst[c.InstrumentID] = c.Ranges
+		coverageByListing[c.ListingID] = c.Ranges
 	}
 
 	// Subtract coverage from needed ranges.
-	var result []db.InstrumentDateRanges
+	var result []db.ListingDateRanges
 	for _, fxID := range fxIDs {
-		gaps := db.SubtractRanges(fxNeeded[fxID], coverageByInst[fxID])
+		gaps := db.SubtractRanges(fxNeeded[fxID], coverageByListing[fxID])
 		if len(gaps) > 0 {
-			result = append(result, db.InstrumentDateRanges{
-				InstrumentID: fxID,
-				Ranges:       gaps,
+			result = append(result, db.ListingDateRanges{
+				ListingID: fxID,
+				Ranges:    gaps,
 			})
 		}
 	}
@@ -359,12 +381,12 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Ins
 }
 
 // addDisplayCurrencyNeeds adds FX rate demand for active non-USD display currencies.
-// For each display currency D, the D/USD rate is needed on any date where an
-// instrument with currency != D is held.
+// For each display currency D, the D/USD rate is needed on any date where a
+// listing whose currency is not D is held.
 func (p *Postgres) addDisplayCurrencyNeeds(
 	ctx context.Context,
-	held []db.InstrumentDateRanges,
-	heldToCurrency map[string]string, // only non-USD instruments; USD and NULL are absent
+	held []db.ListingDateRanges,
+	heldToCurrency map[string]string, // only non-USD listings; USD and unknown are absent
 	fxNeeded map[string][]db.DateRange,
 ) error {
 	// Query distinct non-USD display currencies.
@@ -391,45 +413,46 @@ func (p *Postgres) addDisplayCurrencyNeeds(
 		return nil
 	}
 
-	// Look up FX pair instrument IDs for each display currency.
+	// Look up the FX pair listing for each display currency.
 	fxRows, err := p.q.QueryContext(ctx, `
-		SELECT value, instrument_id::text
-		FROM instrument_identifiers
-		WHERE identifier_type = 'FX_PAIR' AND value = ANY($1) AND valid_before IS NULL
+		SELECT ii.value, pl.listing_id::text
+		FROM instrument_identifiers ii
+		JOIN instrument_priced_listing pl ON pl.instrument_id = ii.instrument_id
+		WHERE ii.identifier_type = 'FX_PAIR' AND ii.value = ANY($1) AND ii.valid_before IS NULL
 	`, pq.Array(displayCurrencyFXValues(displayCurrencies)))
 	if err != nil {
 		return fmt.Errorf("fx gaps: display fx lookup: %w", err)
 	}
 	defer fxRows.Close()
 
-	// Map "DUSD" -> FX instrument ID.
+	// Map "DUSD" -> FX pair listing ID.
 	dcFXMap := make(map[string]string)
 	for fxRows.Next() {
-		var val, fxInstID string
-		if err := fxRows.Scan(&val, &fxInstID); err != nil {
+		var val, fxListingID string
+		if err := fxRows.Scan(&val, &fxListingID); err != nil {
 			return fmt.Errorf("fx gaps: scan display fx: %w", err)
 		}
-		dcFXMap[val] = fxInstID
+		dcFXMap[val] = fxListingID
 	}
 	if err := fxRows.Err(); err != nil {
 		return fmt.Errorf("fx gaps: display fx rows: %w", err)
 	}
 
 	for _, dc := range displayCurrencies {
-		fxInstID, ok := dcFXMap[dc+"USD"]
+		fxListingID, ok := dcFXMap[dc+"USD"]
 		if !ok {
-			continue // no FX pair instrument for this currency
+			continue // no FX pair listing for this currency
 		}
 
-		// Collect held ranges for instruments whose currency != dc.
-		// Instruments with NULL/USD currency (not in heldToCurrency) also need
-		// the display rate since they're not in dc either.
+		// Collect held ranges for listings whose currency != dc. A listing
+		// quoted in USD (absent from heldToCurrency) needs the display rate too,
+		// not being in dc either.
 		for _, h := range held {
-			instCurrency, isNonUSD := heldToCurrency[h.InstrumentID]
-			if isNonUSD && instCurrency == dc {
-				continue // instrument already in display currency
+			lstCurrency, isNonUSD := heldToCurrency[h.ListingID]
+			if isNonUSD && lstCurrency == dc {
+				continue // listing already in the display currency
 			}
-			fxNeeded[fxInstID] = append(fxNeeded[fxInstID], h.Ranges...)
+			fxNeeded[fxListingID] = append(fxNeeded[fxListingID], h.Ranges...)
 		}
 	}
 	return nil
@@ -463,16 +486,16 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 	})
 }
 
-// dedupeByInstrumentDate keeps the last bar supplied for each (instrument, date).
-func dedupeByInstrumentDate(prices []db.EODPrice) []db.EODPrice {
+// dedupeByListingDate keeps the last bar supplied for each (listing, date).
+func dedupeByListingDate(prices []db.EODPrice) []db.EODPrice {
 	type key struct {
-		instrumentID string
-		date         time.Time
+		listingID string
+		date      time.Time
 	}
 	seen := make(map[key]int, len(prices))
 	out := make([]db.EODPrice, 0, len(prices))
 	for _, pr := range prices {
-		k := key{pr.InstrumentID, pr.PriceDate.Truncate(db.Day)}
+		k := key{pr.ListingID, pr.PriceDate.Truncate(db.Day)}
 		if i, ok := seen[k]; ok {
 			out[i] = pr
 			continue
@@ -484,19 +507,19 @@ func dedupeByInstrumentDate(prices []db.EODPrice) []db.EODPrice {
 }
 
 // coverSuppliedDates records one coverage span per contiguous run of supplied
-// dates, per (instrument, provider). Single days merge into runs, so a dense
+// dates, per (listing, provider). Single days merge into runs, so a dense
 // series costs one span rather than one per bar.
 func coverSuppliedDates(ctx context.Context, exec queryable, prices []db.EODPrice) error {
-	type key struct{ instrumentID, provider string }
+	type key struct{ listingID, provider string }
 	byKey := make(map[key][]db.DateRange)
 	for _, pr := range prices {
 		d := pr.PriceDate
-		k := key{pr.InstrumentID, pr.DataProvider}
+		k := key{pr.ListingID, pr.DataProvider}
 		byKey[k] = append(byKey[k], db.DateRange{From: d, Before: d.Add(db.Day)})
 	}
 	for k, ranges := range byKey {
 		for _, r := range db.MergeRanges(ranges) {
-			if err := upsertCoverageSpan(ctx, exec, priceCoverageTable, k.instrumentID, k.provider, r.From, r.Before, nil); err != nil {
+			if err := upsertCoverageSpan(ctx, exec, priceCoverage, k.listingID, k.provider, r.From, r.Before, nil); err != nil {
 				return err
 			}
 		}
@@ -507,9 +530,9 @@ func coverSuppliedDates(ctx context.Context, exec queryable, prices []db.EODPric
 func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) error {
 	// ON CONFLICT DO UPDATE cannot touch the same row twice in one statement, and
 	// providers do repeat a date within a response. Last one supplied wins.
-	prices = dedupeByInstrumentDate(prices)
+	prices = dedupeByListingDate(prices)
 
-	instIDs := make([]string, len(prices))
+	listingIDs := make([]string, len(prices))
 	dates := make([]time.Time, len(prices))
 	opens := make([]*decimal.Decimal, len(prices))
 	highs := make([]*decimal.Decimal, len(prices))
@@ -523,7 +546,7 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 	now := time.Now()
 
 	for i, pr := range prices {
-		instIDs[i] = pr.InstrumentID
+		listingIDs[i] = pr.ListingID
 		dates[i] = pr.PriceDate
 		opens[i] = pr.Open
 		highs[i] = pr.High
@@ -547,14 +570,14 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 	}
 
 	_, err := exec.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, last_fetched_at, share_count_basis, adjusted_close)
+		INSERT INTO eod_prices (listing_id, price_date, open, high, low, close, volume, data_provider, last_fetched_at, share_count_basis, adjusted_close)
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::numeric[]),
 			unnest($4::numeric[]), unnest($5::numeric[]),
 			unnest($6::numeric[]), unnest($7::bigint[]),
 			unnest($8::text[]),
 			unnest($9::timestamptz[]), unnest($10::date[]),
 			unnest($11::numeric[])
-		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
+		ON CONFLICT (listing_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
 			low = EXCLUDED.low,
@@ -566,7 +589,7 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 			-- without the other would leave the row self-inconsistent.
 			share_count_basis = EXCLUDED.share_count_basis,
 			adjusted_close = EXCLUDED.adjusted_close
-	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
+	`, pq.Array(listingIDs), pq.Array(dates), pq.Array(opens),
 		pq.Array(highs), pq.Array(lows), pq.Array(closes),
 		pq.Array(volumes), pq.Array(providers),
 		pq.Array(fetchedAts), pq.Array(bases), pq.Array(adjCloses))
@@ -586,12 +609,12 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 // Coverage is recorded whether or not any bars came back. A provider that
 // answered "nothing here" has covered the range just as authoritatively as one
 // that returned a full series.
-func (p *Postgres) UpsertPricesForRange(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, before time.Time, fetchedAt *time.Time) error {
+func (p *Postgres) UpsertPricesForRange(ctx context.Context, listingID, provider string, bars []db.EODPrice, from, before time.Time, fetchedAt *time.Time) error {
 	return p.runInTx(ctx, func(exec queryable) error {
 		if len(bars) > 0 {
 			priced := make([]db.EODPrice, len(bars))
 			for i, b := range bars {
-				b.InstrumentID = instrumentID
+				b.ListingID = listingID
 				b.DataProvider = provider
 				if b.LastFetchedAt == nil {
 					b.LastFetchedAt = fetchedAt
@@ -602,6 +625,6 @@ func (p *Postgres) UpsertPricesForRange(ctx context.Context, instrumentID, provi
 				return err
 			}
 		}
-		return upsertCoverageSpan(ctx, exec, priceCoverageTable, instrumentID, provider, from, before, fetchedAt)
+		return upsertCoverageSpan(ctx, exec, priceCoverage, listingID, provider, from, before, fetchedAt)
 	})
 }

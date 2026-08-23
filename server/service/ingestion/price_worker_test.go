@@ -45,11 +45,16 @@ func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// A valid enum value the resolver has no plugin vocabulary for.
 	part := pricePart(&archivev1.PriceGroup{
 		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OPENFIGI_GLOBAL, Value: "BBG000B9XRY4"},
+		Currency:   "USD",
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -78,10 +83,15 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
 		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Currency:   "USD",
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -112,10 +122,15 @@ func TestProcessPriceImport_CarriesShareCountBasis(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
 		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "NVDA", Domain: "XNAS"},
+		Currency:   "USD",
 		Rows: []*archivev1.PriceRow{
 			{PriceDate: "2024-01-15", Close: "48.0"},
 			{PriceDate: "2024-01-16", ShareCountBasis: proto.String("2024-06-10"), Close: "4.8"},
@@ -162,10 +177,15 @@ func TestProcessPriceImport_CoverageWithNoRows(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
 		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "DELISTED", Domain: "XNAS"},
+		Currency:   "USD",
 		Coverage:   []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-04-01"}},
 	})
 
@@ -173,7 +193,7 @@ func TestProcessPriceImport_CoverageWithNoRows(t *testing.T) {
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "DELISTED").
 		Return("inst-delisted", "", "XNAS", "", nil)
 	database.EXPECT().
-		UpsertPricesForRange(gomock.Any(), "inst-delisted", "import", gomock.Len(0),
+		UpsertPricesForRange(gomock.Any(), "inst-delisted:USD", "import", gomock.Len(0),
 			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC), gomock.Any()).
 		Return(nil)
@@ -194,10 +214,15 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
 		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Currency:   "USD",
 		Coverage:   []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-04-01"}},
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
@@ -207,7 +232,7 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 		Return("inst-aapl", "", "XNAS", "", nil)
 	// Expect UpsertPricesForRange (not UpsertPrices) because coverage was provided.
 	database.EXPECT().
-		UpsertPricesForRange(gomock.Any(), "inst-aapl", "import", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		UpsertPricesForRange(gomock.Any(), "inst-aapl:USD", "import", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	persisted, _, err := runPricePart(t, database, registry, part, nil)
@@ -225,12 +250,17 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Coverage now sits inside the group it applies to, so a group that
 	// declares none has bars covering only their own dates.
 	part := pricePart(&archivev1.PriceGroup{
 		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Currency:   "USD",
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -260,10 +290,15 @@ func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
 		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Currency:   "USD",
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
@@ -300,6 +335,10 @@ func TestProcessPriceImport_RejectsCurrencyHintDiff(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
@@ -338,6 +377,10 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
@@ -431,6 +474,10 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	part := pricePart(&archivev1.PriceGroup{
@@ -497,6 +544,10 @@ func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().EnsureListing(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, instrumentID, currency string) (string, error) {
+			return instrumentID + ":" + currency, nil
+		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	exportedAt := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)

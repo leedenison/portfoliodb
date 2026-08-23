@@ -43,8 +43,8 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 
 	// Insert EOD prices for Jan 2 and Jan 3.
 	prices := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(155.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(155.0), DataProvider: "test"},
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
 		t.Fatalf("upsert prices: %v", err)
@@ -154,10 +154,10 @@ func TestGetPortfolioValuation_DifferentDescriptionsNetToZero(t *testing.T) {
 
 	// Add a price so the holding period (Jan 2-4) is valued.
 	prices := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(101.0), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC), Close: decf(102.0), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 5, 0, 0, 0, 0, time.UTC), Close: decf(103.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(101.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC), Close: decf(102.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 5, 0, 0, 0, 0, time.UTC), Close: decf(103.0), DataProvider: "test"},
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
 		t.Fatalf("upsert prices: %v", err)
@@ -279,8 +279,8 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 	}
 
 	prices := []db.EODPrice{
-		{InstrumentID: instA, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
-		{InstrumentID: instB, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(200.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instA), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instB), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(200.0), DataProvider: "test"},
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
 		t.Fatalf("upsert prices: %v", err)
@@ -331,8 +331,8 @@ func TestGetUserValuation_Basic(t *testing.T) {
 
 	// Insert EOD prices for Jan 2 and Jan 3.
 	prices := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(155.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(155.0), DataProvider: "test"},
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
 		t.Fatalf("upsert prices: %v", err)
@@ -409,8 +409,8 @@ func TestGetPortfolioValuation_ExcludesDateBefore(t *testing.T) {
 		t.Fatalf("replace txs: %v", err)
 	}
 	prices := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(155.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(155.0), DataProvider: "test"},
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
 		t.Fatalf("upsert prices: %v", err)
@@ -456,7 +456,7 @@ func TestGetPortfolioValuation_FromEqualsBeforeReturnsNothing(t *testing.T) {
 		t.Fatalf("replace txs: %v", err)
 	}
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 
 	// Insert EUR price (in EUR).
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(200.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(200.0), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -519,7 +519,7 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 	// Insert EUR/USD FX rate.
 	eurFX := lookupFXInstrumentVal(t, p, "EUR")
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: eurFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, eurFX), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert fx: %v", err)
 	}
@@ -569,7 +569,7 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 
 	// Insert GBP price.
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -578,8 +578,8 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 	gbpFX := lookupFXInstrumentVal(t, p, "GBP")
 	eurFX := lookupFXInstrumentVal(t, p, "EUR")
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: gbpFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
-		{InstrumentID: eurFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, gbpFX), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, eurFX), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert fx: %v", err)
 	}
@@ -626,7 +626,7 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 
 	// Insert instrument price but NO FX rate.
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(200.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(200.0), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -680,7 +680,7 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 	}
 
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -688,7 +688,7 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 	// Insert EUR/USD rate.
 	eurFX := lookupFXInstrumentVal(t, p, "EUR")
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: eurFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, eurFX), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert fx: %v", err)
 	}
@@ -737,7 +737,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 
 	// Insert GBP instrument price.
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -745,7 +745,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 	// Insert EUR/USD rate but NOT GBP/USD rate.
 	eurFX := lookupFXInstrumentVal(t, p, "EUR")
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: eurFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, eurFX), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert fx: %v", err)
 	}
@@ -832,13 +832,13 @@ func TestGetUserValuation_CashInForeignCurrency(t *testing.T) {
 	}
 
 	// Create GBPUSD FX pair instrument and price.
-	fxInstID, _, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
+	fxInstID, _, _ := p.EnsureInstrument(ctx, "FX", "", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "GBPUSD", Domain: ""},
 			Canonical: true,
 		}}, nil, "", nil, nil, nil)
 	fxPrices := []db.EODPrice{
-		{InstrumentID: fxInstID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, fxInstID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
 	}
 	if err := p.UpsertPrices(ctx, fxPrices); err != nil {
 		t.Fatalf("upsert fx prices: %v", err)
@@ -934,19 +934,19 @@ func TestGetUserValuation_CashForeignCurrency_NonUSDDisplay(t *testing.T) {
 	}
 
 	// Create EURUSD and GBPUSD FX pair instruments and prices.
-	eurFxID, _, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
+	eurFxID, _, _ := p.EnsureInstrument(ctx, "FX", "", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "EURUSD", Domain: ""},
 			Canonical: true,
 		}}, nil, "", nil, nil, nil)
-	gbpFxID, _, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
+	gbpFxID, _, _ := p.EnsureInstrument(ctx, "FX", "", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "GBPUSD", Domain: ""},
 			Canonical: true,
 		}}, nil, "", nil, nil, nil)
 	fxPrices := []db.EODPrice{
-		{InstrumentID: eurFxID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
-		{InstrumentID: gbpFxID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, eurFxID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, gbpFxID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
 	}
 	if err := p.UpsertPrices(ctx, fxPrices); err != nil {
 		t.Fatalf("upsert fx prices: %v", err)
@@ -1020,8 +1020,8 @@ func TestGetUserValuation_ContinuousAcrossSplit(t *testing.T) {
 
 	// As-traded closes either side of a 4:1 split: ~500 before, ~125 after.
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2020, 8, 28), Close: decf(500), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: d(2020, 8, 31), Close: decf(125), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2020, 8, 28), Close: decf(500), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2020, 8, 31), Close: decf(125), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -1086,11 +1086,11 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 
 	eurFX := lookupFXInstrumentVal(t, p, "EUR")
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2020, 8, 28), Close: decf(500), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: d(2020, 8, 31), Close: decf(125), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2020, 8, 28), Close: decf(500), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2020, 8, 31), Close: decf(125), DataProvider: "test"},
 		// A flat rate across both days: any movement in the result is the split.
-		{InstrumentID: eurFX, PriceDate: d(2020, 8, 28), Close: decf(1.2), DataProvider: "test"},
-		{InstrumentID: eurFX, PriceDate: d(2020, 8, 31), Close: decf(1.2), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, eurFX), PriceDate: d(2020, 8, 28), Close: decf(1.2), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, eurFX), PriceDate: d(2020, 8, 31), Close: decf(1.2), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -1149,8 +1149,8 @@ func TestGetUserValuation_CarriesForwardOverNonTradingDays(t *testing.T) {
 	userID, instID := setupHeldInstrument(t, p, "sub|locf1", "LOCF1", "10", d(2024, 1, 1))
 
 	// Fri 5 Jan is the last bar; Sat and Sun have none.
-	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: decf(100)}}
-	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 5), d(2024, 1, 8), nil); err != nil {
+	bars := []db.EODPrice{{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 5), Close: decf(100)}}
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "test", bars, d(2024, 1, 5), d(2024, 1, 8), nil); err != nil {
 		t.Fatalf("upsert for range: %v", err)
 	}
 
@@ -1172,8 +1172,8 @@ func TestGetUserValuation_CarryForwardStopsAtCoverageEnd(t *testing.T) {
 	ctx := context.Background()
 	userID, instID := setupHeldInstrument(t, p, "sub|locf2", "LOCF2", "10", d(2024, 1, 1))
 
-	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: decf(100)}}
-	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 5), d(2024, 1, 7), nil); err != nil {
+	bars := []db.EODPrice{{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 5), Close: decf(100)}}
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "test", bars, d(2024, 1, 5), d(2024, 1, 7), nil); err != nil {
 		t.Fatalf("upsert for range: %v", err)
 	}
 
@@ -1201,12 +1201,12 @@ func TestGetUserValuation_DisjointCoverageDoesNotBleed(t *testing.T) {
 	ctx := context.Background()
 	userID, instID := setupHeldInstrument(t, p, "sub|locf3", "LOCF3", "10", d(2024, 1, 1))
 
-	first := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 2), Close: decf(100)}}
-	if err := p.UpsertPricesForRange(ctx, instID, "test", first, d(2024, 1, 2), d(2024, 1, 4), nil); err != nil {
+	first := []db.EODPrice{{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 2), Close: decf(100)}}
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "test", first, d(2024, 1, 2), d(2024, 1, 4), nil); err != nil {
 		t.Fatalf("upsert first: %v", err)
 	}
-	second := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 9), Close: decf(200)}}
-	if err := p.UpsertPricesForRange(ctx, instID, "test", second, d(2024, 1, 8), d(2024, 1, 10), nil); err != nil {
+	second := []db.EODPrice{{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 9), Close: decf(200)}}
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "test", second, d(2024, 1, 8), d(2024, 1, 10), nil); err != nil {
 		t.Fatalf("upsert second: %v", err)
 	}
 
@@ -1237,8 +1237,8 @@ func TestGetUserValuation_SeedsFromBarBeforeWindow(t *testing.T) {
 	ctx := context.Background()
 	userID, instID := setupHeldInstrument(t, p, "sub|locf4", "LOCF4", "10", d(2024, 1, 1))
 
-	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 2), Close: decf(100)}}
-	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 20), nil); err != nil {
+	bars := []db.EODPrice{{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 2), Close: decf(100)}}
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "test", bars, d(2024, 1, 1), d(2024, 1, 20), nil); err != nil {
 		t.Fatalf("upsert for range: %v", err)
 	}
 
@@ -1301,9 +1301,9 @@ func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
 		t.Fatalf("replace txs: %v", err)
 	}
 	prices := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(100.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: decf(150.0), DataProvider: "test"},
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
 		t.Fatalf("upsert prices: %v", err)
@@ -1380,7 +1380,7 @@ func TestGetUserValuation_ExcludesDatesAfterCloseAcrossInexactSplit(t *testing.T
 	var prices []db.EODPrice
 	for d := 3; d <= 9; d++ {
 		prices = append(prices, db.EODPrice{
-			InstrumentID: instID,
+			ListingID:    pricedListing(t, p, instID),
 			PriceDate:    time.Date(2025, 1, d, 0, 0, 0, 0, time.UTC),
 			Close:        decf(100.0),
 			DataProvider: "test",
@@ -1689,7 +1689,7 @@ func TestGetPortfolioValuation_SecurityTransferValuedInTransit(t *testing.T) {
 	prices := make([]db.EODPrice, 0, 15)
 	for day := 10; day < 25; day++ {
 		prices = append(prices, db.EODPrice{
-			InstrumentID: instID, PriceDate: april(day), Close: decf(150.0), DataProvider: "test",
+			ListingID: pricedListing(t, p, instID), PriceDate: april(day), Close: decf(150.0), DataProvider: "test",
 		})
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
@@ -1811,7 +1811,7 @@ func TestGetUserValuation_MatchInAnotherCommodityIsNotAdmitted(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: secID, PriceDate: april(15), Close: decf(150.0), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, secID), PriceDate: april(15), Close: decf(150.0), DataProvider: "test"},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}

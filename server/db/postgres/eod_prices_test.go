@@ -13,9 +13,9 @@ func insertPriceWithProvider(t *testing.T, p *Postgres, instID string, priceDate
 	t.Helper()
 	ctx := context.Background()
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, close, data_provider)
+		INSERT INTO eod_prices (listing_id, price_date, close, data_provider)
 		VALUES ($1::uuid, $2, $3, $4)
-	`, instID, priceDate, close, provider)
+	`, pricedListing(t, p, instID), priceDate, close, provider)
 	if err != nil {
 		t.Fatalf("insert price: %v", err)
 	}
@@ -27,9 +27,9 @@ func insertPriceFull(t *testing.T, p *Postgres, instID string, priceDate time.Ti
 	t.Helper()
 	ctx := context.Background()
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider)
+		INSERT INTO eod_prices (listing_id, price_date, open, high, low, close, volume, data_provider)
 		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
-	`, instID, priceDate, open, high, low, close, volume, provider)
+	`, pricedListing(t, p, instID), priceDate, open, high, low, close, volume, provider)
 	if err != nil {
 		t.Fatalf("insert price: %v", err)
 	}
@@ -225,14 +225,15 @@ func TestListPricesForExport_NoIdentifiersExcluded(t *testing.T) {
 	insertPriceWithProvider(t, p, instWithID, d(2024, 1, 15), 100, "test")
 
 	// Create instrument without any identifiers by inserting directly, minting its
-	// listing alongside: every security has at least one currency line, and this
-	// one's is unknown because nothing states it.
+	// listing alongside: every security has at least one currency line. The line
+	// carries a currency because the prices below have to hang off something
+	// priceable; what this test is about is the missing identifier.
 	var instNoID string
 	err := p.q.QueryRowContext(ctx, `
 		WITH ins AS (
 			INSERT INTO instruments DEFAULT VALUES RETURNING id
 		), lst AS (
-			INSERT INTO instrument_listings (instrument_id, currency) SELECT id, NULL FROM ins
+			INSERT INTO instrument_listings (instrument_id, currency) SELECT id, 'USD' FROM ins
 		)
 		SELECT id FROM ins
 	`).Scan(&instNoID)
@@ -296,8 +297,8 @@ func TestListPricesForExport_ShareCountBasis(t *testing.T) {
 	instID := setupTickerInstrument(t, p, "NVDA")
 	basis := d(2024, 6, 10)
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 15), Close: decf(48), DataProvider: "test"},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 16), Close: decf(4), DataProvider: "test", ShareCountBasis: &basis},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 15), Close: decf(48), DataProvider: "test"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 16), Close: decf(4), DataProvider: "test", ShareCountBasis: &basis},
 	}); err != nil {
 		t.Fatalf("upsert prices: %v", err)
 	}
@@ -451,9 +452,9 @@ func TestListPriceCoverageForExport_SpansDeclaredRange(t *testing.T) {
 	ctx := context.Background()
 
 	instID := setupTickerInstrument(t, p, "AAPL")
-	if err := p.UpsertPricesForRange(ctx, instID, "test", []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 15), Close: decf(100)},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 18), Close: decf(110)},
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "test", []db.EODPrice{
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 15), Close: decf(100)},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 18), Close: decf(110)},
 	}, d(2024, 1, 15), d(2024, 1, 19), nil); err != nil {
 		t.Fatalf("upsert prices for range: %v", err)
 	}

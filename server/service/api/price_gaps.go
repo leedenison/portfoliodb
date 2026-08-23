@@ -28,20 +28,34 @@ func (s *Server) ListPriceGaps(ctx context.Context, req *apiv1.ListPriceGapsRequ
 		return nil, status.Errorf(codes.Internal, "fx gaps: %v", err)
 	}
 
-	// Collect all instrument IDs for metadata lookup.
+	// A gap names a line; the security above it carries the name, the identifier
+	// and the asset class a person reads the gap by.
 	idSet := make(map[string]bool, len(priceGaps)+len(fxGaps))
 	for _, g := range priceGaps {
-		idSet[g.InstrumentID] = true
+		idSet[g.ListingID] = true
 	}
 	for _, g := range fxGaps {
-		idSet[g.InstrumentID] = true
+		idSet[g.ListingID] = true
 	}
-	ids := make([]string, 0, len(idSet))
+	listingIDs := make([]string, 0, len(idSet))
 	for id := range idSet {
-		ids = append(ids, id)
+		listingIDs = append(listingIDs, id)
 	}
 
-	instruments, err := s.db.ListInstrumentsByIDs(ctx, ids)
+	listingMap, err := s.db.ListingsByIDs(ctx, listingIDs)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list listings: %v", err)
+	}
+	instIDSet := make(map[string]bool, len(listingMap))
+	for _, l := range listingMap {
+		instIDSet[l.InstrumentID] = true
+	}
+	instIDs := make([]string, 0, len(instIDSet))
+	for id := range instIDSet {
+		instIDs = append(instIDs, id)
+	}
+
+	instruments, err := s.db.ListInstrumentsByIDs(ctx, instIDs)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list instruments: %v", err)
 	}
@@ -59,21 +73,25 @@ func (s *Server) ListPriceGaps(ctx context.Context, req *apiv1.ListPriceGapsRequ
 	}
 
 	resp := &apiv1.ListPriceGapsResponse{
-		PriceGaps: toPriceGapProtos(priceGaps, instrMap, acFilter),
-		FxGaps:    toPriceGapProtos(fxGaps, instrMap, acFilter),
+		PriceGaps: toPriceGapProtos(priceGaps, listingMap, instrMap, acFilter),
+		FxGaps:    toPriceGapProtos(fxGaps, listingMap, instrMap, acFilter),
 	}
 	return resp, nil
 }
 
 // toPriceGapProtos converts DB gap ranges to proto, filtering by asset class and
-// picking the best identifier per instrument. Gap end dates are clamped to today
-// (exclusive) so that the current day -- which typically has no close price yet --
-// is excluded.
-func toPriceGapProtos(gaps []db.InstrumentDateRanges, instrMap map[string]*db.InstrumentRow, acFilter map[string]bool) []*apiv1.PriceGap {
+// picking the best identifier of the security the line belongs to. Gap end dates
+// are clamped to today (exclusive) so that the current day -- which typically has
+// no close price yet -- is excluded.
+func toPriceGapProtos(gaps []db.ListingDateRanges, listingMap map[string]*db.Listing, instrMap map[string]*db.InstrumentRow, acFilter map[string]bool) []*apiv1.PriceGap {
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	var out []*apiv1.PriceGap
 	for _, g := range gaps {
-		inst := instrMap[g.InstrumentID]
+		lst := listingMap[g.ListingID]
+		if lst == nil {
+			continue
+		}
+		inst := instrMap[lst.InstrumentID]
 		if inst == nil {
 			continue
 		}
@@ -108,12 +126,13 @@ func toPriceGapProtos(gaps []db.InstrumentDateRanges, instrMap map[string]*db.In
 			continue
 		}
 		pg := &apiv1.PriceGap{
-			InstrumentId: g.InstrumentID,
+			ListingId:    g.ListingID,
+			Currency:     derefStr(lst.Currency),
+			InstrumentId: lst.InstrumentID,
 			Identifier:   ident,
 			AssetClass:   db.StrToAssetClass(ac),
 			Exchange:     derefStr(inst.ExchangeMIC),
 			Name:         derefStr(inst.Name),
-			Currency:     derefStr(inst.Currency),
 			Gaps:         dateRanges,
 		}
 		out = append(out, pg)

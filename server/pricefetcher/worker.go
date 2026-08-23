@@ -82,7 +82,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 		return err
 	}
 
-	allGaps := make([]db.InstrumentDateRanges, 0, len(gaps)+len(fxGaps))
+	allGaps := make([]db.ListingDateRanges, 0, len(gaps)+len(fxGaps))
 	allGaps = append(allGaps, gaps...)
 	allGaps = append(allGaps, fxGaps...)
 	if len(allGaps) == 0 {
@@ -93,7 +93,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 	fxFrom := len(gaps)
 
 	if workers != nil {
-		workers.SetRunning(name, fmt.Sprintf("Fetching prices for %d instruments", len(allGaps)))
+		workers.SetRunning(name, fmt.Sprintf("Fetching prices for %d listings", len(allGaps)))
 	}
 
 	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryPrice)
@@ -107,7 +107,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 		// A cycle with work and nowhere to send it looks identical to a quiet one
 		// unless it says so. The instruments are deliberately not loaded for this:
 		// their attributes explain plugin filtering, and no filtering happened.
-		newPriceGaps(ctx, tel, runID, allGaps, fxFrom, nil).
+		newPriceGaps(ctx, tel, runID, allGaps, fxFrom, nil, nil).
 			endAll(ctx, db.TelemetryGapNoEligiblePlugin)
 		return nil
 	}
@@ -127,13 +127,32 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 		})
 	}
 	if len(plugins) == 0 {
-		newPriceGaps(ctx, tel, runID, allGaps, fxFrom, nil).
+		newPriceGaps(ctx, tel, runID, allGaps, fxFrom, nil, nil).
 			endAll(ctx, db.TelemetryGapNoEligiblePlugin)
 		return nil
 	}
 
+	// The lines the gaps are on, and the securities above them. A gap names a
+	// listing; asset class, the eligibility test and the fetch block are still
+	// read from the security, and moving those down is 0148's second step.
+	listingIDs := extractListingIDs(allGaps)
+	listingByID, err := database.ListingsByIDs(ctx, listingIDs)
+	if err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "price fetch: load listings", "err", err)
+		}
+		return err
+	}
+	instIDs := make([]string, 0, len(listingByID))
+	seen := make(map[string]bool, len(listingByID))
+	for _, l := range listingByID {
+		if !seen[l.InstrumentID] {
+			seen[l.InstrumentID] = true
+			instIDs = append(instIDs, l.InstrumentID)
+		}
+	}
+
 	// Batch-load blocked (instrument, plugin) pairs.
-	instIDs := extractInstrumentIDs(allGaps)
 	blocked, err := database.BlockedPluginsForInstruments(ctx, instIDs)
 	if err != nil {
 		if log != nil {
@@ -157,7 +176,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 
 	// Per-plugin coverage, so a range one plugin has already answered for is not
 	// put to it again -- including ranges it answered with nothing.
-	coverage, err := database.PriceCoverageByPlugin(ctx, instIDs)
+	coverage, err := database.PriceCoverageByPlugin(ctx, listingIDs)
 	if err != nil {
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: load coverage", "err", err)
@@ -165,17 +184,17 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 		return err
 	}
 
-	gapsTel := newPriceGaps(ctx, tel, runID, allGaps, fxFrom, instByID)
-	return processGaps(ctx, database, plugins, allGaps, instByID, blocked, coverage, log, gapsTel)
+	gapsTel := newPriceGaps(ctx, tel, runID, allGaps, fxFrom, listingByID, instByID)
+	return processGaps(ctx, database, plugins, allGaps, listingByID, instByID, blocked, coverage, log, gapsTel)
 }
 
-// processGaps iterates instrument gaps and fetches prices from matching plugins.
+// processGaps iterates listing gaps and fetches prices from matching plugins.
 //
 // It returns ctx.Err() when the cycle is cancelled part way. The gaps it never
 // reached stay unstamped, so where it stopped is readable; returning nil instead
-// would stamp the run success and report a cycle that covered three instruments of
+// would stamp the run success and report a cycle that covered three listings of
 // five hundred as a clean one.
-func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, instByID map[string]*db.InstrumentRow, blocked map[string]map[string]bool, coverage map[string]map[string][]db.DateRange, log *slog.Logger, gapsTel *priceGaps) error {
+func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.ListingDateRanges, listingByID map[string]*db.Listing, instByID map[string]*db.InstrumentRow, blocked map[string]map[string]bool, coverage map[string]map[string][]db.DateRange, log *slog.Logger, gapsTel *priceGaps) error {
 	// One fetch time for the whole cycle, so every row a back-adjusting plugin
 	// returns shares the same share count basis.
 	now := time.Now()
@@ -183,10 +202,14 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		inst := instByID[ig.InstrumentID]
+		lst := listingByID[ig.ListingID]
+		var inst *db.InstrumentRow
+		if lst != nil {
+			inst = instByID[lst.InstrumentID]
+		}
 		if inst == nil {
 			if log != nil {
-				log.WarnContext(ctx, "price fetch: instrument not found", "id", ig.InstrumentID)
+				log.WarnContext(ctx, "price fetch: listing or instrument not found", "listing", ig.ListingID)
 			}
 			gapsTel.end(ctx, i, db.TelemetryGapInstrumentMissing)
 			continue
@@ -202,7 +225,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 			if !pluginutil.PluginAccepts(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst) {
 				continue
 			}
-			if blocked[ig.InstrumentID][pe.id] {
+			if blocked[lst.InstrumentID][pe.id] {
 				continue
 			}
 			// Both grains, because a price request is keyed on a ticker as
@@ -229,7 +252,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 
 			// Ranges this plugin has already answered for are not put to it
 			// again, whether it returned a series or nothing at all.
-			outstanding := db.SubtractRanges(ig.Ranges, coverage[ig.InstrumentID][pe.id])
+			outstanding := db.SubtractRanges(ig.Ranges, coverage[ig.ListingID][pe.id])
 			if len(outstanding) == 0 {
 				// Nothing left to ask this one. It has not handled the
 				// instrument, so the next plugin still gets its turn.
@@ -247,7 +270,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 						// so record it as covered by this plugin rather than
 						// rediscovering the same gap every cycle. Other plugins
 						// keep their own coverage and are still offered it.
-						coverRange(ctx, database, ig.InstrumentID, pe.id, gap, "history limit", log)
+						coverRange(ctx, database, ig.ListingID, pe.id, gap, "history limit", log)
 						gapsTel.call(ctx, i, priceCall(pe, gap, 0, db.TelemetryPriceCallHistoryLimit, nil))
 						continue
 					}
@@ -255,7 +278,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 						// The unreachable head is settled for this plugin even
 						// though the tail is about to be fetched.
 						head := db.DateRange{From: gap.From, Before: cutoff}
-						coverRange(ctx, database, ig.InstrumentID, pe.id, head, "history limit", log)
+						coverRange(ctx, database, ig.ListingID, pe.id, head, "history limit", log)
 						// Two rows for two ranges. The head was settled without
 						// asking and the tail is about to be fetched, and a grain
 						// of one range per row is what lets them differ.
@@ -275,10 +298,10 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				if err != nil {
 					var permErr *ErrPermanent
 					if errors.As(err, &permErr) {
-						_ = database.CreatePriceFetchBlock(ctx, ig.InstrumentID, pe.id, permErr.Reason)
+						_ = database.CreatePriceFetchBlock(ctx, lst.InstrumentID, pe.id, permErr.Reason)
 						if log != nil {
 							log.WarnContext(ctx, "price fetch: permanent block",
-								"plugin", pe.id, "instrument", ig.InstrumentID, "reason", permErr.Reason)
+								"plugin", pe.id, "listing", ig.ListingID, "reason", permErr.Reason)
 						}
 						gapsTel.call(ctx, i, priceCall(pe, gap, 0, db.TelemetryPriceCallPermanentBlock, &took))
 						allOK = false
@@ -289,13 +312,13 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 						// record it so a pre-IPO, delisted or untraded range is
 						// settled for this plugin instead of being asked about
 						// on every cycle forever.
-						coverRange(ctx, database, ig.InstrumentID, pe.id, gap, "no data", log)
+						coverRange(ctx, database, ig.ListingID, pe.id, gap, "no data", log)
 						gapsTel.call(ctx, i, priceCall(pe, gap, 0, db.TelemetryPriceCallNoData, &took))
 						continue
 					}
 					if log != nil {
 						log.WarnContext(ctx, "price fetch: plugin error",
-							"plugin", pe.id, "instrument", ig.InstrumentID, "err", err)
+							"plugin", pe.id, "listing", ig.ListingID, "err", err)
 					}
 					// The provider running out of time and the provider answering
 					// badly need different fixes, and only the deadline can say
@@ -310,10 +333,10 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 					break
 				}
 
-				prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars, result.ShareCountBasis, now)
-				if err := database.UpsertPricesForRange(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.Before, nil); err != nil {
+				prices := barsToEODPrices(ig.ListingID, pe.id, result.Bars, result.ShareCountBasis, now)
+				if err := database.UpsertPricesForRange(ctx, ig.ListingID, pe.id, prices, gap.From, gap.Before, nil); err != nil {
 					if log != nil {
-						log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
+						log.ErrorContext(ctx, "price fetch: upsert", "listing", ig.ListingID, "err", err)
 					}
 					// Ours rather than theirs. Recorded apart from the transport
 					// outcomes so a panel watching provider health is not moved by
@@ -353,21 +376,21 @@ func priceCall(pe pluginEntry, r db.DateRange, bars int, outcome string, took *t
 // coverRange records that a plugin has settled a range without supplying bars.
 // A failure to record is logged rather than propagated: the fetch itself
 // succeeded, and the only cost is asking again next cycle.
-func coverRange(ctx context.Context, database db.DB, instrumentID, pluginID string, r db.DateRange, reason string, log *slog.Logger) {
+func coverRange(ctx context.Context, database db.DB, listingID, pluginID string, r db.DateRange, reason string, log *slog.Logger) {
 	if !r.Before.After(r.From) {
 		return
 	}
-	if err := database.UpsertPricesForRange(ctx, instrumentID, pluginID, nil, r.From, r.Before, nil); err != nil && log != nil {
+	if err := database.UpsertPricesForRange(ctx, listingID, pluginID, nil, r.From, r.Before, nil); err != nil && log != nil {
 		log.WarnContext(ctx, "price fetch: record empty coverage",
-			"plugin", pluginID, "instrument", instrumentID, "reason", reason, "err", err)
+			"plugin", pluginID, "listing", listingID, "reason", reason, "err", err)
 	}
 }
 
-// extractInstrumentIDs returns unique instrument IDs from gaps.
-func extractInstrumentIDs(gaps []db.InstrumentDateRanges) []string {
+// extractListingIDs returns unique listing IDs from gaps.
+func extractListingIDs(gaps []db.ListingDateRanges) []string {
 	out := make([]string, len(gaps))
 	for i, g := range gaps {
-		out[i] = g.InstrumentID
+		out[i] = g.ListingID
 	}
 	return out
 }
@@ -376,7 +399,7 @@ func extractInstrumentIDs(gaps []db.InstrumentDateRanges) []string {
 // declared denomination to a per-row share count basis. An as-traded bar is
 // denominated in the share count current on its own date; a back-adjusted
 // series is denominated in the share count current when we fetched it.
-func barsToEODPrices(instrumentID, provider string, bars []DailyBar, basis ShareCountBasis, fetchedAt time.Time) []db.EODPrice {
+func barsToEODPrices(listingID, provider string, bars []DailyBar, basis ShareCountBasis, fetchedAt time.Time) []db.EODPrice {
 	out := make([]db.EODPrice, len(bars))
 	for i, b := range bars {
 		scb := b.Date
@@ -384,7 +407,7 @@ func barsToEODPrices(instrumentID, provider string, bars []DailyBar, basis Share
 			scb = fetchedAt
 		}
 		out[i] = db.EODPrice{
-			InstrumentID:    instrumentID,
+			ListingID:       listingID,
 			PriceDate:       b.Date,
 			Open:            b.Open,
 			High:            b.High,

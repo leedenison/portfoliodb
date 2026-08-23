@@ -114,6 +114,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 	ctx := context.Background()
 
 	fxInstID := "fx-eurusd"
+	fxLstID := "fx-eurusd-usd"
 	pluginID := "test-plugin"
 
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -128,14 +129,16 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 
 	// PriceGaps returns empty, FXGaps returns a gap for an FX instrument.
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: fxInstID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: fxLstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{fxLstID}).Return(
+		map[string]*db.Listing{fxLstID: {ID: fxLstID, InstrumentID: fxInstID, Currency: strPtr("USD")}}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{fxInstID}).Return(nil, nil)
-	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{fxInstID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{fxLstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{fxInstID}).Return([]*db.InstrumentRow{
 		{
 			ID:         fxInstID,
@@ -147,7 +150,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 				}},
 		},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), fxLstID, pluginID, gomock.Any(), from, to, gomock.Any()).Return(nil)
 
 	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
@@ -198,6 +201,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	ctx := context.Background()
 
 	instID := "inst-1"
+	lstID := "listing-1"
 	pluginID := "test-plugin"
 
 	stub := &fetchStub{
@@ -211,16 +215,18 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: lstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	// Return blocked for this (instrument, plugin) pair.
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(
 		map[string]map[string]bool{instID: {pluginID: true}}, nil)
-	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
 			ID:         instID,
@@ -245,6 +251,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	ctx := context.Background()
 
 	instID := "inst-1"
+	lstID := "listing-1"
 	pluginID := "test-plugin"
 
 	stub := &fetchStub{
@@ -258,14 +265,16 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: lstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
 			ID:         instID,
@@ -291,6 +300,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	ctx := context.Background()
 
 	instID := "inst-1"
+	lstID := "listing-1"
 	pluginID := "test-plugin"
 	maxDays := 30
 
@@ -309,14 +319,16 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	reg.Register(pluginID, stub)
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: lstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
 			ID:         instID,
@@ -330,8 +342,8 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	cutoff := now.AddDate(0, 0, -maxDays)
 	// The head the plugin cannot reach is settled as covered by it, so the same
 	// unreachable range is not rediscovered as a gap on the next cycle.
-	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, cutoff, gomock.Any()).Return(nil)
-	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, gomock.Any(), cutoff, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), lstID, pluginID, nil, from, cutoff, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), lstID, pluginID, gomock.Any(), cutoff, to, gomock.Any()).Return(nil)
 
 	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
@@ -346,6 +358,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	ctx := context.Background()
 
 	instID := "inst-1"
+	lstID := "listing-1"
 	pluginID := "test-plugin"
 	maxDays := 30
 
@@ -362,14 +375,16 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	to := now.AddDate(0, 0, -60)
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: lstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
 			ID:         instID,
@@ -382,7 +397,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	}, nil)
 	// Wholly out of reach for this plugin, so it is recorded as covered by it
 	// rather than being asked about again every cycle.
-	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), lstID, pluginID, nil, from, to, gomock.Any()).Return(nil)
 
 	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
@@ -399,6 +414,7 @@ func TestRunCycle_NoDataRecordsCoverage(t *testing.T) {
 	ctx := context.Background()
 
 	instID := "inst-1"
+	lstID := "listing-1"
 	pluginID := "test-plugin"
 	from, to := d(2024, 1, 1), d(2024, 1, 11)
 
@@ -407,20 +423,22 @@ func TestRunCycle_NoDataRecordsCoverage(t *testing.T) {
 	reg.Register(pluginID, stub)
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: lstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{
 			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
 		}}},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), lstID, pluginID, nil, from, to, gomock.Any()).Return(nil)
 
 	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
@@ -437,6 +455,7 @@ func TestRunCycle_CoveredRangeNotRefetched(t *testing.T) {
 	ctx := context.Background()
 
 	instID := "inst-1"
+	lstID := "listing-1"
 	pluginID := "test-plugin"
 	from, to := d(2024, 1, 1), d(2024, 1, 11)
 
@@ -445,15 +464,17 @@ func TestRunCycle_CoveredRangeNotRefetched(t *testing.T) {
 	reg.Register(pluginID, stub)
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: lstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(
-		map[string]map[string][]db.DateRange{instID: {pluginID: {{From: from, Before: to}}}}, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(
+		map[string]map[string][]db.DateRange{lstID: {pluginID: {{From: from, Before: to}}}}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{
 			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
@@ -475,6 +496,7 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 	ctx := context.Background()
 
 	instID := "inst-1"
+	lstID := "listing-1"
 	coveredID, freshID := "covered-plugin", "fresh-plugin"
 	from, to := d(2024, 1, 1), d(2024, 1, 11)
 
@@ -486,22 +508,24 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 	reg.Register(freshID, fresh)
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.ListingDateRanges{
+		{ListingID: lstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: coveredID, Precedence: 20, Config: []byte("{}")},
 		{PluginID: freshID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
+	mockDB.EXPECT().ListingsByIDs(gomock.Any(), []string{lstID}).Return(
+		map[string]*db.Listing{lstID: {ID: lstID, InstrumentID: instID, Currency: strPtr("USD")}}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(
-		map[string]map[string][]db.DateRange{instID: {coveredID: {{From: from, Before: to}}}}, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{lstID}).Return(
+		map[string]map[string][]db.DateRange{lstID: {coveredID: {{From: from, Before: to}}}}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{
 			Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL"},
 		}}},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, freshID, gomock.Any(), from, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), lstID, freshID, gomock.Any(), from, to, gomock.Any()).Return(nil)
 
 	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
@@ -520,7 +544,7 @@ func TestRunWorker_DebounceCollapsesTriggers(t *testing.T) {
 	// PriceGaps blocks until gate is closed, giving us control over cycle duration.
 	gate := make(chan struct{})
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
+		func(ctx context.Context, opts db.HeldRangesOpts) ([]db.ListingDateRanges, error) {
 			<-gate
 			return nil, nil
 		},

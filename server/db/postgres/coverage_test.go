@@ -8,14 +8,22 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 )
 
-// readPriceCoverage reads price_coverage directly. The DB-layer reader arrives
-// with the gap-analysis change; these tests assert the write path in isolation.
+// readPriceCoverage reads price_coverage directly for an instrument's priced
+// line. The DB-layer reader arrives with the gap-analysis change; these tests
+// assert the write path in isolation.
 func readPriceCoverage(t *testing.T, p *Postgres, instID string) []db.DateRange {
+	t.Helper()
+	return readListingCoverage(t, p, pricedListing(t, p, instID))
+}
+
+// readListingCoverage is the same read for a caller that already holds the line,
+// or holds one whose security has since been deleted.
+func readListingCoverage(t *testing.T, p *Postgres, listingID string) []db.DateRange {
 	t.Helper()
 	rows, err := p.q.QueryContext(context.Background(), `
 		SELECT covered_from, covered_before FROM price_coverage
-		WHERE instrument_id = $1::uuid ORDER BY covered_from
-	`, instID)
+		WHERE listing_id = $1::uuid ORDER BY covered_from
+	`, listingID)
 	if err != nil {
 		t.Fatalf("read price coverage: %v", err)
 	}
@@ -49,16 +57,18 @@ func assertRanges(t *testing.T, got []db.DateRange, want []db.DateRange) {
 }
 
 // assertCoverageContains is the containment invariant: every eod_prices row lies
-// within some price_coverage span for its instrument. The converse deliberately
-// does not hold -- a covered span with no rows is how "we asked and there is
-// nothing there" is recorded.
+// within some price_coverage span for its listing. Both are keyed on the line,
+// so the invariant is stated at that grain and a bar can no longer be excused by
+// a span belonging to a sibling line. The converse deliberately does not hold --
+// a covered span with no rows is how "we asked and there is nothing there" is
+// recorded.
 func assertCoverageContains(t *testing.T, p *Postgres) {
 	t.Helper()
 	rows, err := p.q.QueryContext(context.Background(), `
-		SELECT p.instrument_id, p.price_date FROM eod_prices p
+		SELECT p.listing_id, p.price_date FROM eod_prices p
 		WHERE NOT EXISTS (
 			SELECT 1 FROM price_coverage c
-			WHERE c.instrument_id = p.instrument_id
+			WHERE c.listing_id = p.listing_id
 			  AND p.price_date >= c.covered_from AND p.price_date < c.covered_before)
 	`)
 	if err != nil {
@@ -66,12 +76,12 @@ func assertCoverageContains(t *testing.T, p *Postgres) {
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
-		var instID string
+		var listingID string
 		var date time.Time
-		if err := rows.Scan(&instID, &date); err != nil {
+		if err := rows.Scan(&listingID, &date); err != nil {
 			t.Fatalf("scan uncovered: %v", err)
 		}
-		t.Errorf("price row outside coverage: instrument %s on %s", instID, date.Format("2006-01-02"))
+		t.Errorf("price row outside coverage: listing %s on %s", listingID, date.Format("2006-01-02"))
 	}
 }
 
@@ -83,10 +93,10 @@ func TestUpsertPricesForRange_RecordsDeclaredRange(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	bars := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: decf(10)},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: decf(12)},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 3), Close: decf(10)},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 5), Close: decf(12)},
 	}
-	if err := p.UpsertPricesForRange(ctx, instID, "massive", bars, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "massive", bars, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert for range: %v", err)
 	}
 
@@ -103,7 +113,7 @@ func TestUpsertPricesForRange_EmptyResultStillCovers(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "DELISTED")
 
-	if err := p.UpsertPricesForRange(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert for range: %v", err)
 	}
 
@@ -121,10 +131,10 @@ func TestUpsertPrices_CoversSuppliedDatesOnly(t *testing.T) {
 
 	// Jan 3, 4, 5 are contiguous and merge; Feb 1 stands alone.
 	prices := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: decf(10), DataProvider: "import"},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 4), Close: decf(11), DataProvider: "import"},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: decf(12), DataProvider: "import"},
-		{InstrumentID: instID, PriceDate: d(2024, 2, 1), Close: decf(20), DataProvider: "import"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 3), Close: decf(10), DataProvider: "import"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 4), Close: decf(11), DataProvider: "import"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 5), Close: decf(12), DataProvider: "import"},
+		{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 2, 1), Close: decf(20), DataProvider: "import"},
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
 		t.Fatalf("upsert prices: %v", err)
@@ -144,12 +154,12 @@ func TestUpsertPricesForRange_DisjointPeriodsStayDisjoint(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
-	first := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2023, 1, 3), Close: decf(10)}}
-	if err := p.UpsertPricesForRange(ctx, instID, "massive", first, d(2023, 1, 1), d(2023, 7, 1), nil); err != nil {
+	first := []db.EODPrice{{ListingID: pricedListing(t, p, instID), PriceDate: d(2023, 1, 3), Close: decf(10)}}
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "massive", first, d(2023, 1, 1), d(2023, 7, 1), nil); err != nil {
 		t.Fatalf("upsert first period: %v", err)
 	}
-	second := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: decf(20)}}
-	if err := p.UpsertPricesForRange(ctx, instID, "massive", second, d(2024, 1, 1), d(2024, 7, 1), nil); err != nil {
+	second := []db.EODPrice{{ListingID: pricedListing(t, p, instID), PriceDate: d(2024, 1, 3), Close: decf(20)}}
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "massive", second, d(2024, 1, 1), d(2024, 7, 1), nil); err != nil {
 		t.Fatalf("upsert second period: %v", err)
 	}
 
@@ -167,17 +177,17 @@ func TestUpsertPricesForRange_CoverageIsPerPlugin(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
-	if err := p.UpsertPricesForRange(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert massive: %v", err)
 	}
-	if err := p.UpsertPricesForRange(ctx, instID, "eodhd", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, pricedListing(t, p, instID), "eodhd", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert eodhd: %v", err)
 	}
 
 	var count int
 	if err := p.q.QueryRowContext(ctx, `
-		SELECT count(DISTINCT plugin_id) FROM price_coverage WHERE instrument_id = $1::uuid
-	`, instID).Scan(&count); err != nil {
+		SELECT count(DISTINCT plugin_id) FROM price_coverage WHERE listing_id = $1::uuid
+	`, pricedListing(t, p, instID)).Scan(&count); err != nil {
 		t.Fatalf("count plugins: %v", err)
 	}
 	if count != 2 {
@@ -185,21 +195,23 @@ func TestUpsertPricesForRange_CoverageIsPerPlugin(t *testing.T) {
 	}
 }
 
-// Coverage rides the instrument's cascade, so a merge cannot leave spans
-// pointing at an instrument that no longer exists.
+// Coverage rides the security's cascade through its listings, so a merge cannot
+// leave spans pointing at a line that no longer exists. The chain is two links
+// now rather than one, which is what makes it worth pinning.
 func TestPriceCoverage_CascadesOnInstrumentDelete(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
+	listingID := pricedListing(t, p, instID)
 
-	if err := p.UpsertPricesForRange(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, listingID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 	if _, err := p.q.ExecContext(ctx, `DELETE FROM instruments WHERE id = $1::uuid`, instID); err != nil {
 		t.Fatalf("delete instrument: %v", err)
 	}
 
-	if got := readPriceCoverage(t, p, instID); len(got) != 0 {
+	if got := readListingCoverage(t, p, listingID); len(got) != 0 {
 		t.Errorf("expected coverage to cascade away, got %+v", got)
 	}
 }

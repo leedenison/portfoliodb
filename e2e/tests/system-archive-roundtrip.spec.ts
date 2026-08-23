@@ -222,7 +222,8 @@ test.describe("system archive page", () => {
     // What the page said happened, checked against what is stored.
     const priceRows = (await rawQuery(
       `SELECT count(*)::int AS n FROM eod_prices p
-         JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = p.instrument_id
+         JOIN instrument_listings l ON l.id = p.listing_id
+         JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = l.instrument_id
         WHERE ii.value = $1`,
       [tickers[0]],
     )) as { n: number }[];
@@ -230,7 +231,8 @@ test.describe("system archive page", () => {
 
     const coverage = (await rawQuery(
       `SELECT count(*)::int AS n FROM price_coverage c
-         JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = c.instrument_id
+         JOIN instrument_listings l ON l.id = c.listing_id
+         JOIN ${INSTRUMENT_NAMES} ii ON ii.instrument_id = l.instrument_id
         WHERE ii.value = $1`,
       [tickers[0]],
     )) as { n: number }[];

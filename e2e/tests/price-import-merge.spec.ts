@@ -65,9 +65,12 @@ test.describe("price-first instrument merge", () => {
 
     // Step 1: Import prices for an unknown instrument (MIC_TICKER AAPL, no
     // asset_class). Plugins are skipped; instrument created with just MIC_TICKER.
+    // The currency is what names the line the bars land on, so the group states
+    // one even where the security is otherwise unknown.
     const priceResp = await importPricesAndWait(adminSessionId, [
       {
         instrument: { type: IdentifierType.MIC_TICKER, value: "AAPL" },
+        currency: "USD",
         rows: [
           { priceDate: "2023-12-01", close: "190.50" },
           { priceDate: "2023-12-04", close: "191.25" },
@@ -100,9 +103,12 @@ test.describe("price-first instrument merge", () => {
     expect(preIds.rows[0].value).toBe("AAPL");
     expect(preIds.rows[0].canonical).toBe(true);
 
-    // Verify prices are attached.
+    // Verify prices are attached. A price hangs off the currency line rather
+    // than the security, so the count goes through the instrument's listings.
     const prePrices = await db.query(
-      `SELECT COUNT(*) AS cnt FROM eod_prices WHERE instrument_id = $1`,
+      `SELECT COUNT(*) AS cnt FROM eod_prices p
+       JOIN instrument_listings l ON l.id = p.listing_id
+       WHERE l.instrument_id = $1`,
       [instrumentId]
     );
     expect(Number(prePrices.rows[0].cnt)).toBe(2);
@@ -135,7 +141,9 @@ test.describe("price-first instrument merge", () => {
 
     // Step 5: Verify prices are still associated with the same instrument.
     const postPrices = await db.query(
-      `SELECT COUNT(*) AS cnt FROM eod_prices WHERE instrument_id = $1`,
+      `SELECT COUNT(*) AS cnt FROM eod_prices p
+       JOIN instrument_listings l ON l.id = p.listing_id
+       WHERE l.instrument_id = $1`,
       [instrumentId]
     );
     expect(Number(postPrices.rows[0].cnt)).toBeGreaterThanOrEqual(2);

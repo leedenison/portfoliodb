@@ -1009,7 +1009,13 @@ WHERE t.account_type = 'TRANSFER_CLEARING'
   AND EXISTS (SELECT 1 FROM portfolio_matched_txs cm
               WHERE cm.tx_id = c.id AND cm.portfolio_id = m.portfolio_id);
 
--- EOD price cache. Stores end-of-day OHLCV data per instrument per date.
+-- EOD price cache. Stores end-of-day OHLCV data per listing per date.
+-- A price is quoted in a currency, so the bar belongs to the listing rather than
+-- to the security above it: two currency lines of one security differ by an FX
+-- rate, and a cache keyed on the security would hold whichever line the plugin
+-- happened to fetch. A listing whose currency is unknown is never priceable and
+-- so never appears here -- a price with no stated currency asserts nothing. See
+-- docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
 -- Every row is a bar a provider actually reported: non-trading days (weekends,
 -- holidays) simply have no row. Valuation carries the last close forward over
 -- them at read time, bounded by price_coverage, so the filled series is derived
@@ -1020,7 +1026,8 @@ WHERE t.account_type = 'TRANSFER_CLEARING'
 -- back-adjusts -- and is never inferred from last_fetched_at. It defaults to
 -- price_date, the as-traded assumption. See docs/spec/bitemporality.md.
 -- The split_adjusted_* columns hold OHLCV after applying every stock split with
--- ex_date > share_count_basis for this instrument. They equal the raw values when
+-- ex_date > share_count_basis for the security this listing belongs to. A split
+-- is an action on the security and every one of its lines splits together. They equal the raw values when
 -- no later split exists. close (NOT NULL) implies split_adjusted_close (NOT NULL);
 -- the others are NULL iff their raw counterpart is NULL. Volume is adjusted in
 -- the opposite direction (more shares trade in adjusted-share terms).
@@ -1034,7 +1041,7 @@ WHERE t.account_type = 'TRANSFER_CLEARING'
 -- never an input to valuation and exists to cross-check split_adjusted_close,
 -- which is the value PortfolioDB derives itself.
 CREATE TABLE eod_prices (
-  instrument_id          UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  listing_id             UUID        NOT NULL REFERENCES instrument_listings (id) ON DELETE CASCADE,
   price_date             DATE        NOT NULL,
   open                   NUMERIC,
   split_adjusted_open    NUMERIC(38, 12),
@@ -1052,7 +1059,7 @@ CREATE TABLE eod_prices (
   -- Staleness only: when this row was last fetched. It carries no meaning about
   -- the prices themselves. See docs/spec/bitemporality.md.
   last_fetched_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (instrument_id, price_date)
+  PRIMARY KEY (listing_id, price_date)
 );
 
 SELECT create_hypertable('eod_prices', 'price_date');
@@ -1060,16 +1067,19 @@ SELECT create_hypertable('eod_prices', 'price_date');
 -- Coverage tracking for prices. A missing eod_prices row does not say whether
 -- the date was never fetched or was fetched and had no price (pre-IPO,
 -- delisted, suspended, or beyond a plugin's history limit). This table records,
--- per (instrument, plugin), the date intervals the plugin has answered
+-- per (listing, plugin), the date intervals the plugin has answered
 -- authoritatively -- including answers that returned no bars at all, which are
 -- coverage just as much as a full series is.
+-- The grain is the listing, matching the bars it bounds: a provider that carries
+-- the USD line of a security and not its GBP one has answered for one and not
+-- the other, and a span keyed on the security could not say so.
 -- The interval is half-open [covered_from, covered_before). Adjacent or
--- overlapping intervals for the same (instrument, plugin) are merged on insert.
--- Every eod_prices row lies within some span here for its instrument; the
+-- overlapping intervals for the same (listing, plugin) are merged on insert.
+-- Every eod_prices row lies within some span here for its listing; the
 -- converse does not hold, and a span with no rows in it is exactly the "asked,
 -- nothing there" answer that row presence alone cannot express.
 CREATE TABLE price_coverage (
-  instrument_id  UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  listing_id     UUID        NOT NULL REFERENCES instrument_listings (id) ON DELETE CASCADE,
   plugin_id      TEXT        NOT NULL,
   covered_from   DATE        NOT NULL,
   covered_before DATE        NOT NULL CHECK (covered_before > covered_from),
@@ -1077,10 +1087,10 @@ CREATE TABLE price_coverage (
   -- oldest constituent value, since a union is only as freshly confirmed as its
   -- stalest part.
   last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (instrument_id, plugin_id, covered_from)
+  PRIMARY KEY (listing_id, plugin_id, covered_from)
 );
 
-CREATE INDEX idx_price_coverage_instrument ON price_coverage (instrument_id);
+CREATE INDEX idx_price_coverage_listing ON price_coverage (listing_id);
 
 -- Coverage merged across plugins. Every caller asks the same question of this
 -- table -- which date spans has anyone answered for -- and none of them cares
@@ -1101,18 +1111,40 @@ CREATE INDEX idx_price_coverage_instrument ON price_coverage (instrument_id);
 -- confirmed as its stalest part -- belongs here rather than at the call site.
 --
 -- A view, not a repeated subquery, so the merge has one definition. Postgres
--- inlines it, so a caller's instrument_id predicate still reaches the aggregate:
--- instrument_id is the grouping key.
+-- inlines it, so a caller's listing_id predicate still reaches the aggregate:
+-- listing_id is the grouping key.
 CREATE VIEW merged_price_coverage AS
-SELECT instrument_id,
+SELECT listing_id,
        lower(span) AS covered_from,
        upper(span) AS covered_before
 FROM (
-  SELECT instrument_id,
+  SELECT listing_id,
          unnest(range_agg(daterange(covered_from, covered_before))) AS span
   FROM price_coverage
-  GROUP BY instrument_id
+  GROUP BY listing_id
 ) s;
+
+-- The line a holding is valued and priced at, while a transaction still names
+-- the security rather than the line.
+--
+-- A security with exactly one currency-bearing listing has one answer. A
+-- security with two has none: nothing in a transaction says which line the
+-- holding is on, and picking one would value it at a currency nobody stated --
+-- the failure this level exists to remove. Such a holding reports unpriced until
+-- its transactions name a listing.
+--
+-- The unknown listing is excluded because it is not priceable, so a security
+-- whose only line is unknown has no row here either.
+--
+-- Interim: deleted when txs carries listing_id and the question disappears.
+CREATE VIEW instrument_priced_listing AS
+SELECT instrument_id,
+       (array_agg(id))[1]       AS listing_id,
+       (array_agg(currency))[1] AS currency
+FROM instrument_listings
+WHERE currency IS NOT NULL
+GROUP BY instrument_id
+HAVING count(*) = 1;
 
 -- Stock splits per instrument. ex_date is the effective/execution date. The
 -- split factor is split_to / split_from (e.g. 2:1 split = split_from=1,

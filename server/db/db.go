@@ -731,6 +731,20 @@ type ProviderIdentifierInput struct {
 	Value    string
 }
 
+// ListingMerge is what a file says about one of a security's currency lines.
+//
+// Currency is the key: it is what says which line this is, and an empty one names
+// the security's unknown line -- how many lines it has is what is unknown, not
+// whether it has any. Identifiers are listing-grain, and a name another line
+// already holds is left where it is, a stored value winning (adr/0004).
+type ListingMerge struct {
+	Currency            string
+	ValidFrom           *time.Time
+	ValidBefore         *time.Time
+	Identifiers         []IdentifierInput
+	ProviderIdentifiers []ProviderIdentifierInput
+}
+
 // InstrumentMerge is what an archive file says about an instrument, for filling
 // in gaps in one that already exists. Every field is what the file carries; the
 // merge never overwrites a value already stored.
@@ -1276,6 +1290,10 @@ type InstrumentRow struct {
 	// or UnderlyingID within one instance. One pointer rather than three, because a half-named
 	// underlying is not a state this can be in.
 	Underlying *InstrumentRef
+	// The currency of the line that underlying names, which with the identifier
+	// above is what names a listing in a file. Populated by the same query and
+	// empty everywhere else.
+	UnderlyingCurrency string
 }
 
 // Listing is one currency a security trades in. Currency and exchange are facts
@@ -1316,10 +1334,14 @@ type Listing struct {
 //
 // It exists for the callers that have not yet been told which grain they mean:
 // the corporate event fetcher, and the API boundary that still hands the UI one
-// flat list. Each of those picks a grain in its own issue (0150, 0151, 0154),
-// and until then this is the one place the two sets are put back together --
+// flat list. Each of those picks a grain in its own issue (0150, 0154), and
+// until then this is the one place the two sets are put back together --
 // deliberately named, so the list of callers still to migrate is a search for it
 // rather than a reading of every query.
+//
+// The archive no longer uses it. A file nests a security's listings and writes
+// each name on the line it names, which is what the flattening stood in for
+// while a file could state only one currency.
 //
 // The price fetcher no longer uses it. Its unit of work is one line, and what it
 // puts to a plugin is that line's identifiers and its security's -- IdentifiersFor
@@ -1605,6 +1627,24 @@ type InstrumentDB interface {
 	// the caller assembled, and the merge below does not read it yet: the rule
 	// that does is 0140.
 	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *OptionFields) (instrumentID, listingID string, err error)
+	// EnsureArchiveInstrument is EnsureInstrument for a caller that states a
+	// security's whole listing set rather than one currency of it: the archive.
+	//
+	// It resolves and creates the security exactly as EnsureInstrument does, on
+	// the same identifier set and with the same eager merge, and differs only in
+	// where the listing-grain rows go -- each line's own names and provider
+	// identifiers on that line, rather than every one of them on the single line
+	// a stated currency would have named. A file carrying two lines of one
+	// security is the case that distinction exists for.
+	//
+	// identifiers is the security-grain set; the listing-grain ones travel inside
+	// listings. Both are looked up, so a security this instance knows only by one
+	// line's ticker is still matched rather than duplicated.
+	//
+	// Every listing the file states is ensured. It returns the security and the
+	// first line the file named, which is what a caller with one line in mind --
+	// every caller today -- is asking for.
+	EnsureArchiveInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, listings []ListingMerge, claims []IdentityClaim, underlyingListingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
 	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but also returns asset_class, exchange_mic (ISO 10383 MIC code), and currency from the instruments table in one query.

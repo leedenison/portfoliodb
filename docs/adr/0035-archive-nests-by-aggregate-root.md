@@ -1,16 +1,27 @@
 # Archive files nest by aggregate root
 
 Amended by [0069](0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md),
-which makes the aggregate root of prices and corporate events the **listing**
-rather than the instrument, named by a security identifier and a currency. The
-three levels and the rule for what belongs at each stand.
+which makes the aggregate root of prices the **listing** rather than the
+instrument, named by an identifier and a currency, and by
+[0068](0068-a-listing-is-a-currency-of-a-security.md), under which a security in
+the instrument part nests its listings. Corporate events stay per security. The
+levels and the rule for what belongs at each stand, and are what decide both.
 
 An archive file has three levels -- file, group and row -- and each states its own
-scope in full. The group is the entity's aggregate root: the **instrument** for
-prices and corporate events, the **statement** for holding declarations. Coverage,
-asset class and currency sit on the group; the file envelope carries only
-`format_version`, `exported_at` and the source instance; rows carry only what
-varies per row.
+scope in full. The group is the entity's aggregate root: the **listing** for
+prices, the **instrument** for corporate events, the **statement** for holding
+declarations. Coverage and asset class sit on the group; the file envelope
+carries only `format_version`, `exported_at` and the source instance; rows carry
+only what varies per row.
+
+The instrument part nests one level further, a security carrying its **listings**
+and each listing its own identifiers, because currency, the tradability window
+and the listing-grain identifiers are facts about a line rather than about the
+security above it. That is not a fourth level so much as the same rule applied
+again: a field belongs at the level it cannot vary below, and stating one
+currency per security put three of them a level too high. It is why a security
+listed in GBP and in USD used to arrive as one row that could hold only one of
+them.
 
 A field belongs at the file level only if it **cannot** differ between two rows of
 a valid file. Being constant in practice is not enough, and the flat formats got
@@ -21,7 +32,12 @@ have different lifetimes, which is the case it exists to record. In the other
 direction `ExportPriceRow.exported_at` stamps one value onto every row because the
 stream has nowhere else to put it.
 
-The same test decides between the group and the row. `share_count_basis` reads like
+The same test decides between the group and the row, and decides which of them
+carries a currency. A price group is one listing, so its `instrument` reference
+names the line and there is no separate currency field to disagree with it; a
+corporate event group is the security, so the currency sits on the `CashDividend`
+row that varies by it, and a fetch block group likewise leaves it to the `PRICE`
+block. `share_count_basis` reads like
 a property of a series, but `eod_prices` stores it per bar, so one instrument can
 hold a restated stretch beside an as-traded one and the field belongs on the row --
 where `Declaration.share_count_basis` already sits, for the same reason. Keeping it

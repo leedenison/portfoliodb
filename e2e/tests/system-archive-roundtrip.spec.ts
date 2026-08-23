@@ -39,6 +39,14 @@ const SEED = { instruments: 2, rowsEach: 3 };
 const UNCLASSIFIED_TICKER = "NOCLASS1";
 const FX_PAIR = "EURUSD";
 
+// A security quoted in two currencies, which is what the archive could not carry
+// until an instrument nested its listings: one row per instrument could hold one
+// currency, so the second line and everything hanging off it was lost. The two
+// lines share an ISIN and are told apart by their currency and their own tickers.
+const TWO_LINE_ISIN = "IE00TWOLINEE2E";
+const GBP_TICKER = "TWOLINEG";
+const USD_TICKER = "TWOLINEU";
+
 // The curated state: an index series, a provider deliberately stopped, and a
 // corporate event an admin has already ruled on. None of these can be
 // reconstructed by the importing instance, and none of them is written by any
@@ -91,6 +99,28 @@ test.describe("system archive page", () => {
         WHERE ii.identifier_type = 'FX_PAIR' AND ii.value = $1
        ON CONFLICT DO NOTHING`,
       [FX_PAIR],
+    );
+
+    // A two-line security with a price on each line, so the round trip has to
+    // keep both -- and keep them apart. Created directly because no ingest path
+    // gives a security a second line yet.
+    await rawQuery(
+      `WITH i AS (INSERT INTO instruments (asset_class) VALUES ('STOCK') RETURNING id),
+            sec AS (INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
+                    SELECT id, 'ISIN', $1, true FROM i),
+            g AS (INSERT INTO instrument_listings (instrument_id, currency)
+                  SELECT id, 'GBP' FROM i RETURNING id),
+            u AS (INSERT INTO instrument_listings (instrument_id, currency)
+                  SELECT id, 'USD' FROM i RETURNING id),
+            gi AS (INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
+                   SELECT id, 'MIC_TICKER', 'XLON', $2, true FROM g),
+            ui AS (INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
+                   SELECT id, 'MIC_TICKER', 'XNYS', $3, true FROM u),
+            gp AS (INSERT INTO eod_prices (listing_id, price_date, close, data_provider)
+                   SELECT id, '2024-01-15', 100.5, 'e2e-seed' FROM g)
+       INSERT INTO eod_prices (listing_id, price_date, close, data_provider)
+       SELECT id, '2024-01-15', 130.25, 'e2e-seed' FROM u`,
+      [TWO_LINE_ISIN, GBP_TICKER, USD_TICKER],
     );
 
     await rawQuery(
@@ -153,21 +183,36 @@ test.describe("system archive page", () => {
     // export that silently dropped its rows would also look like.
     expect(doc.envelope.kind).toBe("SYSTEM");
     expect(doc.envelope.format_version).toBe(2);
-    const exportedTickers = doc.instruments.instruments
-      .flatMap((i: { identifiers: { value: string }[] }) => i.identifiers.map((id) => id.value))
-      .filter((v: string) => v.startsWith("E2E"));
-    expect(exportedTickers.sort()).toEqual([...tickers].sort());
-    expect(doc.prices.groups).toHaveLength(SEED.instruments);
-    expect(doc.prices.groups[0].rows).toHaveLength(SEED.rowsEach);
-
+    type ProviderIdentifier = { provider: string; identifier_type: string; value: string };
+    type ExportedListing = {
+      currency?: string;
+      identifiers?: { value: string }[];
+      provider_identifiers?: ProviderIdentifier[];
+    };
     type ExportedInstrument = {
       asset_class?: string;
-      identifiers: { value: string }[];
-      provider_identifiers?: { provider: string; identifier_type: string; value: string }[];
+      identifiers?: { value: string }[];
+      listings: ExportedListing[];
+      provider_identifiers?: ProviderIdentifier[];
     };
     const exportedInstruments = doc.instruments.instruments as ExportedInstrument[];
-    const named = (v: string) =>
-      exportedInstruments.find((i) => i.identifiers.some((id) => id.value === v));
+    // Every name a security answers to, at either grain: a ticker hangs off the
+    // line it names, so a reader looking only at the security would find none of
+    // these.
+    const namesOf = (i: ExportedInstrument) => [
+      ...(i.identifiers ?? []).map((id) => id.value),
+      ...i.listings.flatMap((l) => (l.identifiers ?? []).map((id) => id.value)),
+    ];
+    const named = (v: string) => exportedInstruments.find((i) => namesOf(i).includes(v));
+
+    const exportedTickers = exportedInstruments
+      .flatMap(namesOf)
+      .filter((v: string) => v.startsWith("E2E"));
+    expect(exportedTickers.sort()).toEqual([...tickers].sort());
+    // One group per line: the generated instruments have one each, and the
+    // two-line security below has two.
+    expect(doc.prices.groups).toHaveLength(SEED.instruments + 2);
+    expect(doc.prices.groups[0].rows).toHaveLength(SEED.rowsEach);
 
     // An instrument with no asset class is exactly what a rebuild cannot
     // reconstruct, so an export that quietly dropped it would be worse than
@@ -175,12 +220,38 @@ test.describe("system archive page", () => {
     expect(named(UNCLASSIFIED_TICKER)).toBeDefined();
     // FX pairs are instruments, and the lookup output hung on one is the thing
     // the archive exists to avoid paying for twice.
+    // On the line, which is where every provider identifier that exists today
+    // belongs: a provider addresses one currency line of a security.
     const fx = named(FX_PAIR);
-    expect(fx?.provider_identifiers).toEqual([
+    expect(fx?.listings.flatMap((l) => l.provider_identifiers ?? [])).toEqual([
       expect.objectContaining({ provider: "eodhd", identifier_type: "EODHD_EXCH_CODE", value: "FOREX" }),
     ]);
     // Coverage is not derivable from the rows, so losing it would be silent.
     expect(doc.prices.groups[0].coverage).toHaveLength(1);
+
+    // The two-line security: one instrument carrying both of its lines, each
+    // with its own ticker, and one price group per line. A file that stated one
+    // currency per instrument could carry neither of these.
+    const twoLine = named(TWO_LINE_ISIN);
+    expect(twoLine).toBeDefined();
+    expect(twoLine!.listings.map((l) => l.currency).sort()).toEqual(["GBP", "USD"]);
+    expect(
+      twoLine!.listings.flatMap((l) => (l.identifiers ?? []).map((id) => id.value)).sort(),
+    ).toEqual([GBP_TICKER, USD_TICKER].sort());
+
+    // One price group per line, each named by that line's own ticker and its
+    // currency. A ticker names a line exactly, which is why the listing join
+    // prefers one -- and why the pair, not the identifier alone, is the name.
+    const twoLineGroups = doc.prices.groups.filter(
+      (g: { instrument: { value: string } }) =>
+        g.instrument.value === GBP_TICKER || g.instrument.value === USD_TICKER,
+    ) as { instrument: { value: string; currency: string }; rows: { close: string }[] }[];
+    expect(
+      twoLineGroups.map((g) => [g.instrument.value, g.instrument.currency, g.rows[0].close]).sort(),
+    ).toEqual([
+      [GBP_TICKER, "GBP", "100.5"],
+      [USD_TICKER, "USD", "130.25"],
+    ]);
 
     // The curated state: a human judgement or a paid fetch behind every one of
     // these, and nothing on the importing instance that could rebuild them.
@@ -269,6 +340,27 @@ test.describe("system archive page", () => {
     expect(fxRow[0].currency).toBe("USD");
     expect(fxRow[0].provider_ids).toBe(1);
     expect(fxRow[0].fx_ids).toBe(1);
+
+    // The two-line security came back as one security with both of its lines,
+    // each with its own ticker and its own price. Before the instrument part
+    // nested its listings, a file could state one currency per instrument and
+    // the second line went missing on the way out.
+    const lines = (await rawQuery(
+      `SELECT l.currency, li.value AS ticker, p.close::text AS close
+         FROM instrument_identifiers ii
+         JOIN instrument_listings l ON l.instrument_id = ii.instrument_id
+         LEFT JOIN instrument_listing_identifiers li ON li.listing_id = l.id
+         LEFT JOIN eod_prices p ON p.listing_id = l.id
+        WHERE ii.identifier_type = 'ISIN' AND ii.value = $1
+        ORDER BY l.currency`,
+      [TWO_LINE_ISIN],
+    )) as { currency: string; ticker: string; close: string }[];
+    // 100.5 rather than the seeded 100.50: a decimal crosses the wire in its
+    // canonical shortest form, and the two are the same price.
+    expect(lines).toEqual([
+      { currency: "GBP", ticker: GBP_TICKER, close: "100.5" },
+      { currency: "USD", ticker: USD_TICKER, close: "130.25" },
+    ]);
 
     // And the unclassified instrument came back as one row, not two.
     const unclassified = (await rawQuery(

@@ -109,6 +109,7 @@ The API carries both: `underlying_listing_id`, which is stored, and
 caring which of its lines the contract is written on. Saying which line the UI
 means is issue 0154.
 
-An archive still names a derivative's underlying by a security-grain reference,
-so the import narrows it with the derivative's own currency by the ladder above.
-Naming the line in the file is issue 0151.
+An archive names a derivative's underlying by the line it delivers -- an
+identifier and a currency -- so a file states what the ladder above would
+otherwise have to re-derive, and a reference that names no line is reported
+rather than guessed at.

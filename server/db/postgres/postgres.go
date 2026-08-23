@@ -276,6 +276,9 @@ type instrumentRow struct {
 	UnderlyingIdentifierType   *string `db:"underlying_identifier_type"`
 	UnderlyingIdentifierValue  *string `db:"underlying_identifier_value"`
 	UnderlyingIdentifierDomain *string `db:"underlying_identifier_domain"`
+	// The currency of the line the contract delivers, which with the identifier
+	// above is what names that line in a file.
+	UnderlyingCurrency *string `db:"underlying_currency"`
 }
 
 func (r *instrumentRow) toDBRow() *db.InstrumentRow {
@@ -300,8 +303,18 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 		ExchangeAcronym:     r.ExchangeAcronym,
 		ExchangeCountryCode: r.ExchangeCountryCode,
 
-		Underlying: r.underlyingRef(),
+		Underlying:         r.underlyingRef(),
+		UnderlyingCurrency: derefStr(r.UnderlyingCurrency),
 	}
+}
+
+// derefStr reads a nullable text column as the empty string the domain types use
+// for absent.
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // underlyingRef assembles the underlying's name out of the three nullable

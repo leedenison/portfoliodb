@@ -243,9 +243,9 @@ order the list is written in carries no meaning.
 | `asset_class` | |
 | `name` | optional; advisory, see below |
 | `listings[]` | at least one; `{currency, valid_from, valid_before, identifiers[], provider_identifiers[]}`. `currency` is ISO 4217 and optional -- absent is the unknown listing, of which a security has at most one |
-| `identifiers[]` | the security-grain ones; `{type, value, domain, canonical, valid_from, valid_before}` |
-| `provider_identifiers[]` | `{provider, identifier_type, value, domain}`; `identifier_type` is the provider's own vocabulary, not `IdentifierType` |
-| `underlying` | optional; a security-grain reference naming an instrument in the same part. The importing instance narrows it to the line the contract delivers, from the derivative's own currency -- see adr/0074. Naming the line in the file is issue 0151 |
+| `identifiers[]` | the security-grain ones; `{type, value, domain, canonical, valid_from, valid_before}`. May be empty for a security identified only through its lines -- an equity known by nothing but its ticker -- which is why the minimum is on `listings[]` |
+| `provider_identifiers[]` | the security-grain ones; `{provider, identifier_type, value, domain}`, where `identifier_type` is the provider's own vocabulary rather than `IdentifierType`. Every type that exists today names a line, so in practice these travel on the listing |
+| `underlying` | optional; a reference naming a line of an instrument in the same part -- identifier plus `currency`, since a contract's strike is a price and a price is in a currency, so what it delivers is one currency line (adr/0074). A reference stating no currency names no line and is rejected |
 | `cik`, `sic_code` | optional |
 | `strike`, `expiry`, `put_call`, `contract_multiplier` | optional; options only |
 
@@ -272,6 +272,13 @@ identifier: currencies and FX pairs as well as securities, and instruments
 identification has not yet given an asset class to. An unclassified instrument is
 one a price import created before identification reached it, which makes it
 precisely the row a rebuild could not reconstruct from anything else.
+
+Which of the two an identifier belongs to follows from its type and is declared
+rather than inferred from whether it carries a domain; see
+`docs/spec/identifiers.md`. A security nests its listings rather than stating one
+currency because currency, the tradability window and the listing-grain
+identifiers are all facts about a line, and a field cannot sit above the level it
+varies by.
 
 Importing an instrument the instance already has -- which every rebuild does, as
 the currency and FX rows are reference data created before any file is read --

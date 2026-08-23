@@ -1403,10 +1403,10 @@ func TestMergeInstrumentFromArchive_FillsGapsWithoutOverwriting(t *testing.T) {
 	if tkr, _ := findListingIdentifier(row, "MIC_TICKER", "AAPL"); tkr == nil {
 		t.Fatalf("the held ticker is no longer on any line: %+v", row.Listings)
 	}
-	// A file states one currency and so names one line. Its EUR is a line the
-	// instance did not have, and gaining one is not the same as rewriting the
-	// security's own currency column, which the check above pins. Whether a file
-	// may name several lines at once is 0151.
+	// The merge's own currency names one line. Its EUR is a line the instance did
+	// not have, and gaining one is not the same as rewriting the security's own
+	// currency column, which the check above pins. A file naming several lines at
+	// once goes through EnsureArchiveInstrument instead.
 	if len(row.Listings) != 2 {
 		t.Fatalf("expected the stored USD line and the file's EUR line, got %+v", row.Listings)
 	}

@@ -153,17 +153,22 @@ func TestExportSystemArchive_Instruments_SendsEnvelopeFirst(t *testing.T) {
 func TestExportSystemArchive_Instruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
-		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD"),
+		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"),
 			ContractMultiplier: decimal.NewFromInt(1),
 			Identifiers: []dbpkg.IdentifierInput{
 				{
-					Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
-					Canonical: true,
-				},
-				{
 					Ref:       dbpkg.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "APPLE INC", Domain: "IBKR"},
 					Canonical: false,
-				}}},
+				}},
+			// The ticker names a line, so it is written on the line rather than
+			// beside the description.
+			Listings: []*dbpkg.Listing{{
+				ID: "line-1", Currency: strPtr("USD"),
+				Identifiers: []dbpkg.IdentifierInput{{
+					Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+					Canonical: true,
+				}},
+			}}},
 	}
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)
 	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
@@ -175,17 +180,25 @@ func TestExportSystemArchive_Instruments_Success(t *testing.T) {
 		t.Fatalf("expected 1 instrument streamed, got %d", len(got))
 	}
 	inst := got[0]
-	if inst.GetName() != "Apple" || inst.GetCurrency() != "USD" || inst.GetExchangeMic() != "XNAS" {
+	if inst.GetName() != "Apple" {
 		t.Fatalf("got %v", inst)
 	}
 	if inst.GetAssetClass() != typev1.AssetClass_STOCK {
 		t.Fatalf("asset_class = %v", inst.GetAssetClass())
 	}
-	if len(inst.GetIdentifiers()) != 2 {
-		t.Fatalf("expected both identifiers, got %v", inst.GetIdentifiers())
+	// The currency is a fact about a line, so it is on the line and there is no
+	// instrument-level one to read.
+	if len(inst.GetListings()) != 1 || inst.GetListings()[0].GetCurrency() != "USD" {
+		t.Fatalf("listings = %v", inst.GetListings())
 	}
-	if !inst.GetIdentifiers()[0].GetCanonical() || inst.GetIdentifiers()[1].GetCanonical() {
-		t.Fatalf("canonical flags not carried: %v", inst.GetIdentifiers())
+	// Each name at its own grain: the description on the security, the ticker on
+	// the line it names.
+	if len(inst.GetIdentifiers()) != 1 || inst.GetIdentifiers()[0].GetCanonical() {
+		t.Fatalf("security identifiers = %v, want the description alone", inst.GetIdentifiers())
+	}
+	lineIdns := inst.GetListings()[0].GetIdentifiers()
+	if len(lineIdns) != 1 || lineIdns[0].GetValue() != "AAPL" || !lineIdns[0].GetCanonical() {
+		t.Fatalf("listing identifiers = %v, want the ticker", lineIdns)
 	}
 	// A file names no server UUID, and an ordinary instrument states no
 	// deliverable multiplier: absent means the column default of 1.
@@ -201,10 +214,13 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 	namedFrom := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
 	strike := decimal.RequireFromString("150.5")
 	rows := []*dbpkg.InstrumentRow{
-		{ID: "id-1", AssetClass: strPtr("OPTION"), Currency: strPtr("USD"),
+		{ID: "id-1", AssetClass: strPtr("OPTION"),
 			CIK: strPtr("0000320193"), SICCode: strPtr("3571"),
-			ValidFrom: &validFrom, Expiry: &expiry, Strike: &strike, PutCall: strPtr("C"),
+			Expiry: &expiry, Strike: &strike, PutCall: strPtr("C"),
 			ContractMultiplier: decimal.RequireFromString("1.5"),
+			// The tradability window is a fact about the line, and the security's
+			// is the hull of its lines'.
+			Listings: []*dbpkg.Listing{{ID: "line-1", Currency: strPtr("USD"), ValidFrom: &validFrom}},
 			// The symbol the contract traded under before a split, and the one
 			// it wears now. Both travel, or a file exported before the split
 			// would name a symbol the importing instance has never heard of.
@@ -219,7 +235,8 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 					Canonical: true,
 					ValidFrom: &namedFrom,
 				}},
-			Underlying: &dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+			Underlying:         &dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+			UnderlyingCurrency: "USD",
 		},
 	}
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)
@@ -231,8 +248,12 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 	if inst.GetCik() != "0000320193" || inst.GetSicCode() != "3571" {
 		t.Fatalf("cik/sic_code dropped: %v", inst)
 	}
-	if inst.GetValidFrom() != "2024-03-01" || inst.ValidBefore != nil {
-		t.Fatalf("validity interval wrong: from=%q before=%v", inst.GetValidFrom(), inst.ValidBefore)
+	if len(inst.GetListings()) != 1 {
+		t.Fatalf("listings = %v", inst.GetListings())
+	}
+	line := inst.GetListings()[0]
+	if line.GetValidFrom() != "2024-03-01" || line.ValidBefore != nil {
+		t.Fatalf("validity interval wrong: from=%q before=%v", line.GetValidFrom(), line.ValidBefore)
 	}
 	if inst.GetStrike() != "150.5" || inst.GetExpiry() != "2026-01-16" || inst.GetPutCall() != "C" {
 		t.Fatalf("option terms wrong: %v", inst)
@@ -250,10 +271,14 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 	if idns[1].GetValidFrom() != "2024-06-10" || idns[1].ValidBefore != nil {
 		t.Fatalf("the name in force = %v", idns[1])
 	}
-	// The underlying is named by identifier, not nested and not by UUID.
+	// The underlying is named by identifier, not nested and not by UUID -- and by
+	// the line the contract delivers, which is the identifier plus the currency.
 	u := inst.GetUnderlying()
 	if u.GetType() != typev1.IdentifierType_MIC_TICKER || u.GetValue() != "AAPL" || u.GetDomain() != "XNAS" {
 		t.Fatalf("underlying ref = %v", u)
+	}
+	if u.GetCurrency() != "USD" {
+		t.Fatalf("underlying names no line: %v", u)
 	}
 }
 

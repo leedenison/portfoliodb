@@ -288,7 +288,6 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 			FROM input i
 			LEFT JOIN instrument_listings l
 				ON l.instrument_id = i.instrument_id
-				AND l.currency IS NOT NULL
 				AND currency_family(l.currency) = currency_family(i.currency)
 		),
 		stored AS (

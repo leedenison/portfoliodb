@@ -854,7 +854,6 @@ const currencyInstrumentSQL = `
 	SELECT ii.instrument_id,
 	       (SELECT l.id FROM instrument_listings l
 	        WHERE l.instrument_id = ii.instrument_id
-	          AND l.currency IS NOT NULL
 	          AND currency_family(l.currency) = currency_family($1))
 	FROM instrument_identifiers ii
 	WHERE ii.identifier_type = 'CURRENCY' AND ii.domain IS NULL AND ii.value = $1

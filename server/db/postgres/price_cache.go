@@ -31,7 +31,7 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 			SELECT l.id AS listing_id, t.order_date::date AS tx_date, SUM(t.quantity) AS day_qty
 			FROM txs t
 			JOIN instrument_listings l
-				ON l.instrument_id = t.instrument_id AND l.currency IS NOT NULL
+				ON l.instrument_id = t.instrument_id
 				AND (t.listing_id IS NULL OR l.id = t.listing_id)
 			WHERE t.instrument_id IS NOT NULL AND t.account_type = 'USER'
 			GROUP BY l.id, t.order_date::date
@@ -304,7 +304,6 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Lis
 		INNER JOIN instrument_priced_listing fx_pl
 			ON fx_pl.instrument_id = fx_ii.instrument_id
 		WHERE l.id = ANY($1::uuid[])
-			AND l.currency IS NOT NULL
 			AND l.currency != 'USD'
 	`, pq.Array(heldIDs))
 	if err != nil {

@@ -1859,3 +1859,102 @@ func TestGetUserValuation_MatchInAnotherCommodityIsNotAdmitted(t *testing.T) {
 		t.Errorf("value on April 15: want 20000, got %v", got)
 	}
 }
+
+// A holding on a security whose line is unknown is unpriced, not valued at an
+// implied FX rate of 1.
+//
+// Two shapes reach this. A security that states no currency has only its unknown
+// listing, which is not priceable and holds no bars. A security with two currency
+// lines has bars on both and nothing saying which line the holding is on -- the
+// case the level exists for -- and picking one would value the position at a
+// currency nobody stated.
+func TestGetUserValuation_HoldingWithNoLineIsUnpriced(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|noline", "U", "noline@test.com")
+
+	// A security whose currency nobody stated: one listing, unknown.
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "NOCUR", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "NOCUR", Domain: "IBKR"}},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	if got := pricedListing(t, p, instID); got != "" {
+		t.Fatalf("a currency-unknown security has a priced line: %q", got)
+	}
+
+	buy := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{{
+		OrderDate: timestamppb.New(buy), TradeDate: timestamppb.New(buy),
+		InstrumentDescription: "NOCUR",
+		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType:        typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "main",
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
+		timestamppb.New(buy.Add(-time.Hour)), timestamppb.New(buy.Add(time.Hour)),
+		txs, []string{instID}, nil, nil); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	points, err := p.GetUserValuation(ctx, userID, d(2025, 1, 2), d(2025, 1, 4), "USD")
+	if err != nil {
+		t.Fatalf("valuation: %v", err)
+	}
+	if len(points) == 0 {
+		t.Fatal("no valuation points")
+	}
+	for _, pt := range points {
+		if pt.TotalValue != 0 {
+			t.Errorf("%s: total = %v, want 0 -- the holding cannot be valued",
+				pt.Date.Format("2006-01-02"), pt.TotalValue)
+		}
+		if len(pt.UnpricedInstruments) != 1 || pt.UnpricedInstruments[0] != "NOCUR" {
+			t.Errorf("%s: unpriced = %v, want [NOCUR]",
+				pt.Date.Format("2006-01-02"), pt.UnpricedInstruments)
+		}
+	}
+}
+
+// The same rule for cash, which is the one asset class the currency test reaches
+// before the missing-price test does. A cash instrument resolves through a
+// CURRENCY identifier and so always has a line; one that somehow has not is
+// reported rather than counted at face value in whatever the display currency
+// happens to be.
+func TestGetUserValuation_CashWithNoLineIsUnpriced(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|nocash", "U", "nocash@test.com")
+
+	instID, _, err := p.EnsureInstrument(ctx, "CASH", "", "", "MYSTERY CASH", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "MYSTERY CASH", Domain: "IBKR"}},
+	}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	buy := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{{
+		OrderDate: timestamppb.New(buy), TradeDate: timestamppb.New(buy),
+		InstrumentDescription: "MYSTERY CASH",
+		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_CASH},
+		ResolvedTxType:        typev1.TxType_TRADE_CASH, Quantity: "500", Account: "main",
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
+		timestamppb.New(buy.Add(-time.Hour)), timestamppb.New(buy.Add(time.Hour)),
+		txs, []string{instID}, nil, nil); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	points, err := p.GetUserValuation(ctx, userID, d(2025, 1, 2), d(2025, 1, 3), "USD")
+	if err != nil {
+		t.Fatalf("valuation: %v", err)
+	}
+	if len(points) == 0 {
+		t.Fatal("no valuation points")
+	}
+	if points[0].TotalValue != 0 {
+		t.Errorf("total = %v, want 0: 500 units of a currency nobody stated is not 500 USD",
+			points[0].TotalValue)
+	}
+}

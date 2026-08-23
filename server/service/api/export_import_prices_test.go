@@ -75,8 +75,10 @@ func TestExportSystemArchive_Prices_Success(t *testing.T) {
 	if g.GetAssetClass() != typev1.AssetClass_STOCK {
 		t.Fatalf("expected asset_class=ASSET_CLASS_STOCK, got %s", g.GetAssetClass())
 	}
-	if g.GetCurrency() != "USD" {
-		t.Fatalf("expected currency=USD, got %s", g.GetCurrency())
+	// On the ref, not beside it: the identifier and the currency together are
+	// what name the listing whose bars these are.
+	if g.GetInstrument().GetCurrency() != "USD" {
+		t.Fatalf("expected currency=USD, got %s", g.GetInstrument().GetCurrency())
 	}
 	if len(g.GetCoverage()) != 1 || g.GetCoverage()[0].GetFrom() != "2024-01-15" || g.GetCoverage()[0].GetBefore() != "2024-01-17" {
 		t.Fatalf("got coverage %+v", g.GetCoverage())
@@ -182,9 +184,9 @@ func TestExportSystemArchive_Prices_CoveredInstrumentWithNoRows(t *testing.T) {
 	if len(groups[0].GetCoverage()) != 1 {
 		t.Fatalf("expected 1 coverage span, got %d", len(groups[0].GetCoverage()))
 	}
-	if groups[0].GetAssetClass() != typev1.AssetClass_STOCK || groups[0].GetCurrency() != "USD" {
+	if groups[0].GetAssetClass() != typev1.AssetClass_STOCK || groups[0].GetInstrument().GetCurrency() != "USD" {
 		t.Fatalf("expected the coverage row to supply the plugin hints, got %s %s",
-			groups[0].GetAssetClass(), groups[0].GetCurrency())
+			groups[0].GetAssetClass(), groups[0].GetInstrument().GetCurrency())
 	}
 }
 

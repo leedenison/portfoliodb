@@ -1528,7 +1528,10 @@ type ExportDeclaration struct {
 	// The instrument's best identifier, or the zero ref for an instrument
 	// carrying none. Chosen by the listing join, a declaration being about a
 	// holding and a holding being per line.
-	Ref         InstrumentRef
+	Ref InstrumentRef
+	// The currency of the line the declaration is on, and "" for a declaration on
+	// no line. With Ref it is the pair that names a listing in a file.
+	Currency    string
 	DeclaredQty decimal.Decimal
 	AsOfDate    time.Time
 	// The share count the declared quantity is denominated in, or nil when it is

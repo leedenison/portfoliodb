@@ -17,7 +17,18 @@ message CorporateEventPart {
 // CorporateEventGroup is one instrument's events with the coverage saying which
 // dates were asked about. Events are sparse, so the absence of an event says
 // nothing about whether the range was ever queried; only coverage does.
+//
+// The group stays per security rather than per listing, because coverage and
+// splits are facts about the security: a split is an action on the shares, not
+// on one of the currency lines they are quoted in. A dividend is paid in a
+// currency, so the currency sits on the CashDividend row that varies by it,
+// which is where adr/0035 puts a field that can differ between two rows.
 message CorporateEventGroup {
+  option (buf.validate.message).cel = {
+    id: "corporate_event_group.instrument_names_a_security"
+    message: "instrument.currency must be empty: coverage and splits are facts about the security, and a dividend states its own currency"
+    expression: "this.instrument.currency == ''"
+  };
   InstrumentRef instrument = 1 [(buf.validate.field).required = true];
   // Security type hint for identifier plugin routing when the importing
   // instance does not know the instrument.
@@ -54,8 +65,9 @@ message Split {
   optional google.protobuf.Timestamp first_known_at = 4;
 }
 
-// CashDividend is one cash dividend. amount is per share, in currency, which may
-// differ from the instrument's own currency for a cross-listed security.
+// CashDividend is one cash dividend. amount is per share, in currency, and the
+// currency is also what names the line the dividend was paid on -- a security
+// quoted in two currencies pays each line in its own.
 message CashDividend {
   string ex_date = 1 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
   optional string pay_date = 2 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];

@@ -33,11 +33,21 @@ message Statement {
 
 // Declaration is one holding the user states at the statement's as_of_date.
 //
+// A holding is per currency line, so one security may carry a declaration on each
+// of its lines at one date: two lines differ by an FX rate, and adding them would
+// report a number in no currency at all. See
+// docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+//
 // The file carries no pad-or-assert discriminator. Which one a declaration is
 // follows from the declaration dates for its holding -- the earliest pads, the
 // rest are checked -- so a stored copy could only ever disagree with them.
 // See docs/adr/0030-declarations-are-padded-then-asserted.md.
 message Declaration {
+  // The holding this is about: a security identifier, and the currency saying
+  // which of its lines. The currency is optional and its absence is meaningful --
+  // a declaration on no line at all, which is the holding nothing could place and
+  // reports unpriced, exactly as the postings under it do. It is not a default,
+  // and an importer does not pick a line for a security quoted in two.
   InstrumentRef instrument = 1 [(buf.validate.field).required = true];
   string declared_qty = 2 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // The share count declared_qty is denominated in, as "YYYY-MM-DD". Absent

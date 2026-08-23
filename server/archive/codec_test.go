@@ -46,12 +46,12 @@ func systemFixture() *archivev1.SystemArchive {
 		Prices: &archivev1.PricePart{
 			Groups: []*archivev1.PriceGroup{{
 				Instrument: &archivev1.InstrumentRef{
-					Type:   typev1.IdentifierType_MIC_TICKER,
-					Value:  "AAPL",
-					Domain: "XNAS",
+					Type:     typev1.IdentifierType_MIC_TICKER,
+					Value:    "AAPL",
+					Domain:   "XNAS",
+					Currency: "USD",
 				},
 				AssetClass: typev1.AssetClass_STOCK,
-				Currency:   "USD",
 				Coverage:   []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-01-17"}},
 				Rows: []*archivev1.PriceRow{{
 					PriceDate: "2024-01-15",
@@ -186,7 +186,7 @@ func TestMarshalSystem_WritesProtoNamesAndEnumNames(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{
-		`"format_version":1`,
+		`"format_version":2`,
 		`"exported_at":"2026-07-30T00:00:00Z"`,
 		`"kind":"SYSTEM"`,
 		`"asset_class":"STOCK"`,
@@ -294,13 +294,13 @@ func TestMarshal_StampsEnvelopeOverCaller(t *testing.T) {
 // A newer archive is refused by version rather than by a confusing parse error,
 // which is the only thing format_version is for.
 func TestUnmarshal_RefusesNewerFormatVersion(t *testing.T) {
-	b := []byte(`{"envelope":{"format_version":2,"exported_at":"2026-07-30T00:00:00Z","kind":"SYSTEM"}}`)
+	b := []byte(`{"envelope":{"format_version":3,"exported_at":"2026-07-30T00:00:00Z","kind":"SYSTEM"}}`)
 	_, err := archive.UnmarshalSystem(b)
 	var ve *archive.VersionError
 	if !errors.As(err, &ve) {
 		t.Fatalf("expected a VersionError, got %v", err)
 	}
-	if ve.Got != 2 || ve.Supports != archive.FormatVersion {
+	if ve.Got != 3 || ve.Supports != archive.FormatVersion {
 		t.Errorf("got %+v", ve)
 	}
 }

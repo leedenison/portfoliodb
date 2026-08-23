@@ -103,19 +103,33 @@ message Envelope {
   ArchiveKind kind = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
 }
 
-// InstrumentRef names one instrument by a single identifier. It is the only way
-// an archive refers to an instrument: a server UUID means nothing in another
-// instance and is never written.
+// InstrumentRef names one instrument by a single identifier, and one currency
+// line of it when it carries a currency. It is the only way an archive refers to
+// either: a server UUID means nothing in another instance and is never written.
 //
-// An export writes the identifier chosen by bestIdentifierJoin (see
-// server/db/postgres/identifier_priority.go), so every export that surfaces one
-// identifier per instrument agrees on which one it is.
+// An export writes the identifier chosen by one of the two identifier joins (see
+// server/db/postgres/identifier_priority.go) -- the security join where the ref
+// names a security, the listing join where it names a line -- so every export
+// agrees on which identifier that is.
 message InstrumentRef {
   portfoliodb.type.v1.IdentifierType type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   string value = 2 [(buf.validate.field).string.min_len = 1];
   // MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER, source for
   // BROKER_DESCRIPTION; empty otherwise. Absent and empty mean the same thing.
   string domain = 3;
+  // ISO 4217, and which of the security's currency lines this names. Empty means
+  // the ref names the security itself and says nothing about its lines.
+  //
+  // A listing is named by an identifier and a currency rather than by an
+  // identifier of its own, because the archive already holds both halves of what
+  // identifies one and a currency code needs no registry, no round-trip test and
+  // no storage. The identifier resolves to the security -- a listing-grain one
+  // through the line it hangs off -- and the currency picks the line within it.
+  //
+  // Each use site says which it requires: a price group must carry one, a
+  // declaration may, and a group that is about the security refuses one.
+  // See docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+  string currency = 4;
 }
 
 // Identifier is an InstrumentRef plus the canonical flag, used where a file

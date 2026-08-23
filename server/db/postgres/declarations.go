@@ -277,6 +277,7 @@ type exportDeclaration struct {
 	Broker  string `db:"broker"`
 	Account string `db:"account"`
 	db.InstrumentRef
+	Currency        string          `db:"currency"`
 	DeclaredQty     decimal.Decimal `db:"declared_qty"`
 	AsOfDate        time.Time       `db:"as_of_date"`
 	ShareCountBasis *time.Time      `db:"share_count_basis"`
@@ -309,6 +310,10 @@ func (p *Postgres) ListHoldingDeclarationsForExport(ctx context.Context, userID 
 			COALESCE(best_id.identifier_type, '') AS identifier_type,
 			COALESCE(best_id.value, '') AS value,
 			COALESCE(best_id.domain, '') AS domain,
+			-- The line's own currency, which with the identifier is what names a
+			-- listing in a file. Empty for a declaration on no line, which is a
+			-- statement the file carries as it stands rather than one it repairs.
+			COALESCE(l.currency, '') AS currency,
 			d.declared_qty, d.as_of_date,
 			-- A basis equal to the declaration's own date is the as-traded
 			-- convention and says nothing a reader cannot infer. The column is
@@ -317,6 +322,7 @@ func (p *Postgres) ListHoldingDeclarationsForExport(ctx context.Context, userID 
 			CASE WHEN d.share_count_basis = d.as_of_date THEN NULL
 				ELSE d.share_count_basis END AS share_count_basis
 		FROM holding_declarations d
+		LEFT JOIN instrument_listings l ON l.id = d.listing_id
 		`+bestListingIdentifierJoinOn("LEFT JOIN", "d.listing_id", "best_id")+`
 		WHERE d.user_id = $1
 		ORDER BY d.broker, d.account, d.as_of_date, d.instrument_id, d.listing_id
@@ -330,6 +336,7 @@ func (p *Postgres) ListHoldingDeclarationsForExport(ctx context.Context, userID 
 			Broker:          r.Broker,
 			Account:         r.Account,
 			Ref:             r.InstrumentRef,
+			Currency:        r.Currency,
 			DeclaredQty:     r.DeclaredQty,
 			AsOfDate:        r.AsOfDate,
 			ShareCountBasis: r.ShareCountBasis,

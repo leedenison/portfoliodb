@@ -92,7 +92,7 @@ test.describe("user archive page", () => {
     // carried with its value -- not merely present and empty, which is what an
     // export that silently dropped it would also look like.
     expect(doc.envelope.kind).toBe("USER");
-    expect(doc.envelope.format_version).toBe(1);
+    expect(doc.envelope.format_version).toBe(2);
     expect(doc.preferences.display_currency).toBe(CURRENCY);
     // No system data reaches a user archive, and a part left out of the menu is
     // absent rather than present and empty.
@@ -302,13 +302,15 @@ test.describe("user archive page", () => {
     expect(january.as_of_date).toBe("2024-01-31");
     expect(january.declarations).toHaveLength(2);
 
-    // Named by identifier and never by id. A declaration is about a holding and a
-    // holding is per currency line, so the listing join picks the name and the
+    // Named by identifier and never by id, and by an identifier and a currency
+    // rather than by an identifier alone: a declaration is about a holding and a
+    // holding is per currency line. The listing join picks the name, so the
     // ticker wins here -- the opposite of the posting above, and the whole point
     // of there being two orders.
     expect(january.declarations[0].instrument).toEqual({
       type: "MIC_TICKER",
       value: "AMZN",
+      currency: "USD",
     });
     // Decimals are strings, never JSON numbers.
     expect(january.declarations[0].declared_qty).toBe("8");

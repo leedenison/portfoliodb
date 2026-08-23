@@ -44,9 +44,13 @@ function systemFixture() {
     prices: {
       groups: [
         {
-          instrument: { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS" },
+          instrument: {
+            type: IdentifierType.MIC_TICKER,
+            value: "AAPL",
+            domain: "XNAS",
+            currency: "USD",
+          },
           assetClass: AssetClass.STOCK,
-          currency: "USD",
           coverage: [{ from: "2024-01-01", before: "2024-01-17" }],
           rows: [
             { priceDate: "2024-01-15", close: "185.9", volume: 48088700n },
@@ -151,7 +155,7 @@ describe("archive codec", () => {
   it("writes proto field names and enum names", () => {
     const s = marshalSystem(systemFixture());
     for (const want of [
-      '"format_version":1',
+      '"format_version":2',
       '"exported_at":"2026-07-30T00:00:00Z"',
       '"kind":"SYSTEM"',
       '"asset_class":"STOCK"',
@@ -217,7 +221,7 @@ describe("archive codec", () => {
 
   it("refuses an archive from a later PortfolioDB by version, not by parse error", () => {
     const doc = JSON.parse(marshalSystem(systemFixture()));
-    doc.envelope.format_version = 2;
+    doc.envelope.format_version = 3;
     expect(() => unmarshalSystem(JSON.stringify(doc))).toThrow(ArchiveVersionError);
   });
 
@@ -226,10 +230,10 @@ describe("archive codec", () => {
   });
 
   // An upload UI has one sentence to explain a rejected file, and "archive
-  // format version 2 is newer than this client supports (1)" is not it.
+  // format version 3 is newer than this client supports (2)" is not it.
   it("turns a refusal into a sentence a user can act on", () => {
     const newer = JSON.parse(marshalSystem(systemFixture()));
-    newer.envelope.format_version = 2;
+    newer.envelope.format_version = 3;
     try {
       unmarshalSystem(JSON.stringify(newer));
       throw new Error("expected a refusal");

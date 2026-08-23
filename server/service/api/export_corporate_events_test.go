@@ -10,6 +10,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/archive"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
 )
@@ -44,7 +45,7 @@ func TestExportSystemArchive_CorporateEvents_Empty(t *testing.T) {
 	if env == nil {
 		t.Fatal("first message is not the envelope")
 	}
-	if env.GetFormatVersion() != 1 || env.GetKind() != archivev1.ArchiveKind_SYSTEM {
+	if env.GetFormatVersion() != archive.FormatVersion || env.GetKind() != archivev1.ArchiveKind_SYSTEM {
 		t.Fatalf("got format_version=%d kind=%v", env.GetFormatVersion(), env.GetKind())
 	}
 	if !env.GetExportedAt().IsValid() {

@@ -96,11 +96,14 @@ A file has three levels, and each states its own scope in full.
 - **Group.** The entity's aggregate root: the **listing** for prices, the
   instrument for corporate events, the window for transactions, the statement
   for holding declarations. Coverage and asset class live here. A listing is
-  named by a security identifier plus a currency, since an identifier alone no
-  longer picks one out -- see
-  adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
-  Where a group spans both grains, the currency sits on the row that varies by
-  it rather than on the group, under the same rule as every other field.
+  named by an identifier plus a currency, since an identifier alone no longer
+  picks one out -- see
+  adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md. Both
+  halves sit on the `instrument` reference itself, so a reference either names a
+  security or names one of its lines and there is nowhere for the two to
+  disagree. Where a group spans both grains, the currency sits on the row that
+  varies by it rather than on the group, under the same rule as every other
+  field.
 - **Row.** Only what varies per row. A price row is a date, a bar, and the share
   count basis the bar is denominated in when that is not its own date.
 
@@ -187,7 +190,7 @@ place on the server, as the plugin category's does.
 Every archive is one protojson object whose first member is the envelope:
 
 ```json
-{"envelope": {"format_version": 1,
+{"envelope": {"format_version": 2,
               "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
               "kind": "SYSTEM"}}
@@ -217,7 +220,7 @@ written in restore order -- instruments first, because every other part refers
 to them.
 
 ```json
-{"envelope": {"format_version": 1, "exported_at": "2026-07-30T00:00:00Z",
+{"envelope": {"format_version": 2, "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
               "kind": "SYSTEM"},
  "instruments": {"instruments": [...]},
@@ -289,8 +292,7 @@ fact about a listing, and the security's is the hull of its listings'.
 
 | Level | Field | Notes |
 | --- | --- | --- |
-| group | `instrument` | identifier triple naming the security |
-| group | `currency` | ISO 4217; names which listing of it, and is not merely a hint |
+| group | `instrument` | identifier triple plus `currency`, naming one listing. The currency is required here and is not a hint: a price with no stated currency asserts nothing, and the line whose currency is unknown is not priceable |
 | group | `asset_class` | hint for identifier plugin routing on an unknown instrument |
 | group | `coverage[]` | half-open intervals |
 | row | `price_date` | |
@@ -299,8 +301,8 @@ fact about a listing, and the security's is the hull of its listings'.
 | row | `close` | |
 
 ```json
-{"instrument": {"type": "MIC_TICKER", "value": "AAPL", "domain": "XNAS"},
- "asset_class": "STOCK", "currency": "USD",
+{"instrument": {"type": "MIC_TICKER", "value": "AAPL", "domain": "XNAS", "currency": "USD"},
+ "asset_class": "STOCK",
  "coverage": [{"from": "2022-01-01", "before": "2025-07-07"}],
  "rows": [{"price_date": "2024-01-15", "close": "185.9", "volume": "48088700"}]}
 ```
@@ -332,7 +334,8 @@ as as-traded and was adjusted a second time.
 list of events, each of which is a `split` or a `dividend`. The group is the
 security rather than the listing because coverage and splits are facts about the
 security; a dividend is paid in a currency, so its own `currency` field names
-the listing it belongs to.
+the listing it belongs to. The group's `instrument` therefore carries no
+currency, and one that does is refused rather than ignored.
 
 That field selects among the lines the importing instance already holds and
 mints none, so a dividend naming a currency the security is not quoted in is
@@ -405,7 +408,7 @@ blocks across both fetchers and every plugin.
 
 | Level | Field | Notes |
 | --- | --- | --- |
-| group | `instrument` | identifier triple |
+| group | `instrument` | identifier triple, naming the security and carrying no `currency` |
 | block | `category` | `PRICE` or `CORPORATE_EVENT`: which fetcher is blocked |
 | block | `currency` | `PRICE` blocks only; which listing is blocked. A corporate event fetch is per security and states none |
 | block | `plugin_id` | as the plugin registry spells it |
@@ -447,7 +450,7 @@ an identifier.
 
 | Level | Field | Notes |
 | --- | --- | --- |
-| group | `instrument` | identifier triple |
+| group | `instrument` | identifier triple, naming the security and carrying no `currency`: an unapplied event is ruled on for all of a security's lines at once |
 | event | `event_type` | `REVERSE_SPLIT`, `NON_WHOLE_SPLIT`, `SPECIAL_CASH_DIVIDEND`, `UNATTRIBUTABLE_DIVIDEND`, ... |
 | event | `ex_date` | optional; absent for the rare event with no date |
 | event | `detail` | the sentence shown in the review queue |
@@ -544,7 +547,7 @@ declarations last, because a checked declaration is compared against what the
 transactions add up to.
 
 ```json
-{"envelope": {"format_version": 1, "exported_at": "2026-07-30T00:00:00Z",
+{"envelope": {"format_version": 2, "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
               "kind": "USER"},
  "preferences": {"display_currency": "GBP"},
@@ -609,7 +612,7 @@ stored and where it travels.
 | window | `postings[]` | may be empty, which clears the period |
 | posting | `order_date`, `trade_date`, `instrument_description`, `type`, `quantity` | both dates required; a source stating one date writes it to both |
 | posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
-| posting | `identifier_hints[]` | zero or more identifier triples |
+| posting | `identifier_hints[]` | zero or more identifier triples, naming the security. Which line the posting is on is settled at ingest from `trading_currency`, so a hint carries no `currency` |
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
 | posting | `share_count_basis` | optional; absent means the posting's own `trade_date` |
 | posting | `correlations[]` | zero or more; why this posting might belong with another |
@@ -702,15 +705,28 @@ rather than in the request, because an archive has to be self-describing.
 | Level | Field | Notes |
 | --- | --- | --- |
 | statement | `broker`, `account`, `as_of_date` | |
-| declaration | `instrument` | identifier triple |
+| declaration | `instrument` | identifier triple plus `currency`, naming the line the holding is on. The currency is optional and its absence is meaningful: a declaration on no line at all, which is the holding nothing could place and reports unpriced |
 | declaration | `declared_qty` | signed decimal |
 | declaration | `share_count_basis` | optional; absent means the statement's `as_of_date` |
+
+A holding is per currency line, so one security may carry a declaration on each
+of its lines at one date: two lines differ by an FX rate, and adding them would
+report a number in no currency at all.
 
 **Absence is not deletion**, and this is the one place the archive deliberately
 differs from the transaction part. A declaration missing from an imported file is
 left alone: a file assembled from one statement covers one account and one date,
 and treating everything outside it as retracted would delete the user's other
-checkpoints. Import is an upsert on (broker, account, instrument, `as_of_date`).
+checkpoints. Import is an upsert on (broker, account, instrument, listing,
+`as_of_date`).
+
+**The line is resolved and never minted.** A currency the importing instance does
+not quote the security in names no line, so the row is rejected the way one that
+identifies nothing is -- a user saying how much of something they hold has not
+said the security is quoted in that currency, and minting a line from it would
+let a typo in a file invent one. A reference stating no currency names no line,
+and is carried through as it stands: settling it on import would turn "nothing
+said which" into a claim.
 
 The file carries no pad-or-assert discriminator. Which one a declaration is
 follows from the declaration dates for its holding -- the earliest pads, the rest
@@ -889,7 +905,7 @@ archive. The price recovery scripts in `local/scripts/` write one with
 The minimum valid system document is an envelope and one part:
 
 ```json
-{"envelope": {"format_version": 1,
+{"envelope": {"format_version": 2,
               "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "recover-prices.py",
               "kind": "SYSTEM"},

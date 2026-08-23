@@ -24,7 +24,11 @@ import (
 )
 
 // FormatVersion is what this build writes, and the highest it will read.
-const FormatVersion = 1
+//
+// 2: a listing is named by a security identifier and a currency, so InstrumentRef
+// carries one and PriceGroup's own currency field is gone -- a field removed and
+// a message renumbered, which is what the version exists to catch.
+const FormatVersion = 2
 
 var marshalOpts = protojson.MarshalOptions{
 	// snake_case keys. Without this protojson writes lowerCamelCase, which is a

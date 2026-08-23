@@ -24,7 +24,16 @@ message UnhandledEventPart {
 }
 
 // UnhandledEventGroup is one instrument's unhandled events.
+//
+// Per security, like the corporate events it was detected alongside: what could
+// not be applied is an action on the shares, and an admin ruling on it rules for
+// every line of them at once.
 message UnhandledEventGroup {
+  option (buf.validate.message).cel = {
+    id: "unhandled_event_group.instrument_names_a_security"
+    message: "instrument.currency must be empty: an unapplied corporate event is on the security, and is ruled on for all of its lines at once"
+    expression: "this.instrument.currency == ''"
+  };
   InstrumentRef instrument = 1 [(buf.validate.field).required = true];
   repeated UnhandledEvent events = 2;
 }

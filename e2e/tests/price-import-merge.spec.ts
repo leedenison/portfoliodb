@@ -65,12 +65,11 @@ test.describe("price-first instrument merge", () => {
 
     // Step 1: Import prices for an unknown instrument (MIC_TICKER AAPL, no
     // asset_class). Plugins are skipped; instrument created with just MIC_TICKER.
-    // The currency is what names the line the bars land on, so the group states
-    // one even where the security is otherwise unknown.
+    // The ref's currency is what names the line the bars land on, so the group
+    // states one even where the security is otherwise unknown.
     const priceResp = await importPricesAndWait(adminSessionId, [
       {
-        instrument: { type: IdentifierType.MIC_TICKER, value: "AAPL" },
-        currency: "USD",
+        instrument: { type: IdentifierType.MIC_TICKER, value: "AAPL", currency: "USD" },
         rows: [
           { priceDate: "2023-12-01", close: "190.50" },
           { priceDate: "2023-12-04", close: "191.25" },

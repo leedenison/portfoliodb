@@ -269,8 +269,12 @@ func declarationStatements(rows []db.ExportDeclaration) []*archivev1.Statement {
 			}
 			curBroker, curAccount, curDate = r.Broker, r.Account, r.AsOfDate
 		}
+		ref := archiveRef(r.Ref)
+		// Which line, where one was named. Absent is a declaration on no line,
+		// which the file states as it stands rather than settling for a reader.
+		ref.Currency = r.Currency
 		d := &archivev1.Declaration{
-			Instrument:  archiveRef(r.Ref),
+			Instrument:  ref,
 			DeclaredQty: r.DeclaredQty.String(),
 		}
 		// Written only where it differs from the statement's own date, which is

@@ -103,10 +103,11 @@ type resolvedGroup struct {
 // group carrying no rows is still worth writing: it is the only place they
 // travel for a listing that was covered and had nothing.
 //
-// The currency is part of the memo key, not just a hint: an identifier names the
-// security and the currency names which of its lines, so two groups sharing an
-// identifier and differing in currency are two listings and must not share an
-// answer. See docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+// The currency is part of the ref and part of the memo key, not a hint: an
+// identifier resolves to the security and the currency names which of its lines,
+// so two groups sharing an identifier and differing in currency are two listings
+// and must not share an answer.
+// See docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
 //
 // A group with no currency is refused. A price with no stated currency asserts
 // nothing, and the line it would land on -- the security's unknown one -- is not
@@ -118,7 +119,7 @@ func resolveGroupListing(ctx context.Context, database db.DB, pluginRegistry *id
 	if !identifier.Known(idType) {
 		return "", fmt.Errorf("unknown identifier_type %q", idType)
 	}
-	currency := g.GetCurrency()
+	currency := ref.GetCurrency()
 	if currency == "" {
 		return "", fmt.Errorf("price group states no currency, so it names no listing")
 	}

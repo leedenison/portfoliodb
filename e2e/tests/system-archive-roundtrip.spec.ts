@@ -152,7 +152,7 @@ test.describe("system archive page", () => {
     // with its contents -- not merely present and empty, which is what an
     // export that silently dropped its rows would also look like.
     expect(doc.envelope.kind).toBe("SYSTEM");
-    expect(doc.envelope.format_version).toBe(1);
+    expect(doc.envelope.format_version).toBe(2);
     const exportedTickers = doc.instruments.instruments
       .flatMap((i: { identifiers: { value: string }[] }) => i.identifiers.map((id) => id.value))
       .filter((v: string) => v.startsWith("E2E"));

@@ -1151,16 +1151,11 @@ func TestListHoldingDeclarationsForExport_KeepsAnUnidentifiedInstrument(t *testi
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-noid", "U", "u@u.com")
-	// The listing goes in with the instrument: every security has at least one
-	// currency line, and this one's is unknown because nothing states it.
+	// No listing: nothing states a currency, so there is no line to mint, and the
+	// declaration is on none.
 	var instID string
 	if err := p.q.QueryRowxContext(ctx, `
-		WITH ins AS (
-			INSERT INTO instruments (asset_class) VALUES ('STOCK') RETURNING id
-		), lst AS (
-			INSERT INTO instrument_listings (instrument_id, currency) SELECT id, NULL FROM ins
-		)
-		SELECT id::text FROM ins
+		INSERT INTO instruments (asset_class) VALUES ('STOCK') RETURNING id::text
 	`).Scan(&instID); err != nil {
 		t.Fatalf("insert instrument: %v", err)
 	}

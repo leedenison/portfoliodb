@@ -242,9 +242,10 @@ order the list is written in carries no meaning.
 | --- | --- |
 | `asset_class` | |
 | `name` | optional; advisory, see below |
-| `listings[]` | at least one; `{currency, valid_from, valid_before, identifiers[], provider_identifiers[]}`. `currency` is ISO 4217 and optional -- absent is the unknown listing, of which a security has at most one |
-| `identifiers[]` | the security-grain ones; `{type, value, domain, canonical, valid_from, valid_before}`. May be empty for a security identified only through its lines -- an equity known by nothing but its ticker -- which is why the minimum is on `listings[]` |
-| `provider_identifiers[]` | the security-grain ones; `{provider, identifier_type, value, domain}`, where `identifier_type` is the provider's own vocabulary rather than `IdentifierType`. Every type that exists today names a line, so in practice these travel on the listing |
+| `listings[]` | `{currency, valid_from, valid_before, identifiers[], provider_identifiers[]}`. `currency` is ISO 4217 and required -- a line is a currency, so a listing without one is not a line. May be empty: a security nobody has named a line for has none |
+| `identifiers[]` | the security-grain ones; `{type, value, domain, canonical, valid_from, valid_before}`. May be empty for a security identified only through its lines -- an equity known by nothing but its ticker |
+| `unplaced_identifiers[]` | listing-grain names the file places on no line: a ticker or a SEDOL from a result that stated no currency. Same shape as `identifiers[]`. They name the security and no line of it, which is neither of the two claims above, so grain alone cannot say where a name belongs and the file says (adr/0075) |
+| `provider_identifiers[]`, `unplaced_provider_identifiers[]` | the security-grain ones and the unplaced listing-grain ones; `{provider, identifier_type, value, domain}`, where `identifier_type` is the provider's own vocabulary rather than `IdentifierType`. Every type that exists today names a line, so in practice these travel on the listing |
 | `underlying` | optional; a reference naming a line of an instrument in the same part -- identifier plus `currency`, since a contract's strike is a price and a price is in a currency, so what it delivers is one currency line (adr/0074). A reference stating no currency names no line and is rejected |
 | `cik`, `sic_code` | optional |
 | `strike`, `expiry`, `put_call`, `contract_multiplier` | optional; options only |
@@ -279,6 +280,13 @@ rather than inferred from whether it carries a domain; see
 currency because currency, the tradability window and the listing-grain
 identifiers are all facts about a line, and a field cannot sit above the level it
 varies by.
+
+A listing-grain name the exporting instance could not place on a line is the one
+exception, and it rides on the security in a field of its own rather than on a
+line invented to hold it. A file has to be able to say "this ticker names a line
+of this security and nothing said which", which is what the instance itself
+records; a listing with no currency would say something else, and a listing
+picked to carry it would say something false.
 
 Importing an instrument the instance already has -- which every rebuild does, as
 the currency and FX rows are reference data created before any file is read --

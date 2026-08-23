@@ -928,17 +928,11 @@ func TestListStockSplitsForExport_ExcludesInstrumentsWithoutIdentifiers(t *testi
 	ctx := context.Background()
 
 	// Insert a bare instrument (no identifiers) directly. EnsureInstrument
-	// requires at least one identifier, so we side-step it -- which means minting
-	// the listing here too: every security has at least one currency line, and
-	// this one's is unknown because nothing states it.
+	// requires at least one identifier, so we side-step it. It gets no listing:
+	// nothing states a currency, so there is no line to mint.
 	var instID string
 	if err := p.q.QueryRowContext(ctx, `
-		WITH ins AS (
-			INSERT INTO instruments (asset_class) VALUES ('STOCK') RETURNING id
-		), lst AS (
-			INSERT INTO instrument_listings (instrument_id, currency) SELECT id, NULL FROM ins
-		)
-		SELECT id::text FROM ins
+		INSERT INTO instruments (asset_class) VALUES ('STOCK') RETURNING id::text
 	`).Scan(&instID); err != nil {
 		t.Fatalf("insert instrument: %v", err)
 	}

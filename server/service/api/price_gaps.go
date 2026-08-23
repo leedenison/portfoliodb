@@ -127,7 +127,7 @@ func toPriceGapProtos(gaps []db.ListingDateRanges, listingMap map[string]*db.Lis
 		}
 		pg := &apiv1.PriceGap{
 			ListingId:    g.ListingID,
-			Currency:     derefStr(lst.Currency),
+			Currency:     lst.Currency,
 			InstrumentId: lst.InstrumentID,
 			Identifier:   ident,
 			AssetClass:   db.StrToAssetClass(ac),

@@ -135,7 +135,10 @@ func (c gapCycle) expect(m *mock.MockDB) {
 	// their way out; here the fixture states them once and the line takes them.
 	listings := make(map[string]*db.Listing, len(c.insts))
 	for _, inst := range c.insts {
-		l := &db.Listing{ID: lstIDOf(inst.ID), InstrumentID: inst.ID, Currency: inst.Currency}
+		l := &db.Listing{ID: lstIDOf(inst.ID), InstrumentID: inst.ID}
+		if inst.Currency != nil {
+			l.Currency = *inst.Currency
+		}
 		if inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
 			l.Venues = []string{*inst.ExchangeMIC}
 		}

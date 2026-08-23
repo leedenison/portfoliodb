@@ -27,7 +27,7 @@ func newPartTest(t *testing.T) (*mock.MockDB, *PartReporter) {
 // usdLine is the single USD line a fixture's security trades in, carrying
 // whichever listing-grain names the test needs. Every security has at least one.
 func usdLine(idns ...*archivev1.Identifier) []*archivev1.Listing {
-	return []*archivev1.Listing{{Currency: proto.String("USD"), Identifiers: idns}}
+	return []*archivev1.Listing{{Currency: "USD", Identifiers: idns}}
 }
 
 func instrumentPart(insts ...*archivev1.Instrument) *archivev1.InstrumentPart {
@@ -46,14 +46,14 @@ func TestInstrumentPart_Success(t *testing.T) {
 	expectAnyMerge(database)
 	database.EXPECT().
 		EnsureArchiveInstrument(gomock.Any(), "STOCK", "", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, listings []db.ListingMerge, claims []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, set db.ListingSet, claims []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
 			if len(idns) < 2 {
 				t.Errorf("expected at least 2 security-grain identifiers, got %d", len(idns))
 			}
 			// The ticker names a line, so it travels on that line rather than
 			// beside the ISIN.
-			if len(listings) != 1 || len(listings[0].Identifiers) != 1 {
-				t.Fatalf("listings = %+v; want one carrying the ticker", listings)
+			if len(set.Listings) != 1 || len(set.Listings[0].Identifiers) != 1 {
+				t.Fatalf("listings = %+v; want one carrying the ticker", set.Listings)
 			}
 			// The instrument block names its identifiers together, whatever grain
 			// each of them is, so it is one claim holding all of them.
@@ -74,7 +74,7 @@ func TestInstrumentPart_Success(t *testing.T) {
 			{Type: typev1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL"},
 		},
 		Listings: []*archivev1.Listing{{
-			Currency: proto.String("USD"),
+			Currency: "USD",
 			Identifiers: []*archivev1.Identifier{
 				{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true},
 			},
@@ -100,7 +100,7 @@ func TestInstrumentPart_RestoresOptionTermsAndMultiplier(t *testing.T) {
 	database.EXPECT().EnsureListing(gomock.Any(), "underlying-1", "USD").Return("underlying-line-1", nil)
 	database.EXPECT().
 		EnsureArchiveInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-1", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []db.IdentifierInput, _ []db.ListingMerge, _ []db.IdentityClaim, _ string, opts *db.OptionFields) (string, string, error) {
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []db.IdentifierInput, _ db.ListingSet, _ []db.IdentityClaim, _ string, opts *db.OptionFields) (string, string, error) {
 			if opts == nil {
 				t.Fatal("option terms were not restored")
 			}
@@ -190,19 +190,34 @@ func TestInstrumentPart_DanglingUnderlyingRef(t *testing.T) {
 	}
 }
 
-// A security with no lines describes nothing this can store: every security has
-// at least one, even where how many it has is what is unknown.
+// A security with no lines is ordinary: nobody has named one, and what is known
+// about it names no line either. What it cannot lack is a name.
 func TestInstrumentPart_NoListings(t *testing.T) {
 	database, rep := newPartTest(t)
-	ensured, err := InstrumentPart(context.Background(), database, instrumentPart(&archivev1.Instrument{}), rep)
+	expectAnyMerge(database)
+	database.EXPECT().
+		EnsureArchiveInstrument(gomock.Any(), gomock.Any(), gomock.Any(), "", gomock.Any(), gomock.Any(), gomock.Any(),
+			gomock.Any(), gomock.Any(), gomock.Any(), "", nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []db.IdentifierInput, set db.ListingSet, _ []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
+			if len(set.Listings) != 0 {
+				t.Errorf("listings = %+v, want none", set.Listings)
+			}
+			if len(set.Unplaced) != 1 || set.Unplaced[0].Ref.Value != "AAPL" {
+				t.Errorf("unplaced = %+v, want the ticker nobody could place", set.Unplaced)
+			}
+			return "inst-1", "", nil
+		})
+	part := instrumentPart(&archivev1.Instrument{
+		UnplacedIdentifiers: []*archivev1.Identifier{
+			{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true},
+		},
+	})
+	ensured, err := InstrumentPart(context.Background(), database, part, rep)
 	if err != nil {
 		t.Fatalf("InstrumentPart: %v", err)
 	}
-	if ensured != 0 || len(rep.Errors()) != 1 {
-		t.Fatalf("expected 1 error, 0 ensured; got ensured=%d, errors=%d", ensured, len(rep.Errors()))
-	}
-	if rep.Errors()[0].GetMessage() != "at least one listing required" {
-		t.Fatalf("got error %q", rep.Errors()[0].GetMessage())
+	if ensured != 1 || len(rep.Errors()) != 0 {
+		t.Fatalf("expected 1 ensured, no errors; got ensured=%d, errors=%v", ensured, rep.Errors())
 	}
 }
 
@@ -327,7 +342,7 @@ func TestInstrumentPart_MergesWhatTheFileCarries(t *testing.T) {
 		AssetClass:  typev1.AssetClass_FX,
 		Cik:         proto.String("0000320193"),
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_FX_PAIR, Value: "EURUSD", Canonical: true}},
-		Listings:    []*archivev1.Listing{{Currency: proto.String("USD"), ValidFrom: proto.String("1999-01-04")}},
+		Listings:    []*archivev1.Listing{{Currency: "USD", ValidFrom: proto.String("1999-01-04")}},
 	})
 	ensured, err := InstrumentPart(context.Background(), database, part, rep)
 	if err != nil {

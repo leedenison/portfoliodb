@@ -161,16 +161,14 @@ func identifiersToProto(idns []db.IdentifierInput) []*apiv1.InstrumentIdentifier
 	return out
 }
 
-// listingsToProto converts a security's currency lines. A nil Currency is the
-// unknown listing and becomes an empty string, as every other nullable string on
-// this message does.
+// listingsToProto converts a security's currency lines.
 func listingsToProto(listings []*db.Listing) []*apiv1.Listing {
 	if len(listings) == 0 {
 		return nil
 	}
 	out := make([]*apiv1.Listing, 0, len(listings))
 	for _, l := range listings {
-		pl := &apiv1.Listing{Id: l.ID, Currency: derefStr(l.Currency), Venues: l.Venues}
+		pl := &apiv1.Listing{Id: l.ID, Currency: l.Currency, Venues: l.Venues}
 		if len(l.Identifiers) > 0 {
 			pl.Identifiers = identifiersToProto(l.Identifiers)
 		}

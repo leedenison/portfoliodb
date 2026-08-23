@@ -19,9 +19,11 @@ func lstIDOf(instrumentID string) string { return instrumentID + "-lst" }
 func listingsOf(insts []*dbpkg.InstrumentRow) map[string]*dbpkg.Listing {
 	out := make(map[string]*dbpkg.Listing, len(insts))
 	for _, inst := range insts {
-		out[lstIDOf(inst.ID)] = &dbpkg.Listing{
-			ID: lstIDOf(inst.ID), InstrumentID: inst.ID, Currency: inst.Currency,
+		l := &dbpkg.Listing{ID: lstIDOf(inst.ID), InstrumentID: inst.ID}
+		if inst.Currency != nil {
+			l.Currency = *inst.Currency
 		}
+		out[lstIDOf(inst.ID)] = l
 	}
 	return out
 }

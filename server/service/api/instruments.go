@@ -64,16 +64,21 @@ func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
 		Name:                optStr(row.Name),
 		Identifiers:         archiveIdentifiers(row.Identifiers),
 		ProviderIdentifiers: archiveProviderIdentifiers(row.ProviderIdentifiers),
-		Listings:            make([]*archivev1.Listing, 0, len(row.Listings)),
-		Cik:                 optStr(row.CIK),
-		SicCode:             optStr(row.SICCode),
-		Strike:              decStrPtr(row.Strike),
-		Expiry:              optDate(row.Expiry),
-		PutCall:             optStr(row.PutCall),
+		// The listing-grain names on no line. They cannot ride on a listing,
+		// having none, and they are not security-grain, so the file carries them
+		// as the third thing they are.
+		UnplacedIdentifiers:         archiveIdentifiers(row.UnplacedIdentifiers),
+		UnplacedProviderIdentifiers: archiveProviderIdentifiers(row.UnplacedProviderIdentifiers),
+		Listings:                    make([]*archivev1.Listing, 0, len(row.Listings)),
+		Cik:                         optStr(row.CIK),
+		SicCode:                     optStr(row.SICCode),
+		Strike:                      decStrPtr(row.Strike),
+		Expiry:                      optDate(row.Expiry),
+		PutCall:                     optStr(row.PutCall),
 	}
 	for _, l := range row.Listings {
 		out.Listings = append(out.Listings, &archivev1.Listing{
-			Currency:            optStr(l.Currency),
+			Currency:            l.Currency,
 			ValidFrom:           optDate(l.ValidFrom),
 			ValidBefore:         optDate(l.ValidBefore),
 			Identifiers:         archiveIdentifiers(l.Identifiers),

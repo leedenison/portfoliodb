@@ -167,8 +167,7 @@ adr/0072-a-posting-names-a-security-and-a-line.md.
 
 Two shapes reach it, and both leave `txs.listing_id` null. The security is quoted
 in more than one currency and no posting of the holding said which line it is on.
-Or the security states no currency at all, so it has only its unknown listing,
-which is not a line a posting can be on and holds no bars either way.
+Or nobody has named a line for it at all, so it has none to be on.
 
 In both the quantity is right and the currency is unknown. Picking a line would
 value the position at a currency nobody stated, which is the failure this level

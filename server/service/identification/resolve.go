@@ -32,8 +32,8 @@ type ResolveResult struct {
 	// fungible with a holding in the other.
 	//
 	// Empty where nothing named a line. That is not a failure -- the security is
-	// still resolved -- it says the currency is unknown, which is what the
-	// unknown listing records. Postings and holdings start naming this in 0149.
+	// still resolved -- it says the currency is unknown, and a posting reaching
+	// it names no line.
 	ListingID  string
 	HadTimeout bool                  // at least one plugin timed out
 	HadError   bool                  // at least one plugin returned a non-ErrNotIdentified error

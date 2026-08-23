@@ -163,7 +163,7 @@ func TestExportSystemArchive_Instruments_Success(t *testing.T) {
 			// The ticker names a line, so it is written on the line rather than
 			// beside the description.
 			Listings: []*dbpkg.Listing{{
-				ID: "line-1", Currency: strPtr("USD"),
+				ID: "line-1", Currency: "USD",
 				Identifiers: []dbpkg.IdentifierInput{{
 					Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 					Canonical: true,
@@ -220,7 +220,7 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 			ContractMultiplier: decimal.RequireFromString("1.5"),
 			// The tradability window is a fact about the line, and the security's
 			// is the hull of its lines'.
-			Listings: []*dbpkg.Listing{{ID: "line-1", Currency: strPtr("USD"), ValidFrom: &validFrom}},
+			Listings: []*dbpkg.Listing{{ID: "line-1", Currency: "USD", ValidFrom: &validFrom}},
 			// The symbol the contract traded under before a split, and the one
 			// it wears now. Both travel, or a file exported before the split
 			// would name a symbol the importing instance has never heard of.
@@ -353,8 +353,8 @@ func TestInstrumentRowToProto_CarriesListings(t *testing.T) {
 	row := &dbpkg.InstrumentRow{
 		ID: "id-1",
 		Listings: []*dbpkg.Listing{
-			{ID: "lst-1", InstrumentID: "id-1", Currency: strPtr("GBX"), ValidFrom: &from, ValidBefore: &before},
-			{ID: "lst-2", InstrumentID: "id-1"},
+			{ID: "lst-1", InstrumentID: "id-1", Currency: "GBX", ValidFrom: &from, ValidBefore: &before},
+			{ID: "lst-2", InstrumentID: "id-1", Currency: "USD"},
 		},
 	}
 
@@ -370,11 +370,43 @@ func TestInstrumentRowToProto_CarriesListings(t *testing.T) {
 		t.Errorf("first listing interval = [%s, %s), want [2020-01-01, 2024-06-01)", first.GetValidFrom(), first.GetValidBefore())
 	}
 	second := got.GetListings()[1]
-	if second.GetCurrency() != "" {
-		t.Errorf("unknown listing currency = %q, want empty", second.GetCurrency())
+	if second.GetCurrency() != "USD" {
+		t.Errorf("second listing currency = %q, want USD", second.GetCurrency())
 	}
 	if second.ValidFrom != nil || second.ValidBefore != nil {
-		t.Errorf("unknown listing interval = [%v, %v), want both unset", second.ValidFrom, second.ValidBefore)
+		t.Errorf("second listing interval = [%v, %v), want both unset", second.ValidFrom, second.ValidBefore)
+	}
+}
+
+// A listing-grain name the instance could not place rides on the security, in a
+// field of its own: a file has to be able to say "this ticker names a line of
+// this security and nothing said which", which is what the instance records. See
+// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+func TestArchiveInstrument_CarriesNamesThatNameNoLine(t *testing.T) {
+	row := &dbpkg.InstrumentRow{
+		ID: "id-1",
+		Identifiers: []dbpkg.IdentifierInput{{
+			Ref: dbpkg.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED1"}, Canonical: true,
+		}},
+		UnplacedIdentifiers: []dbpkg.IdentifierInput{{
+			Ref: dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "UNPL", Domain: "XLON"}, Canonical: true,
+		}},
+		UnplacedProviderIdentifiers: []dbpkg.ProviderIdentifierInput{{
+			Provider: "eodhd", Type: "EODHD_EXCH_CODE", Value: "LSE",
+		}},
+	}
+	got := archiveInstrument(row)
+	if len(got.GetListings()) != 0 {
+		t.Errorf("listings = %+v, want none", got.GetListings())
+	}
+	if len(got.GetIdentifiers()) != 1 || got.GetIdentifiers()[0].GetValue() != "GB00UNPLACED1" {
+		t.Errorf("identifiers = %+v, want the ISIN alone", got.GetIdentifiers())
+	}
+	if len(got.GetUnplacedIdentifiers()) != 1 || got.GetUnplacedIdentifiers()[0].GetValue() != "UNPL" {
+		t.Errorf("unplaced identifiers = %+v, want the ticker", got.GetUnplacedIdentifiers())
+	}
+	if len(got.GetUnplacedProviderIdentifiers()) != 1 {
+		t.Errorf("unplaced provider identifiers = %+v, want the exchange code", got.GetUnplacedProviderIdentifiers())
 	}
 }
 

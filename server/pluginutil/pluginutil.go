@@ -65,8 +65,8 @@ func PluginAcceptsListing(ac, ex, cu map[string]bool, assetClass *string, lst *d
 			return false
 		}
 	}
-	if len(cu) > 0 && lst.Currency != nil && *lst.Currency != "" {
-		if !cu[strings.ToUpper(*lst.Currency)] {
+	if len(cu) > 0 && lst.Currency != "" {
+		if !cu[strings.ToUpper(lst.Currency)] {
 			return false
 		}
 	}

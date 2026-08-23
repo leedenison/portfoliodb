@@ -84,16 +84,16 @@ test.describe("system archive page", () => {
     await rawQuery(
       `WITH i AS (INSERT INTO instruments (currency) VALUES ('USD') RETURNING id),
             l AS (INSERT INTO instrument_listings (instrument_id, currency)
-                  SELECT id, 'USD' FROM i RETURNING id)
-       INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
-       SELECT id, 'MIC_TICKER', 'XNAS', $1, true FROM l`,
+                  SELECT id, 'USD' FROM i RETURNING instrument_id, id)
+       INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
+       SELECT instrument_id, id, 'MIC_TICKER', 'XNAS', $1, true FROM l`,
       [UNCLASSIFIED_TICKER],
     );
     // The recorded output of a lookup, hung on reference data the importing
     // instance already has.
     await rawQuery(
-      `INSERT INTO provider_listing_identifiers (listing_id, provider, identifier_type, value)
-       SELECT l.id, 'eodhd', 'EODHD_EXCH_CODE', 'FOREX'
+      `INSERT INTO provider_listing_identifiers (instrument_id, listing_id, provider, identifier_type, value)
+       SELECT l.instrument_id, l.id, 'eodhd', 'EODHD_EXCH_CODE', 'FOREX'
          FROM instrument_identifiers ii
          JOIN instrument_listings l ON l.instrument_id = ii.instrument_id
         WHERE ii.identifier_type = 'FX_PAIR' AND ii.value = $1
@@ -109,13 +109,13 @@ test.describe("system archive page", () => {
             sec AS (INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
                     SELECT id, 'ISIN', $1, true FROM i),
             g AS (INSERT INTO instrument_listings (instrument_id, currency)
-                  SELECT id, 'GBP' FROM i RETURNING id),
+                  SELECT id, 'GBP' FROM i RETURNING instrument_id, id),
             u AS (INSERT INTO instrument_listings (instrument_id, currency)
-                  SELECT id, 'USD' FROM i RETURNING id),
-            gi AS (INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
-                   SELECT id, 'MIC_TICKER', 'XLON', $2, true FROM g),
-            ui AS (INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical)
-                   SELECT id, 'MIC_TICKER', 'XNYS', $3, true FROM u),
+                  SELECT id, 'USD' FROM i RETURNING instrument_id, id),
+            gi AS (INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
+                   SELECT instrument_id, id, 'MIC_TICKER', 'XLON', $2, true FROM g),
+            ui AS (INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
+                   SELECT instrument_id, id, 'MIC_TICKER', 'XNYS', $3, true FROM u),
             gp AS (INSERT INTO eod_prices (listing_id, price_date, close, data_provider)
                    SELECT id, '2024-01-15', 100.5, 'e2e-seed' FROM g)
        INSERT INTO eod_prices (listing_id, price_date, close, data_provider)

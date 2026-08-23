@@ -100,7 +100,6 @@ export async function seedFixture(filename: string): Promise<void> {
     SET listing_id = l.id
     FROM instrument_listings l
     WHERE l.instrument_id = t.instrument_id
-      AND l.currency IS NOT NULL
       AND t.listing_id IS NULL
       AND NOT EXISTS (SELECT 1 FROM instrument_listings o
                       WHERE o.instrument_id = t.instrument_id AND o.id <> l.id)

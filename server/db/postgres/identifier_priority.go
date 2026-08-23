@@ -79,8 +79,8 @@ var bestSecurityIdentifierJoin = bestSecurityIdentifierJoinOn("JOIN", "i.id", "b
 // recompute_instrument_name performs to derive a display name, and the tie-break
 // is the same one for the same reason: type priority sorts first and the two
 // grains contribute disjoint types, so the currency only ever decides between a
-// security's own listings. Nulls last within a type is "prefer a listing that has
-// a currency", so a security with a known line is never named by its unknown one.
+// security's own listings. Nulls last within a type is "prefer a name that is on
+// a line", so one nobody could place is a last resort rather than a first choice.
 //
 // Without that tie-break the answer among several tickers is whichever the
 // planner returns, and two exports of one security could disagree.
@@ -95,8 +95,8 @@ func bestSecurityIdentifierJoinOn(joinType, idExpr, alias string) string {
 			UNION ALL
 			SELECT li.identifier_type, li.value, li.domain, li.valid_before, l.currency
 			FROM instrument_listing_identifiers li
-			JOIN instrument_listings l ON l.id = li.listing_id
-			WHERE l.instrument_id = %[2]s
+			LEFT JOIN instrument_listings l ON l.id = li.listing_id
+			WHERE li.instrument_id = %[2]s
 		) ii
 		WHERE %[3]s
 		ORDER BY %[4]s, ii.currency IS NULL, ii.currency, ii.domain, ii.value

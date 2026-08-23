@@ -56,19 +56,16 @@ func splitProviderByGrain(ids []db.ProviderIdentifierInput) (security, listing [
 // moved across first, onto the survivor's line of the same currency family. That
 // much of adr/0071's union is required here rather than deferred: a MIC_TICKER
 // now lives on a listing, and without the move every eager merge would silently
-// drop the ticker it moves today. What an unknown listing does when the survivor
-// has known lines to split across is the rest of adr/0071, and is not decided
-// here.
+// drop the ticker it moves today. Carrying the loser's prices and coverage across
+// rather than letting them cascade is the rest of that union, and is issue 0152.
 func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
 	if survivor == mergedAway {
 		return nil
 	}
 	// The loser's listings cascade away with the delete below, so the postings on
-	// them are moved onto the survivor's line of the same currency family first,
-	// and onto no line at all where the survivor has none to move them to. Nulling
-	// degrades a posting to "this security, line not known", which is exactly what
-	// is true of it once the line it named has gone -- and it is recoverable, where
-	// a dangling reference would not be. See
+	// them are moved onto the survivor's line of the same currency family first.
+	// Every line has a currency and the survivor is given one in each family the
+	// loser holds, so every posting has a line to move to. See
 	// docs/adr/0072-a-posting-names-a-security-and-a-line.md.
 	from, to, err := listingMap(ctx, exec, survivor, mergedAway)
 	if err != nil {
@@ -91,6 +88,8 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 		    listing_id = (SELECT m.to_id
 		                  FROM unnest($3::uuid[], $4::uuid[]) AS m(from_id, to_id)
 		                  WHERE m.from_id = txs.listing_id),
+		    -- listing_id stays null where it was null: a posting that named no
+		    -- line still names none, and the security it names has moved.
 		    weight_commodity = CASE WHEN weight_commodity = 'inst:' || $2::uuid::text
 		                            THEN 'inst:' || $1::uuid::text
 		                            ELSE weight_commodity END
@@ -106,13 +105,11 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	// The survivor's row wins a collision: both describe one payment, and the
 	// loser's is the copy made while the duplicate existed. The delete has to run
 	// first, because (listing_id, ex_date) is the primary key and the update would
-	// otherwise violate it. A pair with no target cannot arise here -- a dividend
-	// only ever files against a currency-bearing line, and listingMap gives every
-	// one of those a target -- but it is guarded rather than assumed.
+	// otherwise violate it.
 	if _, err := exec.ExecContext(ctx, `
 		DELETE FROM cash_dividends d
 		USING unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
-		WHERE d.listing_id = m.from_id AND m.to_id IS NOT NULL
+		WHERE d.listing_id = m.from_id
 		  AND EXISTS (SELECT 1 FROM cash_dividends s
 		              WHERE s.listing_id = m.to_id AND s.ex_date = d.ex_date)
 	`, pq.Array(from), pq.Array(to)); err != nil {
@@ -121,7 +118,7 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	if _, err := exec.ExecContext(ctx, `
 		UPDATE cash_dividends d SET listing_id = m.to_id
 		FROM unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
-		WHERE d.listing_id = m.from_id AND m.to_id IS NOT NULL
+		WHERE d.listing_id = m.from_id
 	`, pq.Array(from), pq.Array(to)); err != nil {
 		return fmt.Errorf("update cash dividends: %w", err)
 	}
@@ -186,8 +183,27 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 			return fmt.Errorf("insert identifier: %w", err)
 		}
 	}
-	if err := mergeListingIdentifiers(ctx, exec, from, to); err != nil {
+	if err := mergeListingIdentifiers(ctx, exec, survivor, from, to); err != nil {
 		return err
+	}
+	// The loser's names that name no line move by security alone: they are on no
+	// listing, so the pairing above has nothing to say about them, and they would
+	// cascade away with the loser. A name the survivor already holds fails the
+	// overlap constraint, and the survivor holding it already is the two rows
+	// saying the same thing, so it is dropped rather than failing the merge --
+	// the same judgement mergeListingIdentifiers makes.
+	for _, tbl := range []string{"instrument_listing_identifiers", "provider_listing_identifiers"} {
+		if _, err := exec.ExecContext(ctx, fmt.Sprintf(`
+			UPDATE %s SET instrument_id = $1
+			WHERE instrument_id = $2 AND listing_id IS NULL
+			  AND NOT EXISTS (
+			    SELECT 1 FROM %s o
+			    WHERE o.instrument_id = $1 AND o.identifier_type = %s.identifier_type
+			      AND o.value = %s.value AND COALESCE(o.domain, '') = COALESCE(%s.domain, '')
+			  )
+		`, tbl, tbl, tbl, tbl, tbl), survivor, mergedAway); err != nil {
+			return fmt.Errorf("move unplaced names from %s: %w", tbl, err)
+		}
 	}
 	// Update any instruments that referenced mergedAway as their underlying.
 	// A derivative names a line of its underlying, so the loser's derivatives move
@@ -195,14 +211,12 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	// instrument id. Without it the loser's listings cascade away under a
 	// reference the FK will not let go.
 	//
-	// A pair with no target is left alone and the merge fails on the foreign key.
-	// That is the case adr/0071's union of listing sets removes; until then a
-	// derivative silently repointed at a line in another currency would put the
-	// strike in the wrong denomination, which is worse than a merge that stops.
+	// Every line has a target, so no derivative is left pointing at a line
+	// the delete is about to remove.
 	if _, err := exec.ExecContext(ctx, `
 		UPDATE instruments i SET underlying_listing_id = m.to_id
 		FROM unnest($1::uuid[], $2::uuid[]) AS m(from_id, to_id)
-		WHERE i.underlying_listing_id = m.from_id AND m.to_id IS NOT NULL
+		WHERE i.underlying_listing_id = m.from_id
 	`, pq.Array(from), pq.Array(to)); err != nil {
 		return fmt.Errorf("update instruments.underlying_listing_id: %w", err)
 	}
@@ -221,13 +235,13 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 // one line and everything on them ends up together, which is the whole reason
 // listing uniqueness is on the family.
 //
-// A pair whose target is nil is a line the survivor has nothing to match: the
-// loser's line has no currency and the survivor has several, so nothing says which
-// of them the postings on it belong to. They move to no line rather than to one
-// nobody named, which is the same refusal ensureListing makes.
-func listingMap(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) ([]uuid.UUID, []*uuid.UUID, error) {
+// Every line carries a currency and ensureListing mints one where the survivor
+// has none in that family, so every one of the loser's lines has a target: the
+// pairing is total, and the merge never has to decide what to do with the rows on
+// a line it could not place.
+func listingMap(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) ([]uuid.UUID, []uuid.UUID, error) {
 	rows, err := exec.QueryContext(ctx, `
-		SELECT id, COALESCE(currency, '') FROM instrument_listings WHERE instrument_id = $1
+		SELECT id, currency FROM instrument_listings WHERE instrument_id = $1
 	`, mergedAway)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list merged listings: %w", err)
@@ -247,16 +261,13 @@ func listingMap(ctx context.Context, exec queryable, survivor, mergedAway uuid.U
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
-	to := make([]*uuid.UUID, len(from))
+	to := make([]uuid.UUID, len(from))
 	for i, code := range currencies {
 		target, err := ensureListing(ctx, exec, survivor, code)
 		if err != nil {
 			return nil, nil, fmt.Errorf("merge listing %s: %w", from[i], err)
 		}
-		if target != uuid.Nil {
-			t := target
-			to[i] = &t
-		}
+		to[i] = target
 	}
 	return from, to, nil
 }
@@ -266,22 +277,14 @@ func listingMap(ctx context.Context, exec queryable, survivor, mergedAway uuid.U
 // worked out for the postings -- so the names and the postings on a line end up in
 // the same place, which two independent walks of the listing set could not promise.
 //
-// A pair with no target is skipped: the loser's line has no currency and the
-// survivor has several, so nothing says which of them these names belong to. They
-// go with the listing rather than being filed under a currency nobody stated.
-// Splitting an unknown listing across known ones is adr/0071.
-//
 // Delete-then-insert rather than an UPDATE of listing_id, for the reason the
 // security-grain move above has it: the overlap constraint is global, so a name
 // the survivor already holds over the same interval would fail the merge, and
 // skipping it is right -- the survivor holding it already is the two rows saying
 // the same thing.
-func mergeListingIdentifiers(ctx context.Context, exec queryable, from []uuid.UUID, to []*uuid.UUID) error {
+func mergeListingIdentifiers(ctx context.Context, exec queryable, survivor uuid.UUID, from []uuid.UUID, to []uuid.UUID) error {
 	for i, source := range from {
-		if to[i] == nil {
-			continue
-		}
-		target := *to[i]
+		target := to[i]
 		idns, err := readListingIdentifiers(ctx, exec, source)
 		if err != nil {
 			return err
@@ -291,9 +294,9 @@ func mergeListingIdentifiers(ctx context.Context, exec queryable, from []uuid.UU
 		}
 		for _, idn := range idns {
 			_, err := exec.ExecContext(ctx, `
-				INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)
-			`, target, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+				INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`, survivor, target, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 			if err != nil {
 				if isIdentifierConflict(err) {
 					continue
@@ -356,8 +359,7 @@ func pickSurvivor(ctx context.Context, q queryable, ids []uuid.UUID) (uuid.UUID,
 		SELECT i.id, i.created_at,
 		       (SELECT count(*) FROM instrument_identifiers WHERE instrument_id = i.id)
 		     + (SELECT count(*) FROM instrument_listing_identifiers li
-		        JOIN instrument_listings l ON l.id = li.listing_id
-		        WHERE l.instrument_id = i.id) AS n
+		        WHERE li.instrument_id = i.id) AS n
 		FROM instruments i WHERE i.id IN (%s)
 	`, inClause)
 	rows, err := q.QueryContext(ctx, query, args...)
@@ -474,20 +476,18 @@ func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, ident
 		// boundaries that display it.
 		if domain == "" {
 			err = p.q.QueryRowContext(ctx, `
-				SELECT l.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
+				SELECT li.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
 				FROM instrument_listing_identifiers li
-				JOIN instrument_listings l ON l.id = li.listing_id
-				JOIN instruments i ON i.id = l.instrument_id
+				JOIN instruments i ON i.id = li.instrument_id
 				WHERE li.identifier_type = $1 AND li.domain IS NULL AND li.value = $2
 				ORDER BY li.valid_before IS NULL DESC, li.valid_before DESC
 				LIMIT 1
 			`, identifierType, value).Scan(&id, &ac, &exch, &cur)
 		} else {
 			err = p.q.QueryRowContext(ctx, `
-				SELECT l.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
+				SELECT li.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
 				FROM instrument_listing_identifiers li
-				JOIN instrument_listings l ON l.id = li.listing_id
-				JOIN instruments i ON i.id = l.instrument_id
+				JOIN instruments i ON i.id = li.instrument_id
 				WHERE li.identifier_type = $1 AND li.domain = $2 AND li.value = $3
 				ORDER BY li.valid_before IS NULL DESC, li.valid_before DESC
 				LIMIT 1
@@ -537,9 +537,8 @@ func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, ident
 // separator's position and cannot have it put back.
 func (p *Postgres) FindInstrumentByTickerIgnoringSeparators(ctx context.Context, value string) (string, error) {
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT DISTINCT l.instrument_id
+		SELECT DISTINCT li.instrument_id
 		FROM instrument_listing_identifiers li
-		JOIN instrument_listings l ON l.id = li.listing_id
 		WHERE li.identifier_type = 'MIC_TICKER'
 		  AND translate(li.value, './- ', '') = translate($1, './- ', '')
 	`, value)
@@ -576,9 +575,8 @@ func (p *Postgres) FindInstrumentByTypeAndValue(ctx context.Context, identifierT
 	`
 	if identifier.NamesAListing(identifierType) {
 		q = `
-			SELECT l.instrument_id
+			SELECT li.instrument_id
 			FROM instrument_listing_identifiers li
-			JOIN instrument_listings l ON l.id = li.listing_id
 			WHERE li.identifier_type = $1 AND li.value = $2
 		`
 	}
@@ -641,8 +639,7 @@ func (p *Postgres) FindDescriptionOnlyInstrument(ctx context.Context, source, de
 		  )
 		  AND NOT EXISTS (
 			SELECT 1 FROM instrument_listing_identifiers cl
-			JOIN instrument_listings l ON l.id = cl.listing_id
-			WHERE l.instrument_id = ii.instrument_id AND cl.canonical
+			WHERE cl.instrument_id = ii.instrument_id AND cl.canonical
 		  )
 		ORDER BY ii.valid_before IS NULL DESC, ii.valid_before DESC
 		LIMIT 1
@@ -730,8 +727,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		WHERE (EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
 		       OR EXISTS (
 		            SELECT 1 FROM instrument_listing_identifiers li
-		            JOIN instrument_listings l ON l.id = li.listing_id
-		            WHERE l.instrument_id = i.id AND li.canonical = true
+		            WHERE li.instrument_id = i.id AND li.canonical = true
 		          ))`
 
 	args := []interface{}{}
@@ -874,17 +870,15 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 // called and a security known by one line's ticker alone is still matched. Where
 // each of those names is then stored is the placement, which files them per line.
 func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string,
-	identifiers []db.IdentifierInput, listings []db.ListingMerge, claims []db.IdentityClaim,
+	identifiers []db.IdentifierInput, listings db.ListingSet, claims []db.IdentityClaim,
 	underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
 	_ = claims
-	if len(listings) == 0 {
-		return "", "", fmt.Errorf("at least one listing required")
-	}
 	all := make([]db.IdentifierInput, 0, len(identifiers))
 	all = append(all, identifiers...)
-	for _, l := range listings {
+	for _, l := range listings.Listings {
 		all = append(all, l.Identifiers...)
 	}
+	all = append(all, listings.Unplaced...)
 	// The lines are keyed on currency, and normalising a MIC_TICKER's domain is
 	// the core's job, so the placement reads the set the core has normalised
 	// rather than the caller's copy of it.
@@ -896,14 +890,16 @@ func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, exch
 }
 
 // placeArchiveListings ensures every line a file states and files that line's own
-// names and provider identifiers on it.
+// names and provider identifiers on it, then files the names it placed on no line
+// against the security.
 //
 // It returns the first line the file named, which is what the security's own
 // currency column is filled from and what a caller with one line in mind gets
-// back. No line is primary -- the first is simply the one the file wrote first.
-func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, instrumentID uuid.UUID, listings []db.ListingMerge) (uuid.UUID, error) {
+// back. No line is primary -- the first is simply the one the file wrote first,
+// and a file naming no line returns none.
+func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, instrumentID uuid.UUID, set db.ListingSet) (uuid.UUID, error) {
 	var first uuid.UUID
-	for _, l := range listings {
+	for _, l := range set.Listings {
 		listingID, err := ensureListing(ctx, exec, instrumentID, l.Currency)
 		if err != nil {
 			return uuid.Nil, err
@@ -921,7 +917,7 @@ func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, ins
 				idns[i].Ref.Domain = p.normalizeToOperatingMIC(ctx, idns[i].Ref.Domain)
 			}
 		}
-		if err := insertListingIdentifiers(ctx, exec, listingID, idns); err != nil {
+		if err := insertListingIdentifiers(ctx, exec, instrumentID, &listingID, idns); err != nil {
 			return uuid.Nil, err
 		}
 		// The interval the line was tradeable in, which nothing recomputes. A
@@ -935,9 +931,22 @@ func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, ins
 				return uuid.Nil, fmt.Errorf("place listing interval (%s): %w", l.Currency, err)
 			}
 		}
-		if err := insertListingProviderIdentifiers(ctx, exec, listingID, l.ProviderIdentifiers); err != nil {
+		if err := insertListingProviderIdentifiers(ctx, exec, instrumentID, &listingID, l.ProviderIdentifiers); err != nil {
 			return uuid.Nil, err
 		}
+	}
+	idns := make([]db.IdentifierInput, len(set.Unplaced))
+	copy(idns, set.Unplaced)
+	for i := range idns {
+		if idns[i].Ref.Type == "MIC_TICKER" && idns[i].Ref.Domain != "" {
+			idns[i].Ref.Domain = p.normalizeToOperatingMIC(ctx, idns[i].Ref.Domain)
+		}
+	}
+	if err := insertListingIdentifiers(ctx, exec, instrumentID, nil, idns); err != nil {
+		return uuid.Nil, err
+	}
+	if err := insertListingProviderIdentifiers(ctx, exec, instrumentID, nil, set.UnplacedProvider); err != nil {
+		return uuid.Nil, err
 	}
 	return first, nil
 }
@@ -978,7 +987,7 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, 
 		if err != nil {
 			return "", "", fmt.Errorf("invalid underlying_listing_id: %w", err)
 		}
-		if err := requireCurrencyBearingListing(ctx, p.q, parsed); err != nil {
+		if err := requireListing(ctx, p.q, parsed); err != nil {
 			return "", "", err
 		}
 		underlyingUUID = &parsed
@@ -1207,8 +1216,7 @@ func holdsNoCanonicalIdentifier(ctx context.Context, exec queryable, id uuid.UUI
 		SELECT EXISTS (SELECT 1 FROM instrument_identifiers WHERE instrument_id = $1 AND canonical)
 		    OR EXISTS (
 		         SELECT 1 FROM instrument_listing_identifiers li
-		         JOIN instrument_listings l ON l.id = li.listing_id
-		         WHERE l.instrument_id = $1 AND li.canonical
+		         WHERE li.instrument_id = $1 AND li.canonical
 		       )
 	`, id).Scan(&exists)
 	if err != nil {
@@ -1355,30 +1363,33 @@ func (p *Postgres) ValidateMIC(ctx context.Context, mic string) (bool, error) {
 
 // InsertInstrumentIdentifier implements db.InstrumentDB.
 //
-// A listing-grain row needs the listing said outright rather than inferred. The
-// caller holds it -- EnsureInstrument hands it back -- and a security with two
-// lines has no way to work out which one a bare ticker meant.
+// A listing-grain row is filed on the line the caller names, and on none where it
+// names none: a security with two lines has no way to work out which one a bare
+// ticker meant, and the row says so rather than picking one.
 func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID, listingID string, input db.IdentifierInput) error {
 	if input.Ref.Type == "MIC_TICKER" && input.Ref.Domain != "" {
 		input.Ref.Domain = p.normalizeToOperatingMIC(ctx, input.Ref.Domain)
 	}
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("insert instrument identifier: invalid id: %w", err)
+	}
 	if identifier.NamesAListing(input.Ref.Type) {
-		lid, err := uuid.Parse(listingID)
+		lid, err := optionalUUID(listingID)
 		if err != nil {
-			return fmt.Errorf("insert listing identifier %s: invalid listing id %q: %w", input.Ref.Type, listingID, err)
+			return fmt.Errorf("insert listing identifier %s: %w", input.Ref.Type, err)
 		}
+		// No ON CONFLICT here, unlike the placement path: this caller is asking
+		// for the row to exist, so a name another line already holds is an answer
+		// it needs rather than a gap to leave unfilled.
 		_, err = p.q.ExecContext(ctx, `
-			INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, lid, input.Ref.Type, nullStr(input.Ref.Domain), input.Ref.Value, input.Canonical, nullTime(input.ValidFrom), nullTime(input.ValidBefore))
+			INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`, uid, lid, input.Ref.Type, nullStr(input.Ref.Domain), input.Ref.Value, input.Canonical, nullTime(input.ValidFrom), nullTime(input.ValidBefore))
 		if err != nil {
 			return fmt.Errorf("insert listing identifier: %w", err)
 		}
 		return nil
-	}
-	uid, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("insert instrument identifier: invalid id: %w", err)
 	}
 	_, err = p.q.ExecContext(ctx, `
 		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
@@ -1507,27 +1518,26 @@ type placeListings func(ctx context.Context, exec queryable, instrumentID uuid.U
 // oneLine is placement for a caller that speaks of a single currency: the line
 // that currency names, with every listing-grain name it supplied filed there.
 //
-// An empty currency names the security's unknown line, which is what a caller
-// that stated no currency gets -- how many lines the security has is what is
-// unknown, not whether it has any. A currency filling a blank moves that unknown
-// line onto it rather than adding a sibling; the guard against rewriting a stored
-// value lives in ensureListing.
+// A caller that stated no currency has named no line, and its names are filed
+// against the security with none. That is not a failure to place them -- a ticker
+// nobody could pair with a currency names a line of this security and nothing
+// says which, which is exactly what the row then records. It is claimed when the
+// security comes to have one line for it to mean. See
+// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
 func oneLine(currency string, listingIDs []db.IdentifierInput) placeListings {
 	return func(ctx context.Context, exec queryable, instrumentID uuid.UUID) (uuid.UUID, error) {
 		listingID, err := ensureListing(ctx, exec, instrumentID, currency)
 		if err != nil {
 			return uuid.Nil, err
 		}
-		// A file that named no line leaves nothing to file, which is why an
-		// ambiguous listing is only an error where there is something to put on
-		// one.
 		if len(listingIDs) == 0 {
 			return listingID, nil
 		}
-		if listingID == uuid.Nil {
-			return uuid.Nil, fmt.Errorf("place listing identifiers: no currency stated and the security has several lines")
+		var on *uuid.UUID
+		if listingID != uuid.Nil {
+			on = &listingID
 		}
-		return listingID, insertListingIdentifiers(ctx, exec, listingID, listingIDs)
+		return listingID, insertListingIdentifiers(ctx, exec, instrumentID, on, listingIDs)
 	}
 }
 
@@ -1536,13 +1546,13 @@ func oneLine(currency string, listingIDs []db.IdentifierInput) placeListings {
 // The whole set, unfiltered by grain: the file says these belong to this line, so
 // there is nothing left to decide. SaveProviderIdentifiers routes by grain because
 // its callers hand it a flat set with no line stated.
-func insertListingProviderIdentifiers(ctx context.Context, exec queryable, listingID uuid.UUID, pis []db.ProviderIdentifierInput) error {
+func insertListingProviderIdentifiers(ctx context.Context, exec queryable, instrumentID uuid.UUID, listingID *uuid.UUID, pis []db.ProviderIdentifierInput) error {
 	for _, pi := range pis {
 		_, err := exec.ExecContext(ctx, `
-			INSERT INTO provider_listing_identifiers (listing_id, provider, identifier_type, domain, value)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO provider_listing_identifiers (instrument_id, listing_id, provider, identifier_type, domain, value)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT DO NOTHING
-		`, listingID, pi.Provider, pi.Type, nullStr(pi.Domain), pi.Value)
+		`, instrumentID, listingID, pi.Provider, pi.Type, nullStr(pi.Domain), pi.Value)
 		if err != nil {
 			return fmt.Errorf("place listing provider identifier (%s/%s): %w", pi.Provider, pi.Type, err)
 		}
@@ -1550,24 +1560,40 @@ func insertListingProviderIdentifiers(ctx context.Context, exec queryable, listi
 	return nil
 }
 
-// insertListingIdentifiers files listing-grain names on one line.
+// insertListingIdentifiers files listing-grain names on one line, or on none
+// where listingID is nil -- a name nobody could place still names the security.
 //
 // ON CONFLICT DO NOTHING covers the exclusion constraint as well as a unique
 // index, so a name the line already holds over an overlapping interval is a
 // no-op. A name another line of the security holds is a disagreement about which
-// line it denotes, and the stored answer wins (adr/0004).
-func insertListingIdentifiers(ctx context.Context, exec queryable, listingID uuid.UUID, idns []db.IdentifierInput) error {
+// line it denotes, and the stored answer wins (adr/0004). That covers the
+// unplaced case too: a name already filed on a line is not filed a second time
+// with the line dropped.
+func insertListingIdentifiers(ctx context.Context, exec queryable, instrumentID uuid.UUID, listingID *uuid.UUID, idns []db.IdentifierInput) error {
 	for _, idn := range idns {
 		_, err := exec.ExecContext(ctx, `
-			INSERT INTO instrument_listing_identifiers (listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT DO NOTHING
-		`, listingID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+		`, instrumentID, listingID, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 		if err != nil {
 			return fmt.Errorf("place listing identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
 		}
 	}
 	return nil
+}
+
+// optionalUUID parses an id a caller may not have: "" is no id rather than an
+// invalid one, which is what a caller naming no line has.
+func optionalUUID(id string) (*uuid.UUID, error) {
+	if id == "" {
+		return nil, nil
+	}
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid id %q: %w", id, err)
+	}
+	return &parsed, nil
 }
 
 // UpdateInstrumentStrike implements db.InstrumentDB.
@@ -1585,20 +1611,19 @@ func (p *Postgres) UpdateInstrumentStrike(ctx context.Context, instrumentID stri
 
 // SaveProviderIdentifiers implements db.InstrumentDB.
 //
-// Routed by grain, exactly as the canonical identifiers are. Every provider type
-// that exists today names a listing, so listingID is required in practice; it is
-// still only required where there is a listing-grain row to file, so a caller
-// holding none is not made to produce one.
+// Routed by grain, exactly as the canonical identifiers are. A caller that named
+// no line files its listing-grain rows against the security alone: they name a
+// line of it, and nothing said which.
 func (p *Postgres) SaveProviderIdentifiers(ctx context.Context, instrumentID, listingID string, ids []db.ProviderIdentifierInput) error {
 	if len(ids) == 0 {
 		return nil
 	}
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("save provider identifiers: invalid id: %w", err)
+	}
 	securityPIs, listingPIs := splitProviderByGrain(ids)
 	if len(securityPIs) > 0 {
-		uid, err := uuid.Parse(instrumentID)
-		if err != nil {
-			return fmt.Errorf("save provider identifiers: invalid id: %w", err)
-		}
 		for _, id := range securityPIs {
 			_, err := p.q.ExecContext(ctx, `
 				INSERT INTO provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value)
@@ -1613,21 +1638,11 @@ func (p *Postgres) SaveProviderIdentifiers(ctx context.Context, instrumentID, li
 	if len(listingPIs) == 0 {
 		return nil
 	}
-	lid, err := uuid.Parse(listingID)
+	lid, err := optionalUUID(listingID)
 	if err != nil {
-		return fmt.Errorf("save provider identifiers: invalid listing id %q: %w", listingID, err)
+		return fmt.Errorf("save provider identifiers: %w", err)
 	}
-	for _, id := range listingPIs {
-		_, err := p.q.ExecContext(ctx, `
-			INSERT INTO provider_listing_identifiers (listing_id, provider, identifier_type, domain, value)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT DO NOTHING
-		`, lid, id.Provider, id.Type, nullStr(id.Domain), id.Value)
-		if err != nil {
-			return fmt.Errorf("save provider listing identifier (%s/%s): %w", id.Provider, id.Type, err)
-		}
-	}
-	return nil
+	return insertListingProviderIdentifiers(ctx, p.q, uid, lid, listingPIs)
 }
 
 // FindProviderIdentifiers implements db.InstrumentDB.
@@ -1649,8 +1664,7 @@ func (p *Postgres) FindProviderIdentifiers(ctx context.Context, instrumentID, pr
 		UNION ALL
 		SELECT pli.provider, pli.identifier_type, pli.domain, pli.value
 		FROM provider_listing_identifiers pli
-		JOIN instrument_listings l ON l.id = pli.listing_id
-		WHERE l.instrument_id = $1 AND pli.provider = $2
+		WHERE pli.instrument_id = $1 AND pli.provider = $2
 		ORDER BY identifier_type, value
 	`, uid, provider)
 	if err != nil {

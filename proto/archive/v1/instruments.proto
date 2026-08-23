@@ -32,9 +32,9 @@ message Instrument {
   // derive one from, which is the case a plugin-supplied name would otherwise be
   // lost in.
   optional string name = 2;
-  // The currency lines this security trades in. Every security has at least one,
-  // so a file stating none describes nothing this can store.
-  repeated Listing listings = 3 [(buf.validate.field).repeated.min_items = 1];
+  // The currency lines this security trades in. May be empty: a security nobody
+  // has named a line for has none, and what is known about it names no line.
+  repeated Listing listings = 3;
   // The identifiers that name the security itself, however many currencies it
   // trades in: an ISIN, a CUSIP, an OCC symbol. The ones that name a line live
   // on that line. Which of the two a type is, is declared rather than inferred
@@ -49,6 +49,14 @@ message Instrument {
   // exists to avoid repeating, so an instrument restored with them is
   // indistinguishable from a resolved one and no plugin is called for it.
   repeated ProviderIdentifier provider_identifiers = 5;
+  // Listing-grain names nobody could place: a ticker or a SEDOL from a result
+  // that stated no currency. They name this security and no line of it, which is
+  // neither of the two claims above, so grain alone cannot say where they belong
+  // and the file says. See
+  // docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+  repeated Identifier unplaced_identifiers = 6;
+  // The same, provider-scoped.
+  repeated ProviderIdentifier unplaced_provider_identifiers = 7;
   // The line of the underlying that an OPTION or FUTURE delivers, which must
   // itself appear in this part. Absent for everything else.
   //
@@ -56,36 +64,33 @@ message Instrument {
   // in a currency, so what it delivers is one currency line of the underlying.
   // The ref therefore carries a currency, and one that does not names no line.
   // See docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
-  optional InstrumentRef underlying = 6;
-  optional string cik = 7;      // SEC Central Index Key; an identifier plugin lookup result
-  optional string sic_code = 8; // SIC industry classification; likewise
+  optional InstrumentRef underlying = 8;
+  optional string cik = 9;      // SEC Central Index Key; an identifier plugin lookup result
+  optional string sic_code = 10; // SIC industry classification; likewise
   // Option terms, denormalized from the OCC identifier and absent for anything
   // that is not an option. strike is a component of option identity, decoded
   // from the symbol's eight digits of thousandths, so it is an exact decimal:
   // comparing identity components as floats is a latent bug.
-  optional string strike = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional string expiry = 10 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
-  optional string put_call = 11 [(buf.validate.field).string = {in: ["C", "P"]}];
+  optional string strike = 11 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string expiry = 12 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  optional string put_call = 13 [(buf.validate.field).string = {in: ["C", "P"]}];
   // Deliverable multiplier; absent means the column default of 1. A non-standard
   // split leaves a fraction here -- 3:2 gives 1.5 -- and it multiplies a
   // posting's weight, so it stays exact.
-  optional string contract_multiplier = 12 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string contract_multiplier = 14 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
 }
 
 // Listing is one currency a security trades in, as a file carries it.
 //
-// A security holds one listing per currency family -- GBX and GBP are one family
-// -- and at most one listing whose currency is absent. That last one is not a
-// default: it says how many lines the security has is unknown, which is a
-// different claim from "exactly one line, and it is this currency". It is never
-// priceable and never event-bearing.
+// A security holds one listing per currency family -- GBX and GBP are one family.
 //
 // Venues are not carried. They are derived from the line's own MIC_TICKER
 // identifiers by trigger, and a file that stated them could disagree with them.
 message Listing {
   // ISO 4217, in the units the line is quoted in: GBX for a London line quoted
-  // in pence, not the GBP its family collapses to. Absent is the unknown line.
-  optional string currency = 1;
+  // in pence, not the GBP its family collapses to. A line is a currency, so a
+  // listing without one is not a line and has nothing to say.
+  string currency = 1 [(buf.validate.field).string.min_len = 1];
   // The half-open [valid_from, valid_before) interval the line was tradeable in;
   // an absent bound is open-ended. A delisting closes one, and the security above
   // has no interval of its own -- its lifetime is the hull of its lines'.

@@ -12,70 +12,37 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// ensureListing gives an instrument the listing it must have: a security has at
-// least one currency line, and everything downstream of this level leans on
-// that. It either mints one or moves the security's unknown listing onto a
-// currency it has just learned, and returns the line the currency names.
+// ensureListing returns the line a currency names, minting it if the security
+// does not hold that family yet.
 //
-// currency == "" means the currency is unknown, which is a different claim from
-// "this security has one line and it is X". The unknown listing is never
-// priceable and never event-bearing, and moving it onto a currency later is a
-// relabelling rather than a loss, which is what makes the split in adr/0071
-// possible.
-//
-// The returned id is uuid.Nil only where no currency was stated and the security
-// has more than one line. Nothing said which, and picking one would file the
-// caller's listing-grain identifiers under a currency nobody stated -- the same
-// refusal ListingForVenue makes when a bare MIC matches two lines.
+// currency == "" mints nothing. A caller that stated no currency has named no
+// line, and a security is quoted in a currency whether or not anyone traded it,
+// so lines come into existence when a provider or a listing-grain identifier
+// asserts one and never to hold a caller's silence. The answer is then the
+// security's sole line, and uuid.Nil where it has none or several -- the same
+// refusal ListingForVenue makes when a bare MIC matches two lines. See
+// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
 //
 // Idempotent, and safe to call for an instrument that already has listings: a
 // security that already holds this currency family keeps the listing it has,
 // including the code it is quoted in. GBX does not become GBP.
 func ensureListing(ctx context.Context, exec queryable, instrumentID uuid.UUID, currency string) (uuid.UUID, error) {
 	if currency == "" {
-		// Nothing to learn, so this only fills a gap. A security that already
-		// has a currency line is not given an unknown one beside it: the two
-		// would say contradictory things about how many lines it has.
-		_, err := exec.ExecContext(ctx, `
-			INSERT INTO instrument_listings (instrument_id, currency)
-			SELECT $1, NULL
-			WHERE NOT EXISTS (SELECT 1 FROM instrument_listings WHERE instrument_id = $1)
-		`, instrumentID)
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("ensure unknown listing: %w", err)
-		}
 		return soleListing(ctx, exec, instrumentID)
 	}
-	// A currency arriving for a security whose line was unknown names that line.
-	// The guard covers the case the unique index would otherwise reject: a
-	// security holding both an unknown listing and one already in this family,
-	// which nothing writes today but which this must not turn into an error.
-	_, err := exec.ExecContext(ctx, `
-		UPDATE instrument_listings SET currency = $2
-		WHERE instrument_id = $1 AND currency IS NULL
-		  AND NOT EXISTS (
-		    SELECT 1 FROM instrument_listings o
-		    WHERE o.instrument_id = $1 AND o.currency IS NOT NULL
-		      AND currency_family(o.currency) = currency_family($2)
-		  )
-	`, instrumentID, currency)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("name unknown listing: %w", err)
-	}
-	// ON CONFLICT infers the partial index by restating its predicate, so a
+	// ON CONFLICT names the unique index by restating its expression, so a
 	// security already quoted in this family is a no-op rather than an error --
 	// including when a provider states GBP for a line already stored in GBX.
-	_, err = exec.ExecContext(ctx, `
+	_, err := exec.ExecContext(ctx, `
 		INSERT INTO instrument_listings (instrument_id, currency)
 		VALUES ($1, $2)
-		ON CONFLICT (instrument_id, currency_family(currency)) WHERE currency IS NOT NULL
-		DO NOTHING
+		ON CONFLICT (instrument_id, currency_family(currency)) DO NOTHING
 	`, instrumentID, currency)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("ensure listing %s: %w", currency, err)
 	}
-	// The two statements above have just guaranteed the line exists, so this
-	// reads it back rather than looking for it.
+	// The statement above has just guaranteed the line exists, so this reads it
+	// back rather than looking for it.
 	return listingFor(ctx, exec, instrumentID, currency)
 }
 
@@ -95,8 +62,7 @@ func listingFor(ctx context.Context, exec queryable, instrumentID uuid.UUID, cur
 	var id uuid.UUID
 	err := exec.QueryRowContext(ctx, `
 		SELECT id FROM instrument_listings
-		WHERE instrument_id = $1 AND currency IS NOT NULL
-		  AND currency_family(currency) = currency_family($2)
+		WHERE instrument_id = $1 AND currency_family(currency) = currency_family($2)
 	`, instrumentID, currency).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return uuid.Nil, nil
@@ -107,8 +73,8 @@ func listingFor(ctx context.Context, exec queryable, instrumentID uuid.UUID, cur
 	return id, nil
 }
 
-// soleListing returns the security's only listing, or uuid.Nil where it has
-// several. A caller reaching this stated no currency, so it has named no line,
+// soleListing returns the security's only listing, or uuid.Nil where it has none
+// or several. A caller reaching this stated no currency, so it has named no line,
 // and the answer is only unambiguous while there is one line to name.
 func soleListing(ctx context.Context, exec queryable, instrumentID uuid.UUID) (uuid.UUID, error) {
 	rows, err := exec.QueryContext(ctx, `
@@ -137,26 +103,24 @@ func soleListing(ctx context.Context, exec queryable, instrumentID uuid.UUID) (u
 	return id, nil
 }
 
-// requireCurrencyBearingListing rejects a listing that no strike could be read
-// against: one that does not exist, and the security's currency-unknown line.
+// requireListing rejects a listing that no strike could be read against, which is
+// now only one that does not exist.
 //
 // A contract's strike is a price and a price is in a currency, so an underlying
-// whose currency is unknown leaves the strike denominated in nothing. adr/0068
-// already says an unknown listing is not event-bearing; this is the same claim
-// reaching the derivative written on it. See
-// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
-func requireCurrencyBearingListing(ctx context.Context, exec queryable, listingID uuid.UUID) error {
-	var currency sql.NullString
+// with no currency would leave the strike denominated in nothing. Every line
+// carries one, so what this catches is a caller naming a line that is not there
+// -- the same refusal, reaching the case that survives. See
+// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md and
+// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+func requireListing(ctx context.Context, exec queryable, listingID uuid.UUID) error {
+	var exists bool
 	err := exec.QueryRowContext(ctx,
-		`SELECT currency FROM instrument_listings WHERE id = $1`, listingID).Scan(&currency)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("underlying listing %s does not exist", listingID)
-	}
+		`SELECT EXISTS (SELECT 1 FROM instrument_listings WHERE id = $1)`, listingID).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("read underlying listing %s: %w", listingID, err)
 	}
-	if !currency.Valid {
-		return fmt.Errorf("underlying listing %s states no currency, so the strike is denominated in nothing", listingID)
+	if !exists {
+		return fmt.Errorf("underlying listing %s does not exist", listingID)
 	}
 	return nil
 }
@@ -170,22 +134,24 @@ func (p *Postgres) FindListingByIdentifier(ctx context.Context, identifierType, 
 	if !identifier.NamesAListing(identifierType) {
 		return "", "", fmt.Errorf("find listing by identifier: %s names a security, not a listing", identifierType)
 	}
-	var instID, listingID uuid.UUID
+	// The row names both, so neither is reached through the other: a name nobody
+	// could place names its security and no line, and looking the security up
+	// through the listing would lose it.
+	var instID uuid.UUID
+	var listingID uuid.NullUUID
 	var err error
 	if domain == "" {
 		err = p.q.QueryRowContext(ctx, `
-			SELECT l.instrument_id, l.id
+			SELECT li.instrument_id, li.listing_id
 			FROM instrument_listing_identifiers li
-			JOIN instrument_listings l ON l.id = li.listing_id
 			WHERE li.identifier_type = $1 AND li.domain IS NULL AND li.value = $2
 			ORDER BY li.valid_before IS NULL DESC, li.valid_before DESC
 			LIMIT 1
 		`, identifierType, value).Scan(&instID, &listingID)
 	} else {
 		err = p.q.QueryRowContext(ctx, `
-			SELECT l.instrument_id, l.id
+			SELECT li.instrument_id, li.listing_id
 			FROM instrument_listing_identifiers li
-			JOIN instrument_listings l ON l.id = li.listing_id
 			WHERE li.identifier_type = $1 AND li.domain = $2 AND li.value = $3
 			ORDER BY li.valid_before IS NULL DESC, li.valid_before DESC
 			LIMIT 1
@@ -197,7 +163,7 @@ func (p *Postgres) FindListingByIdentifier(ctx context.Context, identifierType, 
 	if err != nil {
 		return "", "", fmt.Errorf("find listing by identifier: %w", err)
 	}
-	return instID.String(), listingID.String(), nil
+	return instID.String(), nilUUIDToString(listingID.UUID), nil
 }
 
 // ListingForVenue implements db.ListingDB.
@@ -285,11 +251,9 @@ func (p *Postgres) FindListing(ctx context.Context, instrumentID, currency strin
 
 // SoleListing implements db.ListingDB.
 //
-// The NOT EXISTS covers the unknown listing too: a security holding a currency
-// line beside its unknown one has two rows and so no sole line, which is the
-// same answer as a security quoted in two currencies. Both are cases where
-// nothing has said which line, and picking one would value a holding at an FX
-// rate nobody stated.
+// A security quoted in two currencies has no sole line, and neither has one
+// nobody has named a line for. Both are cases where nothing has said which line,
+// and picking one would value a holding at an FX rate nobody stated.
 func (p *Postgres) SoleListing(ctx context.Context, instrumentID string) (string, error) {
 	id, err := uuid.Parse(instrumentID)
 	if err != nil {
@@ -298,7 +262,7 @@ func (p *Postgres) SoleListing(ctx context.Context, instrumentID string) (string
 	var listingID uuid.UUID
 	err = p.q.QueryRowContext(ctx, `
 		SELECT l.id FROM instrument_listings l
-		WHERE l.instrument_id = $1 AND l.currency IS NOT NULL
+		WHERE l.instrument_id = $1
 		  AND NOT EXISTS (SELECT 1 FROM instrument_listings o
 		                  WHERE o.instrument_id = $1 AND o.id <> l.id)
 	`, id).Scan(&listingID)
@@ -375,7 +339,79 @@ func loadListings(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.
 			r.Listings = append(r.Listings, l)
 		}
 	}
-	return loadListingDetail(ctx, q, listings)
+	if err := loadListingDetail(ctx, q, listings); err != nil {
+		return err
+	}
+	return loadUnplaced(ctx, q, ids, byID)
+}
+
+// loadUnplaced attaches the listing-grain names that name no line. They hang off
+// the security rather than off a listing, having none, and they are read here
+// rather than in loadListingDetail for that reason: that pass is keyed on the
+// listings it was given, and these belong to none of them.
+func loadUnplaced(ctx context.Context, q queryable, ids []uuid.UUID, byID map[string]*db.InstrumentRow) error {
+	inClause, args := inClauseUUIDs(ids)
+
+	idRows, err := q.QueryContext(ctx, fmt.Sprintf(`
+		SELECT instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before
+		FROM instrument_listing_identifiers
+		WHERE listing_id IS NULL AND instrument_id IN (%s)
+		ORDER BY instrument_id, valid_before IS NULL DESC, valid_before DESC
+	`, inClause), args...)
+	if err != nil {
+		return fmt.Errorf("query unplaced identifiers: %w", err)
+	}
+	defer idRows.Close()
+	for idRows.Next() {
+		var iid uuid.UUID
+		var domain sql.NullString
+		var validFrom, validBefore sql.NullTime
+		var idn db.IdentifierInput
+		if err := idRows.Scan(&iid, &idn.Ref.Type, &domain, &idn.Ref.Value, &idn.Canonical, &validFrom, &validBefore); err != nil {
+			return fmt.Errorf("scan unplaced identifier: %w", err)
+		}
+		if domain.Valid {
+			idn.Ref.Domain = domain.String
+		}
+		if validFrom.Valid {
+			idn.ValidFrom = &validFrom.Time
+		}
+		if validBefore.Valid {
+			idn.ValidBefore = &validBefore.Time
+		}
+		if r := byID[iid.String()]; r != nil {
+			r.UnplacedIdentifiers = append(r.UnplacedIdentifiers, idn)
+		}
+	}
+	if err := idRows.Err(); err != nil {
+		return err
+	}
+
+	piRows, err := q.QueryContext(ctx, fmt.Sprintf(`
+		SELECT instrument_id, provider, identifier_type, domain, value
+		FROM provider_listing_identifiers
+		WHERE listing_id IS NULL AND instrument_id IN (%s)
+		ORDER BY instrument_id, identifier_type, value
+	`, inClause), args...)
+	if err != nil {
+		return fmt.Errorf("query unplaced provider identifiers: %w", err)
+	}
+	defer piRows.Close()
+	for piRows.Next() {
+		var iid uuid.UUID
+		var domain sql.NullString
+		var pi db.ProviderIdentifierInput
+		if err := piRows.Scan(&iid, &pi.Provider, &pi.Type, &domain, &pi.Value); err != nil {
+			return fmt.Errorf("scan unplaced provider identifier: %w", err)
+		}
+		if domain.Valid {
+			pi.Domain = domain.String
+		}
+		if r := byID[iid.String()]; r != nil {
+			r.UnplacedProviderIdentifiers = append(r.UnplacedProviderIdentifiers, pi)
+		}
+	}
+	return piRows.Err()
 }
 
 // loadListingDetail attaches what hangs off a listing: the identifiers that name
@@ -483,9 +519,8 @@ func loadListingDetail(ctx context.Context, q queryable, listings []*db.Listing)
 	return vRows.Err()
 }
 
-// queryListings reads the listings of the given instruments in a stable order:
-// a security's known lines first, by currency, then its unknown one. Nothing
-// makes a listing primary -- naming one would reintroduce the
+// queryListings reads the listings of the given instruments in a stable order, by
+// currency. Nothing makes a listing primary -- naming one would reintroduce the
 // default-versus-unknown conflation this level removes -- so the order is for
 // reproducibility and not a ranking.
 func queryListings(ctx context.Context, q queryable, ids []uuid.UUID) ([]*db.Listing, error) {
@@ -502,7 +537,7 @@ func queryListingsBy(ctx context.Context, q queryable, col string, ids []uuid.UU
 		SELECT id, instrument_id, currency, valid_from, valid_before, created_at
 		FROM instrument_listings
 		WHERE %s IN (%s)
-		ORDER BY instrument_id, currency IS NULL, currency
+		ORDER BY instrument_id, currency
 	`, col, inClause), args...)
 	if err != nil {
 		return nil, fmt.Errorf("query listings: %w", err)
@@ -511,17 +546,13 @@ func queryListingsBy(ctx context.Context, q queryable, col string, ids []uuid.UU
 	var out []*db.Listing
 	for rows.Next() {
 		var id, instID uuid.UUID
-		var currency sql.NullString
 		var validFrom, validBefore sql.NullTime
 		l := &db.Listing{}
-		if err := rows.Scan(&id, &instID, &currency, &validFrom, &validBefore, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&id, &instID, &l.Currency, &validFrom, &validBefore, &l.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan listing: %w", err)
 		}
 		l.ID = id.String()
 		l.InstrumentID = instID.String()
-		if currency.Valid {
-			l.Currency = &currency.String
-		}
 		if validFrom.Valid {
 			l.ValidFrom = &validFrom.Time
 		}

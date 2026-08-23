@@ -113,6 +113,9 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row.Name != nil {
 		out.Name = *row.Name
 	}
+	if row.UnderlyingListingID != nil {
+		out.UnderlyingListingId = *row.UnderlyingListingID
+	}
 	if row.UnderlyingID != nil {
 		out.UnderlyingId = *row.UnderlyingID
 	}

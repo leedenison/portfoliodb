@@ -129,7 +129,7 @@ func (p *Postgres) ListPendingOptionSplits(ctx context.Context, underlyingID str
 		if err != nil {
 			return nil, fmt.Errorf("list pending option splits: invalid underlying id %q: %w", underlyingID, err)
 		}
-		filter = "AND o.underlying_id = $1"
+		filter = "AND ul.instrument_id = $1"
 		args = append(args, id)
 	}
 	rows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
@@ -145,7 +145,8 @@ func (p *Postgres) ListPendingOptionSplits(ctx context.Context, underlyingID str
 		    ORDER BY ii.valid_from DESC NULLS LAST
 		    LIMIT 1
 		) occ ON true
-		JOIN stock_splits s ON s.instrument_id = o.underlying_id
+		JOIN instrument_listings ul ON ul.id = o.underlying_listing_id
+		JOIN stock_splits s ON s.instrument_id = ul.instrument_id
 		WHERE o.asset_class = 'OPTION'
 		  AND s.ex_date <= CURRENT_DATE
 		  AND s.ex_date <= o.expiry
@@ -612,12 +613,12 @@ func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldIn
 			GROUP BY t.instrument_id
 		),
 		via_derivative AS (
-			SELECT i.underlying_id AS instrument_id, MIN(t.order_date)::date AS earliest
+			SELECT ul.instrument_id, MIN(t.order_date)::date AS earliest
 			FROM txs t
 			JOIN instruments i ON i.id = t.instrument_id
-			WHERE i.asset_class IN ('OPTION', 'FUTURE') AND i.underlying_id IS NOT NULL
-			  AND t.account_type = 'USER'
-			GROUP BY i.underlying_id
+			JOIN instrument_listings ul ON ul.id = i.underlying_listing_id
+			WHERE i.asset_class IN ('OPTION', 'FUTURE') AND t.account_type = 'USER'
+			GROUP BY ul.instrument_id
 		)
 		SELECT instrument_id, MIN(earliest) AS earliest
 		FROM (SELECT * FROM direct UNION ALL SELECT * FROM via_derivative) combined
@@ -663,7 +664,8 @@ func (p *Postgres) InstrumentsWithSplits(ctx context.Context, instrumentIDs []st
 			WHERE instrument_id = ANY($1::uuid[])
 			UNION
 			SELECT i.id FROM instruments i
-			JOIN stock_splits s ON s.instrument_id = i.underlying_id
+			JOIN instrument_listings ul ON ul.id = i.underlying_listing_id
+			JOIN stock_splits s ON s.instrument_id = ul.instrument_id
 			WHERE i.id = ANY($1::uuid[])
 		) t
 	`, pq.Array(uuids))
@@ -712,8 +714,8 @@ func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Contex
 // ApplyOptionSplit implements db.CorporateEventDB. All mutations run in a single
 // transaction: close the OCC symbol still in force, mint one row per pending
 // split, update the strike, recompute split-adjusted tx values. The
-// split_factor_at SQL function looks up splits via the underlying_id FK, so no
-// derived split row is needed on the option instrument.
+// split_factor_at SQL function climbs from the option's underlying listing to
+// the security above it, so no derived split row is needed on the option.
 //
 // The old symbol is closed rather than deleted. A broker file exported before
 // the ex_date names it, and deleting it leaves that file nothing to resolve to,

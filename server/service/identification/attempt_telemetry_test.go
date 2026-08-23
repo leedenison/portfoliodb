@@ -363,10 +363,12 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 	// second attempt that short-circuits.
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("underlying-id", "STOCK", "XNAS", "USD", nil)
+	// The derivative's currency names the line of the underlying it delivers.
+	database.EXPECT().EnsureListing(gomock.Any(), "underlying-id", gomock.Any()).Return("underlying-line-id", nil)
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "opt", Precedence: 10}}, nil)
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-id", gomock.Any(), gomock.Any(), gomock.Any()).
+		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("opt-id", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,

@@ -79,6 +79,22 @@ type ResolvedInstrument struct {
 	Currency   string
 }
 
+// isDerivativeClass reports whether an asset class is one the schema requires an
+// underlying line for.
+func isDerivativeClass(assetClass string) bool {
+	return assetClass == db.AssetClassOption || assetClass == db.AssetClassFuture
+}
+
+// identifierTypesOf is the type of each identifier, for the vocabulary-level
+// questions that do not care what any one of them spells.
+func identifierTypesOf(ids []identifier.Identifier) []string {
+	out := make([]string, len(ids))
+	for i, idn := range ids {
+		out[i] = idn.Type
+	}
+	return out
+}
+
 // FallbackFunc is called when no identifier plugin resolves the instrument.
 // It must return an instrument ID, typically by calling EnsureInstrument.
 type FallbackFunc func(ctx context.Context, database db.DB) (string, error)
@@ -1264,7 +1280,7 @@ func ResolveWithPlugins(
 			})
 		}
 		inst := &merged
-		var underlyingID string
+		var underlyingListingID string
 		var validFrom, validBefore *time.Time
 		if inst.ValidFrom != nil {
 			validFrom = inst.ValidFrom
@@ -1287,7 +1303,40 @@ func ResolveWithPlugins(
 			if uErr != nil {
 				l.WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
 			} else if uResult.InstrumentID != "" {
-				underlyingID = uResult.InstrumentID
+				// The line the contract delivers is the one its strike is quoted
+				// in, not whichever line the underlying's own resolution happened
+				// to land on: an option struck in euros delivers the euro line
+				// however the underlying was found. The currency is what this
+				// result states, else what the contract's symbology implies.
+				//
+				// Ensure rather than find. A corroborated contract asserts its
+				// own strike currency, and a strike is quoted against shares, so
+				// it asserts that the underlying has a line there -- whatever
+				// lines the underlying is already known to have, and whether or
+				// not anything has said so before. That is an assertion by a
+				// source rather than a guess, which is what lets it mint. See
+				// adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+				//
+				// A contract that declares no currency asserts nothing and names
+				// no line; the branch below refuses it.
+				//
+				// The symbology is read from what the source stated as well as
+				// what the result carries: a broker naming a contract by its OCC
+				// symbol is the assertion, and a plugin answering about that
+				// contract need not repeat it.
+				wearing := make([]identifier.Identifier, 0, len(ident.Stated)+len(mergedIds))
+				wearing = append(wearing, ident.Stated...)
+				wearing = append(wearing, mergedIds...)
+				cur := identifier.StrikeCurrency(inst.Listing.Currency, identifierTypesOf(wearing))
+				if cur != "" {
+					line, lErr := database.EnsureListing(ctx, uResult.InstrumentID, cur)
+					if lErr != nil {
+						l.WarnContext(ctx, "underlying listing could not be ensured",
+							"instrument_description", instrumentDescription, "underlying", uResult.InstrumentID,
+							"currency", cur, "err", lErr)
+					}
+					underlyingListingID = line
+				}
 			}
 		}
 		var optFields *db.OptionFields
@@ -1330,12 +1379,35 @@ func ResolveWithPlugins(
 			return ResolveResult{InstrumentID: fb, Unconfirmed: true, HintDiffs: diffs,
 				ProposalOutcomes: proposalOutcomes(ctx, ident.Proposed, inst, mergedIds, normMIC)}, nil
 		}
+		// A derivative that declared no strike currency names no line of its
+		// underlying, and a contract whose deliverable is denominated in nothing
+		// is not stored as a derivative. It degrades the way an unresolvable
+		// underlying already did -- to a broker-description-only instrument,
+		// visible in the UI and repairable -- rather than failing the upload it
+		// arrived in, because one contract nobody could place is not a reason to
+		// reject a statement.
+		//
+		// Below the proposal check, which is the more specific finding: an
+		// identity nobody corroborated is dropped as a guess before this asks
+		// what it delivers, and it has no authority to mint a line either. See
+		// adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+		if isDerivativeClass(inst.AssetClass) && underlyingListingID == "" && fallback != nil {
+			l.InfoContext(ctx, "instrument resolution: contract declares no strike currency, using broker description only",
+				"source", source, "instrument_description", instrumentDescription,
+				"asset_class", inst.AssetClass, "resolved", instrumentSummary(inst))
+			fb, fbErr := fallback(ctx, database)
+			if fbErr != nil {
+				return ResolveResult{}, fbErr
+			}
+			writeAttempt(db.TelemetryAttemptUnderlyingLineUnknown, "")
+			return ResolveResult{InstrumentID: fb, HintDiffs: diffs}, nil
+		}
 		// The listing is the line the result named, and it is where every
 		// identifier of listing grain has just been written. The provider
 		// identifiers follow the same routing, so it is passed on rather than
 		// discarded; carrying it out of Resolve to the caller is 0147's third
 		// step.
-		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Venue.MIC, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingID, validFrom, validBefore, optFields)
+		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Venue.MIC, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, validFrom, validBefore, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}

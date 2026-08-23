@@ -1237,21 +1237,27 @@ func ValidCurrencyCode(s string) bool {
 // InstrumentRow is a single instrument with its identifiers (for API responses).
 // Nullable DB columns use pointer types; nil means NULL.
 type InstrumentRow struct {
-	ID                 string
-	AssetClass         *string
-	ExchangeMIC        *string
-	Currency           *string
-	Name               *string
-	Exchange           string // denormalized; trigger-computed from acronym/identifier
-	UnderlyingID       *string
-	ValidFrom          *time.Time
-	ValidBefore        *time.Time
-	CIK                *string
-	SICCode            *string
-	Strike             *decimal.Decimal // denormalized from OCC; NULL for non-options
-	Expiry             *time.Time       // denormalized from OCC; NULL for non-options
-	PutCall            *string          // "C" or "P"; NULL for non-options
-	ContractMultiplier decimal.Decimal  // deliverable multiplier; 1 = standard
+	ID          string
+	AssetClass  *string
+	ExchangeMIC *string
+	Currency    *string
+	Name        *string
+	Exchange    string // denormalized; trigger-computed from acronym/identifier
+	// The line an OPTION or FUTURE delivers, and the security that line belongs
+	// to. The first is the stored column; the second is derived from it by the
+	// read, for the callers that want the underlying without caring which of its
+	// lines the contract is written on. See
+	// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+	UnderlyingListingID *string
+	UnderlyingID        *string
+	ValidFrom           *time.Time
+	ValidBefore         *time.Time
+	CIK                 *string
+	SICCode             *string
+	Strike              *decimal.Decimal // denormalized from OCC; NULL for non-options
+	Expiry              *time.Time       // denormalized from OCC; NULL for non-options
+	PutCall             *string          // "C" or "P"; NULL for non-options
+	ContractMultiplier  decimal.Decimal  // deliverable multiplier; 1 = standard
 	// Security-grain identifiers only. What a listing-grain type names is one
 	// currency line, so those rows hang off the Listing they name and are
 	// reached through Listings. AllIdentifiers is the flattening, for a caller
@@ -1264,8 +1270,8 @@ type InstrumentRow struct {
 	ExchangeCountryCode *string                   // read-only; from exchanges JOIN
 	// The underlying named by its highest-priority identifier rather than by
 	// UUID, which is how a file has to name it. Populated by
-	// ListInstrumentsForExport and nil everywhere else; use UnderlyingID within
-	// one instance. One pointer rather than three, because a half-named
+	// ListInstrumentsForExport and nil everywhere else; use UnderlyingListingID
+	// or UnderlyingID within one instance. One pointer rather than three, because a half-named
 	// underlying is not a state this can be in.
 	Underlying *InstrumentRef
 }
@@ -1918,7 +1924,8 @@ type CorporateEventDB interface {
 	// trigger, which derives it from the identifier still in force. All
 	// mutations run in a single transaction so partial failure cannot leave the
 	// option inconsistent. No derived split row is written on the option --
-	// split_factor_at resolves splits through the underlying_id FK.
+	// split_factor_at climbs from the option's underlying listing to the
+	// security above it to find them.
 	//
 	// A minted name another instrument already holds absorbs that instrument
 	// rather than failing: it is a duplicate created while the split was
@@ -2379,6 +2386,10 @@ const (
 	TelemetryAttemptPluginTimeout       = "plugin_timeout"
 	TelemetryAttemptPluginError         = "plugin_error"
 	TelemetryAttemptProposalUnconfirmed = "proposal_unconfirmed"
+	// TelemetryAttemptUnderlyingLineUnknown is a derivative resolved to a
+	// contract whose underlying names no line the strike could be quoted in. The
+	// identity was found; what is missing is the currency of the deliverable.
+	TelemetryAttemptUnderlyingLineUnknown = "underlying_line_unknown"
 )
 
 // Probes that can find two ways of naming one key's instrument disagreeing,

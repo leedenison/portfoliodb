@@ -425,7 +425,7 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value,
 		"asset_class", assetClass, "currency", currency)
 
-	var underlyingID string
+	var underlyingListingID string
 	var optFields *db.OptionFields
 	if assetClass == db.AssetClassOption {
 		parsed, ok := derivative.ParseOptionTicker(value)
@@ -433,7 +433,17 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 			uHint := identifier.Identifier{Type: "MIC_TICKER", Value: parsed.Symbol}
 			resolved, err := identification.ResolveByHintsDBOnly(ctx, database, []identifier.Identifier{uHint})
 			if err == nil && len(resolved) == 1 {
-				underlyingID = resolved[0].ID
+				// The line the contract's strike is quoted in: the request's own
+				// currency, else what its symbology implies. The request states
+				// the contract outright, so it asserts that line of the
+				// underlying and may mint it; stating no currency at all names no
+				// line, and EnsureInstrument then refuses the option rather than
+				// storing a strike denominated in nothing. See adr/0074.
+				if cur := identifier.StrikeCurrency(currency, []string{idType}); cur != "" {
+					if line, lErr := database.EnsureListing(ctx, resolved[0].ID, cur); lErr == nil {
+						underlyingListingID = line
+					}
+				}
 			}
 			if parsed.Strike.IsPositive() && !parsed.Expiry.IsZero() && parsed.PutCall != "" {
 				optFields = &db.OptionFields{
@@ -458,7 +468,7 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 			Canonical: true,
 			ValidFrom: db.VintageDate(validFrom),
 		}},
-		nil, underlyingID, nil, nil, optFields)
+		nil, underlyingListingID, nil, nil, optFields)
 	if err != nil {
 		return "", err
 	}

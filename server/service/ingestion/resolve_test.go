@@ -453,9 +453,11 @@ func TestResolve_PluginReturnsUnderlying_ResolvesUnderlyingThenDerivative(t *tes
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("underlying-uuid", "", "", "", nil)
+	// The option states USD, which names the line of AAPL it delivers.
+	database.EXPECT().EnsureListing(gomock.Any(), "underlying-uuid", "USD").Return("underlying-line-uuid", nil)
 	// Ensure derivative (OPTION) with underlying_id from recursive resolution.
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", "SMART", "USD", "AAPL Call 20250117 200 C", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-uuid", nil, nil, nil).
+		EnsureInstrument(gomock.Any(), "OPTION", "SMART", "USD", "AAPL Call 20250117 200 C", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-uuid", nil, nil, nil).
 		Return("option-uuid", "listing-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, nil, prePass{resolved: nil, conflicts: nil, proposed: tickerHintsCache(source, desc)}, 0, nil, nil)

@@ -173,7 +173,7 @@ two more when the mismatch check runs, and one per level of underlying recursion
 | `resolution_key_id` | |
 | `purpose` | `primary`, `mismatch_check`, `underlying` |
 | `depth` | recursion depth; 0 for the first call |
-| `outcome` | `db_short_circuit`, `no_eligible_plugins`, `identified`, `not_identified`, `plugin_timeout`, `plugin_error` |
+| `outcome` | `db_short_circuit`, `no_eligible_plugins`, `identified`, `not_identified`, `plugin_timeout`, `plugin_error`, `proposal_unconfirmed`, `underlying_line_unknown` |
 | `security_type_hint`, `asset_class`, `had_identifier_hints` | |
 
 A plugin filtered out by acceptable kind or security type produces no
@@ -187,6 +187,13 @@ A resolution that fails outright -- a database read that errored rather than a p
 that found nothing -- writes no attempt row. `outcome` is not nullable, and there is no
 member for a unit of work that did not complete; the run's own outcome is where that
 failure shows.
+
+`underlying_line_unknown` is a derivative resolved to a contract whose underlying names
+no line the strike could be quoted in. The identity was found and is not in doubt, so it
+is neither `not_identified` nor `proposal_unconfirmed`; what is missing is the currency
+the deliverable is in. It ends at a broker-description-only instrument, as
+`proposal_unconfirmed` does. See
+adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
 
 ### identifier_plugin_call
 

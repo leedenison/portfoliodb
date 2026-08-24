@@ -343,10 +343,10 @@ func instrumentExportReq() *apiv1.ExportSystemArchiveRequest {
 	return &apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_INSTRUMENTS}}
 }
 
-// A security's currency lines reach the wire. The unknown listing arrives with
-// an empty currency, as every other nullable string on the message does, and it
-// is the absence of a currency that tells a caller the line is unknown rather
-// than the absence of a listing.
+// A security's currency lines reach the wire, each with the interval it was
+// tradeable in. A line carries a currency or does not exist, so the absence of a
+// listing rather than a listing without a currency is how "nothing has named a
+// line for this security" arrives.
 func TestInstrumentRowToProto_CarriesListings(t *testing.T) {
 	from := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -415,5 +415,45 @@ func TestInstrumentRowToProto_NoListings(t *testing.T) {
 	got := instrumentRowToProto(&dbpkg.InstrumentRow{ID: "id-1"})
 	if got.GetListings() != nil {
 		t.Errorf("listings = %+v, want nil", got.GetListings())
+	}
+}
+
+// Each name reaches the wire at the grain it names, rather than flattened into
+// one list per instrument. A surface showing a name has picked a grain, and the
+// flat list could not tell it which a row was at: a ticker naming the GBP line
+// and one naming the USD line arrived indistinguishable.
+func TestInstrumentRowToProto_IdentifiersAtTheirGrain(t *testing.T) {
+	row := &dbpkg.InstrumentRow{
+		ID: "id-1",
+		Identifiers: []dbpkg.IdentifierInput{{
+			Ref: dbpkg.InstrumentRef{Type: "ISIN", Value: "GB0000000001"}, Canonical: true,
+		}},
+		Listings: []*dbpkg.Listing{
+			{ID: "lst-1", InstrumentID: "id-1", Currency: "GBP", Identifiers: []dbpkg.IdentifierInput{{
+				Ref: dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XLON"}, Canonical: true,
+			}}},
+			{ID: "lst-2", InstrumentID: "id-1", Currency: "USD", Identifiers: []dbpkg.IdentifierInput{{
+				Ref: dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "VOD.US", Domain: "XNAS"}, Canonical: true,
+			}}},
+		},
+		UnplacedIdentifiers: []dbpkg.IdentifierInput{{
+			Ref: dbpkg.InstrumentRef{Type: "SEDOL", Value: "B16GWD5"}, Canonical: true,
+		}},
+	}
+
+	got := instrumentRowToProto(row)
+	if len(got.GetIdentifiers()) != 1 || got.GetIdentifiers()[0].GetValue() != "GB0000000001" {
+		t.Errorf("security identifiers = %+v, want the ISIN alone", got.GetIdentifiers())
+	}
+	for i, want := range []string{"VOD", "VOD.US"} {
+		idns := got.GetListings()[i].GetIdentifiers()
+		if len(idns) != 1 || idns[0].GetValue() != want {
+			t.Errorf("listing %d identifiers = %+v, want %s", i, idns, want)
+		}
+	}
+	// A name nobody could place names the security and no line of it, which is
+	// neither of the other two claims.
+	if len(got.GetUnplacedIdentifiers()) != 1 || got.GetUnplacedIdentifiers()[0].GetValue() != "B16GWD5" {
+		t.Errorf("unplaced identifiers = %+v, want the SEDOL", got.GetUnplacedIdentifiers())
 	}
 }

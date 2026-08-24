@@ -47,39 +47,51 @@ message Instrument {
   string exchange = 3;
   string currency = 4;
   string name = 5;
+  // The names that name the security itself, whichever line it is quoted on: an
+  // ISIN, a CUSIP, an OCC symbol. A name that names one currency line -- a ticker
+  // under its venue, a SEDOL, a composite FIGI -- is on that line below, and a
+  // reader wanting every name a security answers to reads both.
   repeated InstrumentIdentifier identifiers = 6;
-  // The currency lines this security trades in. Every security has at least one.
-  repeated Listing listings = 7;
+  // Listing-grain names nobody could place: a ticker or a SEDOL from a result
+  // that stated no currency. They name this security and no line of it, which is
+  // neither the claim the list above makes nor the one a line below does, so
+  // grain alone does not say where a name belongs and this says it.
+  // See docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+  repeated InstrumentIdentifier unplaced_identifiers = 7;
+  // The currency lines this security trades in. Empty where nobody has named one:
+  // a line carries a currency or does not exist, so a security nothing has stated
+  // a currency for holds none.
+  repeated Listing listings = 8;
   // The line an OPTION or FUTURE delivers. A contract's strike is a price and a
   // price is in a currency, so the deliverable is one currency line of the
   // underlying security. Set for every derivative; empty otherwise. See
   // docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
-  string underlying_listing_id = 8;
+  string underlying_listing_id = 9;
   // The security that line belongs to, derived rather than stored. It is what
   // `underlying` below carries, and what a caller naming an underlying without
   // caring which of its lines is asking for.
-  string underlying_id = 9;
+  string underlying_id = 10;
   // The underlying security, populated in ListTxs/GetHoldings so clients need
   // not fetch separately. The security rather than the line: which line the
-  // contract delivers is underlying_listing_id above. Saying so in the UI is
-  // issue 0154.
-  Instrument underlying = 10;
-  Exchange exchange_info = 11; // Rich exchange data from exchanges table JOIN; populated when exchange_mic is set.
-  string cik = 12;            // SEC Central Index Key (optional).
-  string sic_code = 13;       // SIC industry classification code (optional).
+  // contract delivers is underlying_listing_id above, and a surface showing the
+  // deliverable names that line among the listings this message carries.
+  Instrument underlying = 11;
+  Exchange exchange_info = 12; // Rich exchange data from exchanges table JOIN; populated when exchange_mic is set.
+  string cik = 13;            // SEC Central Index Key (optional).
+  string sic_code = 14;       // SIC industry classification code (optional).
   // Option fields (denormalized from OCC identifier).
   // strike is a component of option identity, decoded from the OCC symbol's
   // eight digits of thousandths, so it is an exact decimal string rather than a
   // double: comparing identity components as floats is a latent bug. Optional
   // rather than sentinel-zero, because a non-option has no strike and
   // an instrument import would otherwise have to send one.
-  optional string strike = 14 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  string expiry = 15;             // YYYY-MM-DD expiry date; empty for non-options.
-  string put_call = 16;           // "C" or "P"; empty for non-options.
+  optional string strike = 15 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string expiry = 16;             // YYYY-MM-DD expiry date; empty for non-options.
+  string put_call = 17;           // "C" or "P"; empty for non-options.
   // Deliverable multiplier as a decimal string; unset means the column default
   // of 1. A non-standard split leaves a fraction here (3:2 gives 1.5), and it
   // multiplies a posting's weight, so it stays exact.
-  optional string contract_multiplier = 17 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string contract_multiplier = 18 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
 }
 
 // Listing is one currency a security trades in. Currency and exchange are facts
@@ -87,17 +99,13 @@ message Instrument {
 // GBP and in USD may carry one ISIN, and holdings in the two lines are not
 // fungible because they differ by an FX rate.
 //
-// A security holds one listing per currency family -- GBX and GBP are one family
-// -- and at most one listing whose currency is unknown.
+// A security holds one listing per currency family -- GBX and GBP are one family.
 // See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
 message Listing {
   string id = 1;
   // ISO 4217 code the line is quoted in, in the units it is quoted in: GBX for a
-  // London line quoted in pence, not the GBP its family collapses to.
-  //
-  // Empty is the unknown listing, which says how many lines this security has is
-  // unknown rather than that it has one. It is never priced and never
-  // event-bearing, because a price with no stated currency asserts nothing.
+  // London line quoted in pence, not the GBP its family collapses to. Never
+  // empty: a line carries a currency or does not exist.
   string currency = 2;
   // The half-open [valid_from, valid_before) interval the line was tradeable in.
   // An absent valid_before means the line is current; an absent valid_from means
@@ -108,9 +116,6 @@ message Listing {
   // ticker under its venue, a SEDOL, a composite FIGI. Which of the two an
   // identifier type belongs to is declared rather than inferred from whether it
   // carries a domain.
-  //
-  // Instrument.identifiers still carries these as well, flattened, because the
-  // UI reads one list per instrument. Saying which grain it means is 0154.
   repeated InstrumentIdentifier identifiers = 5;
   // The operating MICs this line is admitted to, derived from its MIC_TICKER
   // identifiers. A set rather than one venue: two venues quoting one line differ

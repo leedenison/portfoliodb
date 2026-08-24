@@ -1347,10 +1347,12 @@ type Listing struct {
 // whichever grain it sits at. The corporate event fetcher is one by choice: the
 // fetch unit is the security, and an events request is keyed on a ticker as
 // often as on anything else, so narrowing the list would drop the names most
-// providers answer to. The API boundary is the other, and there it stands in for
-// a caller that has not been told which grain it means -- saying so in the UI is
-// 0154. Deliberately named, so either set of callers is a search for it rather
-// than a reading of every query.
+// providers answer to. Deliberately named, so those callers are a search for it
+// rather than a reading of every query.
+//
+// The API boundary no longer uses it. A response carries the security's names,
+// each line's on the listing it names, and the unplaced ones separately, because
+// a surface showing a name has picked a grain and says which.
 //
 // The archive no longer uses it. A file nests a security's listings and writes
 // each name on the line it names, which is what the flattening stood in for

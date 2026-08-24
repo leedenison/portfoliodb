@@ -140,7 +140,7 @@ Options and futures should be related to their underlying listing: the deliverab
 
 ## Valid From and To
 
-A **listing** carries valid from and to dates specifying when it was available to trade.  Delisting closes a listing rather than being represented as a new instrument; a venue migration closes nothing, being only a change to the venues recorded against the listing.  The security above has no interval of its own -- its window is the hull of its listings'.
+A **listing** carries valid from and to dates specifying when it was available to trade.  Delisting closes a listing rather than being represented as a new instrument; a redenomination closes one listing and merges into the line taking over from it, though GBX to GBP is not one, the two being a single currency family; a venue migration closes nothing, being only a change to the venues recorded against the listing.  The security above has no interval of its own -- its window is the hull of its listings'.  See [adr/0076](adr/0076-a-listing-has-a-lifecycle-and-a-security-does-not.md).
 
 ## Time Model
 

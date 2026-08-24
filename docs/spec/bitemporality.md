@@ -40,7 +40,7 @@ clock every read API means by "as of".
 | `cash_dividends` | `ex_date`, `pay_date`, `record_date`, `declaration_date` | Four distinct points in the dividend's life. `declaration_date` is when the issuer announced it -- the world's knowledge time, but PortfolioDB's valid time, because what we know is that the announcement happened on that date. |
 | `holding_declarations` | `as_of_date` | The date the user's declaration refers to. |
 | `instruments` | `expiry` | When an option contract expires. |
-| `instrument_listings` | `valid_from`, `valid_before` | When the listing was tradeable. A delisting closes one; the security above has no interval of its own. |
+| `instrument_listings` | `valid_from`, `valid_before` | When the listing was tradeable. A delisting closes one and a redenomination closes one and merges into another; the security above has no interval of its own. Nothing closes one yet -- see adr/0076-a-listing-has-a-lifecycle-and-a-security-does-not.md. |
 | `instrument_identifiers` | `valid_from`, `valid_before` | The interval a name was correct for the instrument -- see [Instrument identity](#instrument-identity) below. |
 | `price_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about for prices. |
 | `corporate_event_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about. |

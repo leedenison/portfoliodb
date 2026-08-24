@@ -10,7 +10,9 @@ Uniqueness is on the **currency family** rather than the raw code. GBX and GBP a
 
 **A line carries a currency or does not exist.** A security nobody has named a line for holds none, and that -- rather than a row standing in for it -- is how "which lines this security has is unknown" is said. A line comes into existence when a provider or a listing-grain identifier asserts one, never to hold a caller's silence, so a resolution that stated no currency mints nothing and names no line. A holding on no line reports unpriced. Cash and FX instruments have a listing degenerately -- a cash instrument's own currency, and an FX pair's quote currency, which is USD under adr/0006-fx-as-synthetic-instruments.md.
 
-See adr/0068-a-listing-is-a-currency-of-a-security.md and adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
+**A line has a lifetime and the security does not.** A listing carries the half-open interval it was tradeable in: a delisting closes one, and a redenomination closes one and merges into the line taking over from it. GBX to GBP is neither, the two being one currency family, and a venue migration closes nothing. The security's window is the hull of its lines'. Nothing closes a line today -- an archive stating the bounds is their only writer.
+
+See adr/0068-a-listing-is-a-currency-of-a-security.md, adr/0075-a-name-that-could-not-be-placed-names-no-line.md and adr/0076-a-listing-has-a-lifecycle-and-a-security-does-not.md.
 
 **Instrument tags**: Instruments support **tags** (tag type / tag value). Datasource-specific metadata such as market sector, security type, or similar fields returned by identification or price plugins (e.g. OpenFIGI’s marketSector, securityType) will be stored as tags on the instrument.
 

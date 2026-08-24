@@ -99,7 +99,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 			{
 				Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: cur + "USD", Domain: ""},
 				Canonical: true,
-			}}, nil, "", nil, nil, nil)
+			}}, nil, "", nil)
 		if err != nil {
 			t.Fatalf("ensure fx pair %s: %v", cur, err)
 		}
@@ -126,7 +126,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 			{
 				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "BENCH"},
 				Canonical: false,
-			}}, nil, "", nil, nil, nil)
+			}}, nil, "", nil)
 		if err != nil {
 			t.Fatalf("ensure instrument: %v", err)
 		}

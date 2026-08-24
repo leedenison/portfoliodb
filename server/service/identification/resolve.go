@@ -1281,13 +1281,6 @@ func ResolveWithPlugins(
 		}
 		inst := &merged
 		var underlyingListingID string
-		var validFrom, validBefore *time.Time
-		if inst.ValidFrom != nil {
-			validFrom = inst.ValidFrom
-		}
-		if inst.ValidBefore != nil {
-			validBefore = inst.ValidBefore
-		}
 		if len(inst.UnderlyingIdentifiers) > 0 && depth < MaxResolveDepth {
 			// The underlying's identity is its own. The plugin named these
 			// identifiers from the derivative it resolved, so they are stated
@@ -1407,7 +1400,7 @@ func ResolveWithPlugins(
 		// identifiers follow the same routing, so it is passed on rather than
 		// discarded; carrying it out of Resolve to the caller is 0147's third
 		// step.
-		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Venue.MIC, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, validFrom, validBefore, optFields)
+		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Venue.MIC, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}

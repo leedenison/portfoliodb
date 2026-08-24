@@ -40,7 +40,7 @@ func balanceSeed(t *testing.T, p *Postgres, sub string) (string, string) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "CURRENCY", Value: "USD"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure USD: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "SPLT", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

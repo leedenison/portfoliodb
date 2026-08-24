@@ -156,7 +156,7 @@ func transferUserQuotedIn(t *testing.T, p *Postgres, sub, currency string) (user
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GBP", Domain: sub},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM1"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "SEDOL", Value: "TM1"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil); err != nil {
+		}}, nil, "", nil); err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
 	from, to := transferFixture(t, p, userID, mergedAway)
@@ -371,7 +371,7 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM1"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestTransferMatches_CannotNameAnotherSecuritysLine(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TMFK00000001"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure other security: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM2"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "SEDOL", Value: "TM2"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil); err != nil {
+		}}, nil, "", nil); err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
 	from, to := transferFixture(t, p, userID, mergedAway)
@@ -586,7 +586,7 @@ func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM2"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -622,7 +622,7 @@ func TestTransferMatches_NoLineStaysNoneAcrossAMerge(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM3"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestTransferMatches_NoLineStaysNoneAcrossAMerge(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "SEDOL", Value: "TM3"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil); err != nil {
+		}}, nil, "", nil); err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
 	from, to := transferFixture(t, p, userID, mergedAway)
@@ -653,7 +653,7 @@ func TestTransferMatches_NoLineStaysNoneAcrossAMerge(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM3"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil); err != nil {
+		}}, nil, "", nil); err != nil {
 		t.Fatalf("merge: %v", err)
 	}
 

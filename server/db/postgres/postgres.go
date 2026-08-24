@@ -259,8 +259,6 @@ type instrumentRow struct {
 	Exchange            string           `db:"exchange"`
 	UnderlyingListingID *string          `db:"underlying_listing_id"`
 	UnderlyingID        *string          `db:"underlying_id"`
-	ValidFrom           *time.Time       `db:"valid_from"`
-	ValidBefore         *time.Time       `db:"valid_before"`
 	CIK                 *string          `db:"cik"`
 	SICCode             *string          `db:"sic_code"`
 	Strike              *decimal.Decimal `db:"strike"`
@@ -291,8 +289,6 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 		Exchange:            r.Exchange,
 		UnderlyingListingID: r.UnderlyingListingID,
 		UnderlyingID:        r.UnderlyingID,
-		ValidFrom:           r.ValidFrom,
-		ValidBefore:         r.ValidBefore,
 		CIK:                 r.CIK,
 		SICCode:             r.SICCode,
 		Strike:              r.Strike,

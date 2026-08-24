@@ -837,7 +837,7 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	}
 	var r instrumentRow
 	err = p.q.GetContext(ctx, &r, `
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, `+underlyingSelect+`, i.valid_from, i.valid_before,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, `+underlyingSelect+`,
 		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
@@ -919,7 +919,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 			JOIN instrument_listings ul ON ul.id = d.underlying_listing_id
 		)
 		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, ` + underlyingSelect + `,
-		       i.valid_from, i.valid_before, i.cik, i.sic_code,
+		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code,
 		       u_id.identifier_type AS underlying_identifier_type,
@@ -983,7 +983,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	inClause, args := inClauseUUIDs(uuids)
 	var irows []instrumentRow
 	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, `+underlyingSelect+`, i.valid_from, i.valid_before,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, `+underlyingSelect+`,
 		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
@@ -1024,9 +1024,9 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // caller assembled from several results is not an association anybody stated,
 // and two results agreeing about a currency and a venue have not said they are
 // the same security. Carrying the partition is 0139; acting on it is 0140.
-func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields) (string, string, error) {
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
 	_ = claims
-	return p.ensureSecurity(ctx, assetClass, exchangeMIC, currency, name, cik, sicCode, identifiers, underlyingListingID, validFrom, validBefore, optionFields, nil)
+	return p.ensureSecurity(ctx, assetClass, exchangeMIC, currency, name, cik, sicCode, identifiers, underlyingListingID, optionFields, nil)
 }
 
 // EnsureArchiveInstrument implements db.InstrumentDB.
@@ -1052,7 +1052,7 @@ func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, exch
 		return p.placeArchiveListings(ctx, exec, instrumentID, listings)
 	}
 	return p.ensureSecurity(ctx, assetClass, exchangeMIC, currency, name, cik, sicCode, all,
-		underlyingListingID, nil, nil, optionFields, place)
+		underlyingListingID, optionFields, place)
 }
 
 // placeArchiveListings ensures every line a file states and files that line's own
@@ -1125,7 +1125,7 @@ func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, ins
 // currency and its listing-grain names go on the line that currency names, which
 // is EnsureInstrument's whole listing rule; an archive hands in a placement that
 // knows the security's lines one by one.
-func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, underlyingListingID string, validFrom, validBefore *time.Time, optionFields *db.OptionFields, place placeListings) (string, string, error) {
+func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, underlyingListingID string, optionFields *db.OptionFields, place placeListings) (string, string, error) {
 	if len(identifiers) == 0 {
 		return "", "", fmt.Errorf("at least one identifier required")
 	}
@@ -1276,8 +1276,6 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, 
 				Currency:    currency,
 				CIK:         cik,
 				SICCode:     sicCode,
-				ValidFrom:   validFrom,
-				ValidBefore: validBefore,
 				Identifiers: securityIDs,
 			}); mErr != nil {
 				return mErr
@@ -1304,10 +1302,10 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, 
 			putCall = optionFields.PutCall
 		}
 		err := exec.QueryRowContext(ctx, `
-			INSERT INTO instruments (asset_class, exchange_mic, currency, name, cik, sic_code, underlying_listing_id, valid_from, valid_before, strike, expiry, put_call)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			INSERT INTO instruments (asset_class, exchange_mic, currency, name, cik, sic_code, underlying_listing_id, strike, expiry, put_call)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			RETURNING id
-		`, nullStr(assetClass), nullStr(exchangeMIC), nullStr(currency), nullStr(name), nullStr(cik), nullStr(sicCode), nullUUID(underlyingUUID), nullTime(validFrom), nullTime(validBefore), strike, expiry, putCall).Scan(&newID)
+		`, nullStr(assetClass), nullStr(exchangeMIC), nullStr(currency), nullStr(name), nullStr(cik), nullStr(sicCode), nullUUID(underlyingUUID), strike, expiry, putCall).Scan(&newID)
 		if err != nil {
 			return err
 		}
@@ -1468,7 +1466,7 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	}
 
 	q, args, err := psql.Select(
-		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", "i.exchange", underlyingSelect, "i.valid_from", "i.valid_before",
+		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", "i.exchange", underlyingSelect,
 		"i.cik", "i.sic_code",
 		"i.strike", "i.expiry", "i.put_call", "i.contract_multiplier",
 		"e.name AS exchange_name", "e.acronym AS exchange_acronym", "e.country_code AS exchange_country_code",
@@ -1656,15 +1654,12 @@ func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in d
 			exchange_mic = COALESCE(exchange_mic, $3),
 			currency = COALESCE(currency, $4),
 			cik = COALESCE(cik, $5),
-			sic_code = COALESCE(sic_code, $6),
-			valid_from = COALESCE(valid_from, $7),
-			valid_before = COALESCE(valid_before, $8)
+			sic_code = COALESCE(sic_code, $6)
 		WHERE id = $1
 		  AND (asset_class IS NULL OR exchange_mic IS NULL OR currency IS NULL
-		       OR cik IS NULL OR sic_code IS NULL
-		       OR valid_from IS NULL OR valid_before IS NULL)
+		       OR cik IS NULL OR sic_code IS NULL)
 	`, id, nullStr(in.AssetClass), nullStr(in.ExchangeMIC), nullStr(in.Currency),
-		nullStr(in.CIK), nullStr(in.SICCode), nullTime(in.ValidFrom), nullTime(in.ValidBefore))
+		nullStr(in.CIK), nullStr(in.SICCode))
 	if err != nil {
 		return fmt.Errorf("merge instrument columns: %w", err)
 	}

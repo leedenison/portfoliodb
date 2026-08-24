@@ -24,7 +24,7 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestGetPortfolioValuation_DifferentDescriptionsNetToZero(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "ABNB", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	transferDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	sellDate := time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC)
@@ -208,7 +208,7 @@ func TestGetPortfolioValuation_UnpricedDeduplication(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "ABNB", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 
@@ -258,12 +258,12 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL multi", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	instB, _, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "GOOG", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GOOG multi", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -312,7 +312,7 @@ func TestGetUserValuation_Basic(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL UserVal", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestGetPortfolioValuation_ExcludesDateBefore(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestGetPortfolioValuation_FromEqualsBeforeReturnsNothing(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -496,7 +496,7 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SAP FX", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -554,7 +554,7 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "HSBC FX", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -611,7 +611,7 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SAP NR", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -666,7 +666,7 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL FXD", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -722,7 +722,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "HSBC MBR", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -836,7 +836,7 @@ func TestGetUserValuation_CashInForeignCurrency(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "GBPUSD", Domain: ""},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	fxPrices := []db.EODPrice{
 		{ListingID: pricedListing(t, p, fxInstID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
 	}
@@ -938,12 +938,12 @@ func TestGetUserValuation_CashForeignCurrency_NonUSDDisplay(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "EURUSD", Domain: ""},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	gbpFxID, _, _ := p.EnsureInstrument(ctx, "FX", "", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "GBPUSD", Domain: ""},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	fxPrices := []db.EODPrice{
 		{ListingID: pricedListing(t, p, eurFxID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.08), DataProvider: "test"},
 		{ListingID: pricedListing(t, p, gbpFxID), PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: decf(1.27), DataProvider: "test"},
@@ -1001,7 +1001,7 @@ func TestGetUserValuation_ContinuousAcrossSplit(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Split", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1071,7 +1071,7 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SAP FXSplit", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	buyDate := time.Date(2020, 8, 3, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
@@ -1124,7 +1124,7 @@ func setupHeldInstrument(t *testing.T, p *Postgres, sub, desc string, qty string
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1284,7 +1284,7 @@ func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "NULLQ", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1348,7 +1348,7 @@ func TestGetUserValuation_ExcludesDatesAfterCloseAcrossInexactSplit(t *testing.T
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "REVQ", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1682,7 +1682,7 @@ func TestGetPortfolioValuation_SecurityTransferValuedInTransit(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "FIDELITY"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1806,7 +1806,7 @@ func TestGetUserValuation_MatchInAnotherCommodityIsNotAdmitted(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "FIDELITY"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1878,7 +1878,7 @@ func TestGetUserValuation_HoldingWithNoLineIsUnpriced(t *testing.T) {
 	// A security whose currency nobody stated: one listing, unknown.
 	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "NOCUR", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "NOCUR", Domain: "IBKR"}},
-	}, nil, "", nil, nil, nil)
+	}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1930,7 +1930,7 @@ func TestGetUserValuation_CashWithNoLineIsUnpriced(t *testing.T) {
 
 	instID, _, err := p.EnsureInstrument(ctx, "CASH", "", "", "MYSTERY CASH", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "MYSTERY CASH", Domain: "IBKR"}},
-	}, nil, "", nil, nil, nil)
+	}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

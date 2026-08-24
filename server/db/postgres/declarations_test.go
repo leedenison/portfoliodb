@@ -54,7 +54,7 @@ func TestCreateHoldingDeclaration(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	row, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "150.5", asOf, time.Time{})
@@ -80,7 +80,7 @@ func TestCreateHoldingDeclaration_ManyPerHolding(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GOOG", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	later := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
@@ -108,11 +108,11 @@ func TestListHoldingDeclarations_DerivesKind(t *testing.T) {
 	instA, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "KA", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 	instB, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "KB", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	d2021 := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	d2022 := time.Date(2022, 12, 31, 0, 0, 0, 0, time.UTC)
@@ -172,7 +172,7 @@ func TestUpdateHoldingDeclaration(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "MSFT", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	row, _ := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, time.Time{})
@@ -197,7 +197,7 @@ func TestDeleteHoldingDeclaration(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "TSLA", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	row, _ := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "50", asOf, time.Time{})
@@ -228,11 +228,11 @@ func TestListHoldingDeclarations(t *testing.T) {
 	inst1, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "A1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 	inst2, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "A2", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	if _, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", inst1), "100", asOf, time.Time{}); err != nil {
@@ -269,7 +269,7 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SD1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 	ts := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
 	tx := &apiv1.Tx{OrderDate: timestamppb.New(ts),
 		TradeDate: timestamppb.New(ts), InstrumentDescription: "SD1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "acct1"}
@@ -301,7 +301,7 @@ func TestDeclarationsAreLineGrain(t *testing.T) {
 	instID, gbp, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "GB00TWOLINE1"},
 		Canonical: true,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestComputeRunningBalance(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "RB1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	ts1 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	ts2 := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
@@ -465,7 +465,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UI1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(ts, 50))
@@ -555,7 +555,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "IG1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
 	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(at, 50)); err != nil {
@@ -625,7 +625,7 @@ func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "EQ1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
 	if err := p.UpsertInitializeTx(ctx, held(userID, "acct1", instID), initTx(at, 50)); err != nil {
@@ -676,7 +676,7 @@ func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "RB2", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	ts := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{OrderDate: timestamppb.New(ts),
@@ -709,7 +709,7 @@ func TestCreateHoldingDeclaration_DefaultsShareCountBasis(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BD1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	asOf := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	row, err := p.CreateHoldingDeclaration(ctx, held(userID, "acct1", instID), "500", asOf, time.Time{})
@@ -753,7 +753,7 @@ func TestComputeRunningBalance_ConvertsToDeclarationBasis(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BC1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	preSplit := time.Date(2021, 3, 1, 10, 0, 0, 0, time.UTC)
 	exDate := time.Date(2022, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -805,7 +805,7 @@ func TestListHoldingDeclarations_ChecksAgainstTheHolding(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "VF1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	padDate := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	buyAt := time.Date(2022, 6, 1, 10, 0, 0, 0, time.UTC)
@@ -875,7 +875,7 @@ func TestListHoldingDeclarations_ChecksAcrossASplit(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "VS1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	preSplit := time.Date(2021, 3, 1, 10, 0, 0, 0, time.UTC)
 	exDate := time.Date(2022, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -932,7 +932,7 @@ func TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors(t *testing.T)
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "DP1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	pad := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	next := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
@@ -980,7 +980,7 @@ func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "IB1", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	startDay := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	basis := time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
@@ -1027,7 +1027,7 @@ func TestUpsertHoldingDeclaration_RestatesRatherThanColliding(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	if err := p.UpsertHoldingDeclaration(ctx, held(userID, "acct1", instID), "100", asOf, asOf); err != nil {
@@ -1064,7 +1064,7 @@ func TestUpsertHoldingDeclaration_LetsTheTriggerDefaultTheBasis(t *testing.T) {
 	instID, _, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	other := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -1106,7 +1106,7 @@ func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	basis := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)

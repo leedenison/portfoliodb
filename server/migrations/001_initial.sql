@@ -396,12 +396,6 @@ CREATE TABLE instruments (
   --
   -- The foreign key waits until instrument_listings exists, below.
   underlying_listing_id UUID,
-  -- The half-open [valid_from, valid_before) interval the instrument was
-  -- tradeable in. Descriptive only: no query filters on these, and no
-  -- identifier plugin supplies them yet. Identity is resolved as current
-  -- state. See docs/spec/bitemporality.md.
-  valid_from   DATE,
-  valid_before DATE,
   cik          TEXT,
   sic_code     TEXT,
   -- Denormalized from the OCC identifier for options. NULL for non-options.

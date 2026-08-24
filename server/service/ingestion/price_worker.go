@@ -469,7 +469,7 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 			Canonical: true,
 			ValidFrom: db.VintageDate(validFrom),
 		}},
-		nil, underlyingListingID, nil, nil, optFields)
+		nil, underlyingListingID, optFields)
 	if err != nil {
 		return "", err
 	}

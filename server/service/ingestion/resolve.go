@@ -419,7 +419,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		instID, _, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 		if ensureErr != nil {
 			return resolveResult{}, ensureErr
 		}
@@ -515,7 +515,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 				Canonical: false,
 			}},
-			nil, "", nil, nil, nil)
+			nil, "", nil)
 		return id, err
 	}
 

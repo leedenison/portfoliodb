@@ -38,6 +38,7 @@ var parent = map[typev1.TxType]typev1.TxType{
 	typev1.TxType_TRANSFER:          typev1.TxType_AMBIGUOUS,
 	typev1.TxType_TRANSFER_INTERNAL: typev1.TxType_TRANSFER,
 	typev1.TxType_TRANSFER_EXTERNAL: typev1.TxType_TRANSFER,
+	typev1.TxType_TRANSFER_LISTING:  typev1.TxType_TRANSFER,
 	typev1.TxType_AMBIGUOUS:         typev1.TxType_TX_TYPE_UNSPECIFIED,
 }
 

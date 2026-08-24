@@ -31,6 +31,7 @@ export const TX_TYPE_PARENT: Record<number, TxType> = {
   [TxType.TRANSFER]: TxType.AMBIGUOUS,
   [TxType.TRANSFER_INTERNAL]: TxType.TRANSFER,
   [TxType.TRANSFER_EXTERNAL]: TxType.TRANSFER,
+  [TxType.TRANSFER_LISTING]: TxType.TRANSFER,
   [TxType.AMBIGUOUS]: TxType.TX_TYPE_UNSPECIFIED,
 };
 
@@ -101,6 +102,7 @@ export const TX_TYPE_LABEL: Record<number, string> = {
   [TxType.TRANSFER]: "Transfer",
   [TxType.TRANSFER_INTERNAL]: "Transfer (Internal)",
   [TxType.TRANSFER_EXTERNAL]: "Transfer (External)",
+  [TxType.TRANSFER_LISTING]: "Transfer (Line)",
   [TxType.AMBIGUOUS]: "Ambiguous",
 };
 

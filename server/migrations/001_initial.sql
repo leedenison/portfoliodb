@@ -209,7 +209,8 @@ CREATE TABLE txs (
                                                                  'RETURN_OF_CAPITAL', 'EXPENSE',
                                                                  'TRANSACTION_COST', 'HOLDING_COST',
                                                                  'FINANCING_COST', 'TRANSFER',
-                                                                 'TRANSFER_INTERNAL', 'TRANSFER_EXTERNAL']),
+                                                                 'TRANSFER_INTERNAL', 'TRANSFER_EXTERNAL',
+                                                                 'TRANSFER_LISTING']),
   resolved_tx_type          TEXT NOT NULL
                               CHECK (resolved_tx_type IN ('TRADE', 'TRADE_ASSET', 'TRADE_CASH',
                                                           'INCOME', 'DIVIDEND', 'INTEREST',
@@ -217,7 +218,7 @@ CREATE TABLE txs (
                                                           'TRANSACTION_COST', 'HOLDING_COST',
                                                           'FINANCING_COST', 'TRANSFER',
                                                           'TRANSFER_INTERNAL', 'TRANSFER_EXTERNAL',
-                                                          'AMBIGUOUS')),
+                                                          'TRANSFER_LISTING', 'AMBIGUOUS')),
   asset_class_hint          TEXT,
 
   quantity                  NUMERIC NOT NULL,

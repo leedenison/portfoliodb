@@ -63,6 +63,58 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	}
 }
 
+// TestReplaceTxsInPeriod_StoresALineConversionType pins the two CHECK constraints
+// on txs against the tx type tree. Both enumerate every name, so a value the tree
+// knows and the migration does not is rejected at INSERT, and nothing else in the
+// suite would say so.
+//
+// The routed counterparty is the second half of the claim: a line conversion is a
+// transfer, so a side reported on its own leaves a TRANSFER_CLEARING residual for
+// the matcher rather than an imbalance.
+func TestReplaceTxsInPeriod_StoresALineConversionType(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|line-conv", "U", "u@conv.com")
+	now := time.Now()
+	from := timestamppb.New(now.Add(-2 * time.Hour))
+	to := timestamppb.New(now)
+	at := timestamppb.New(now.Add(-time.Hour))
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "VWRP", Domain: "FIDELITY"},
+		Canonical: false,
+	}}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	txs := []*apiv1.Tx{{
+		OrderDate: at, TradeDate: at, InstrumentDescription: "VWRP",
+		BrokerTxType:   []typev1.TxType{typev1.TxType_TRANSFER_LISTING},
+		ResolvedTxType: typev1.TxType_TRANSFER_LISTING, Quantity: "-100", Account: "A",
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", from, to, txs, resolvedFor(t, p, []string{instID}), nil, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	var declared, resolved string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT array_to_string(broker_tx_type, ','), resolved_tx_type
+		FROM txs WHERE user_id = $1 AND account_type = 'USER'
+	`, userID).Scan(&declared, &resolved); err != nil {
+		t.Fatalf("read posting: %v", err)
+	}
+	if declared != "TRANSFER_LISTING" || resolved != "TRANSFER_LISTING" {
+		t.Errorf("stored types = %q/%q, want TRANSFER_LISTING for both", declared, resolved)
+	}
+	var clearing int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*) FROM txs WHERE user_id = $1 AND account_type = 'TRANSFER_CLEARING'
+	`, userID).Scan(&clearing); err != nil {
+		t.Fatalf("count clearing: %v", err)
+	}
+	if clearing != 1 {
+		t.Errorf("clearing residuals = %d, want the one a transfer routes", clearing)
+	}
+}
+
 func TestReplaceTxsInPeriod_PeriodBeforeIsExclusive(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

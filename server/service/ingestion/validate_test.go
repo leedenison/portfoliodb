@@ -51,6 +51,10 @@ func TestValidateTx(t *testing.T) {
 			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"}, 0, 0},
 		{"valid antichain set", &apiv1.Tx{OrderDate: validTs,
 			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER}, Quantity: "10"}, 0, 0},
+		{"line conversion", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER_LISTING}, Quantity: "10"}, 0, 0},
+		{"line conversion beside its ancestor", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER, typev1.TxType_TRANSFER_LISTING}, Quantity: "1"}, 0, 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

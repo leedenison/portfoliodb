@@ -37,6 +37,13 @@ one security and carries no economic event: what changes is which line the
 holding sits on, and the two sides are matched through `transfer_matches` like
 any other transfer. See adr/0068-a-listing-is-a-currency-of-a-security.md.
 
+No converter emits it yet, and until one does the value is reachable only
+through the API. The rest of what a conversion needs is
+[0158](../issues/0158-a-broker-converts-a-holding-between-currency-lines.md):
+broker support, and the netting suppression a matched pair whose two lines
+differ requires, since such a pair does not sum to zero at the grain valuation
+partitions on.
+
 The expense leaves are cut by how the cost is treated, not by what brokers call
 the fee, so a source that says only "fee" says `EXPENSE` and that is a meaningful
 answer.

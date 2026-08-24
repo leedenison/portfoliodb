@@ -47,6 +47,15 @@ func TestType(t *testing.T) {
 			want:      typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
 		},
 		{
+			// A currency-line conversion is a transfer, so a side reported on
+			// its own leaves a clearing residual for the matcher to pair.
+			name:      "line conversion routes to clearing",
+			commodity: "inst:11111111-1111-1111-1111-111111111111",
+			amount:    "-100",
+			resolved:  []typev1.TxType{typev1.TxType_TRANSFER_LISTING},
+			want:      typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+		},
+		{
 			name:      "one transfer leg in a mixed group",
 			commodity: "cur:USD",
 			amount:    "-500",

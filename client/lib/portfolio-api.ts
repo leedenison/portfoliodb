@@ -635,6 +635,12 @@ export async function createHoldingDeclaration(params: {
   declaredQty: string;
   asOfDate: string;
   shareCountBasis: string;
+  /**
+   * Which currency line is being declared. Omitted where the caller has not
+   * picked one, which the server settles to the security's sole line and to no
+   * line where it has several.
+   */
+  listingId?: string;
 }): Promise<HoldingDeclaration> {
   const base = getBaseUrl();
   const req = create(CreateHoldingDeclarationRequestSchema, {
@@ -644,6 +650,7 @@ export async function createHoldingDeclaration(params: {
     declaredQty: params.declaredQty,
     asOfDate: strToProtoDate(params.asOfDate),
     shareCountBasis: strToProtoDate(params.shareCountBasis),
+    listingId: params.listingId ?? "",
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "CreateHoldingDeclaration", toBinary(CreateHoldingDeclarationRequestSchema, req), {
     credentials: "include",

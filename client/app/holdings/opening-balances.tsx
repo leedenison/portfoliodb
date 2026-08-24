@@ -7,7 +7,8 @@ import { useAuthedQuery } from "@/hooks/use-authed-query";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
-import { currentTicker } from "@/lib/identifiers";
+import { currentTicker, lineLabel } from "@/lib/identifiers";
+import { LINE_DETAIL, lineOf } from "@/lib/listing";
 import {
   listHoldingDeclarations,
   deleteHoldingDeclaration,
@@ -186,7 +187,10 @@ export function OpeningBalances() {
                   </tr>
                 ) : (
                   declarations.map((d) => {
-                    const ticker = currentTicker(d.instrument);
+                    // A checkpoint is a quantity of one currency line, so the
+                    // row names the line rather than the security above it.
+                    const ticker = currentTicker(d.instrument, d.listingId);
+                    const line = lineOf(d.listingId, d.instrument);
                     return (
                       <tr
                         key={d.id}
@@ -200,7 +204,19 @@ export function OpeningBalances() {
                           {d.account || "\u2014"}
                         </td>
                         <td className="px-4 py-3 font-medium text-text-primary">
-                          {ticker || d.instrument?.name || d.instrumentId}
+                          {lineLabel(
+                            ticker || d.instrument?.name || d.instrumentId,
+                            line.currency
+                          )}
+                          {line.missing && (
+                            <span
+                              data-testid="declaration-no-line"
+                              title={LINE_DETAIL[line.missing]}
+                              className="ml-2 text-xs font-normal text-text-muted"
+                            >
+                              {line.missing}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
                           {parseFloat(Number(d.declaredQty).toFixed(4))}

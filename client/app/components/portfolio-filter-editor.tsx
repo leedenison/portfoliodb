@@ -425,6 +425,13 @@ function InstrumentsTab({
         </div>
       )}
 
+      {/* A filter selects a company, not one of the currency lines it trades
+          in: a user filtering on a company means the company, and a portfolio
+          holding both lines of one wants both. */}
+      <p className="text-xs text-text-muted">
+        Selecting a company selects every currency line it trades in.
+      </p>
+
       {/* Search + asset class filters */}
       <div className="space-y-2">
         <input

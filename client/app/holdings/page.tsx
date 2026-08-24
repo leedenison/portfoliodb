@@ -10,7 +10,8 @@ import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { getHoldings, listHoldingDeclarations } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
-import { currentTicker } from "@/lib/identifiers";
+import { currentTicker, lineLabel } from "@/lib/identifiers";
+import { LINE_DETAIL, lineOf } from "@/lib/listing";
 import { DeclarationKind } from "@/gen/api/v1/api_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { OpeningBalances } from "./opening-balances";
@@ -155,7 +156,14 @@ export default function UserHoldingsPage() {
                           </tr>
                         ) : (
                           holdings.holdings.map((h, i) => {
-                            const ticker = currentTicker(h.instrument);
+                            // The ticker of the line this position is on: the
+                            // GBP and the USD line of one security wear
+                            // different symbols, and the position is in one of
+                            // them.
+                            const ticker = currentTicker(h.instrument, h.listingId);
+                            const line = lineOf(h.listingId, h.instrument, h.currency);
+                            const label =
+                              ticker || h.instrument?.name || h.instrumentDescription || "\u2014";
                             return (
                               <tr
                                 key={i}
@@ -173,8 +181,23 @@ export default function UserHoldingsPage() {
                                 >
                                   {h.instrument?.exchangeInfo?.acronym || h.instrument?.exchange || "\u2014"}
                                 </td>
+                                {/* The line, disclosed by its currency. Where
+                                    there is none the row says which question is
+                                    open rather than showing a bare name: the
+                                    position is real and its quantity is right,
+                                    and what is missing is what it is worth. */}
                                 <td className="px-4 py-3 font-medium text-text-primary">
-                                  {ticker || h.instrument?.name || h.instrumentDescription || "\u2014"}
+                                  {lineLabel(label, line.currency)}
+                                  {line.missing && (
+                                    <span
+                                      data-testid="holding-no-line"
+                                      data-holding-missing={line.missing}
+                                      title={LINE_DETAIL[line.missing]}
+                                      className="ml-2 inline-block rounded-sm bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                                    >
+                                      {line.missing} - unvalued
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
                                   {/* Decimal strings render as supplied. The position is

@@ -40,6 +40,12 @@ type Denominated = {
  * This is a claim about the numbers on the row, not about the security. It does
  * not say the instrument is quoted in what it returns, and a surface that means
  * to say which line a holding sits on cannot get that from here.
+ *
+ * Which of the two answered is worth disclosing where a reader could take it for
+ * the other. The transaction list shows this beside the price under a heading
+ * that says it is what the figures are in, and marks a cell that fell back to
+ * settlement -- an empty `tradingCurrency` is what says it did -- because a
+ * reader reconciling a statement reads that column as the security's currency.
  */
 export function figureCurrency(tx: Denominated): string {
   return tx.tradingCurrency || tx.settlementCurrency || "";

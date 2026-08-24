@@ -145,8 +145,16 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
                       <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Adj Price
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
-                        Currency
+                      {/* What the figures on the row are in, which is what the
+                          column can answer. It is not a claim about the line the
+                          security is quoted on: a source that named no line
+                          reports its figures in the account's currency, and the
+                          cell says so where that is what it is showing. */}
+                      <th
+                        title="The currency the price and amounts on this row are stated in"
+                        className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted"
+                      >
+                        Figures In
                       </th>
                     </tr>
                   </thead>
@@ -234,9 +242,16 @@ function TxRow({
   const date = leg ? tx.orderDate : (tx.groupTimestamp ?? tx.orderDate);
   const isSynthetic = !!tx.syntheticPurpose;
   const accountTypeLabel = ACCOUNT_TYPE_LABEL[tx.accountType];
+  // No line is named here: a posting names the security always and the line only
+  // where something said which, and the response carries the security. So the
+  // label is a name this security answers to rather than one line's.
   const ticker = currentTicker(ptx.instrument);
   const label = ticker || ptx.instrument?.name || tx.instrumentDescription || "\u2014";
   const currency = figureCurrency(tx);
+  // The source stated no trading currency, so what is shown is what the record
+  // settled in -- the account's currency, which says nothing about which line
+  // the security is quoted on -- the distinction lib/currency.ts draws.
+  const settlementOnly = !!currency && !tx.tradingCurrency;
 
   return (
     <tr
@@ -312,8 +327,20 @@ function TxRow({
           ? tx.splitAdjustedUnitPrice
           : "\u2014"}
       </td>
-      <td className="px-4 py-3 text-text-muted">
+      <td
+        data-testid="tx-currency"
+        data-tx-currency-settlement-only={settlementOnly ? "true" : "false"}
+        title={
+          settlementOnly
+            ? "The account's currency: this record named no currency for the instrument itself"
+            : undefined
+        }
+        className={
+          "px-4 py-3 text-text-muted" + (settlementOnly ? " italic opacity-70" : "")
+        }
+      >
         {currency || "\u2014"}
+        {settlementOnly && <span className="ml-1 text-xs">(account)</span>}
       </td>
     </tr>
   );

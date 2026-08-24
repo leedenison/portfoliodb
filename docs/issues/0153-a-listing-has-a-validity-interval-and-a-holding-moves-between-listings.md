@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A listing has a validity interval and a holding moves between listings
 milestone: M25
 dependencies: [0149, 0150]
@@ -41,3 +41,34 @@ which assumes both sides sit on the same commodity at the grain being
 partitioned. Valuation partitions by line, so a conversion left to it nets to
 zero on the old line and zero on the new, and the holding never moves. Suppress
 the netting where `from_listing_id <> to_listing_id`.
+
+## Outcome
+
+Landed in three changes: the lifecycle written down, the deletion, and the
+transaction type.
+
+The listing interval needed no schema work. `instrument_listings` has carried
+`[valid_from, valid_before)` with its CHECK since 0146, and both protos and the
+archive round-trip already carry it, so what this issue owed was the account of
+what moves those bounds. adr/0076 records it, and the three specs that each held
+part of the model gained the redenomination clause, which until now existed only
+in 0137.
+
+The instrument-grain pair was even more inert than the scope claimed. Archive
+import stopped being a writer at 0151, when the archive `Instrument` message lost
+the fields, so by the time this ran nothing in the tree wrote anything but nil and
+there was no value to move rather than a value with nowhere to go.
+`docs/spec/archive-format.md` needed no edit at all: it already described a world
+with only the listing interval.
+
+`TRANSFER_LISTING` was already in `docs/spec/tx-types.md`, written when the
+listing model landed, and in no other file. Registering it turned up two SQL CHECK
+constraints enumerating every type name, which the scope did not anticipate and
+which would have rejected every posting carrying the value at INSERT.
+
+The rest moved to 0158. No export in hand shows a conversion row, so the converter
+half has no shape to implement; and the two-group form cannot pair at all until
+the matcher's same-account guard is relaxed, since a conversion happens inside one
+account. Landing the netting suppression on its own would have shipped a rule that
+no data could reach, which is the objection 0149 raised when it left the
+suppression here. 0158 takes the three together.

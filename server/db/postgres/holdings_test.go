@@ -357,3 +357,95 @@ func TestComputeHoldingsForPortfolio_closedAcrossSplit(t *testing.T) {
 		t.Fatalf("expected no holdings, got %+v", holdings)
 	}
 }
+
+// postingOnNoLine writes one USER posting naming a security and no line of it,
+// which is what ingest stores when nothing said which currency the figures are
+// in. createTx cannot: it resolves through soleResolutions, which attributes the
+// line wherever the security has one.
+func postingOnNoLine(t *testing.T, p *Postgres, userID, instID, qty, account string) {
+	t.Helper()
+	ctx := context.Background()
+	ts := timestamppb.New(time.Now().Add(-30 * time.Minute))
+	tx := &apiv1.Tx{OrderDate: ts, TradeDate: ts, InstrumentDescription: "NOLINE",
+		BrokerTxType:   []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: qty, Account: account}
+	err := p.CreateTxGroup(ctx, userID, "IBKR", account, "", []*apiv1.Tx{tx},
+		[]db.Resolution{{InstrumentID: instID}}, weightlessFor([]string{instID}), []*time.Time{nil})
+	if err != nil {
+		t.Fatalf("create posting on no line: %v", err)
+	}
+}
+
+// A position on no currency line is unpriced, and the two ways one arises are
+// repaired in different places: the postings never said which line, or the
+// security has no line for them to name. The count says which, because a person
+// acting on it has to know where to go.
+func TestCountUnattributedHoldings(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|unattributed", "U", "u@ua.com")
+
+	// The database this runs against carries seeded instruments but no postings.
+	// Counting a delta rather than a total says so without depending on it.
+	baseNamed, baseUnknown, err := p.CountUnattributedHoldings(ctx)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	// Quoted in USD, and no posting said the position is on that line.
+	quoted, quotedLine, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Quoted", "", "",
+		[]db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000101"}, Canonical: true}}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("ensure quoted instrument: %v", err)
+	}
+	if quotedLine == "" {
+		t.Fatalf("expected a line for a security ensured with a currency")
+	}
+	postingOnNoLine(t, p, userID, quoted, "40", "A")
+
+	// Nothing has stated a currency for this one, so it holds no line at all.
+	unquoted, unquotedLine, err := p.EnsureInstrument(ctx, "STOCK", "", "", "Unquoted", "", "",
+		[]db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000102"}, Canonical: true}}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("ensure unquoted instrument: %v", err)
+	}
+	if unquotedLine != "" {
+		t.Fatalf("listing = %q, want none: a caller stating no currency names no line", unquotedLine)
+	}
+	postingOnNoLine(t, p, userID, unquoted, "25", "A")
+
+	// A position whose posting names its line is attributed and is not a repair.
+	attributed, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Attributed", "", "",
+		[]db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000103"}, Canonical: true}}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("ensure attributed instrument: %v", err)
+	}
+	ts := timestamppb.New(time.Now().Add(-30 * time.Minute))
+	buy := &apiv1.Tx{OrderDate: ts, TradeDate: ts, InstrumentDescription: "ATTR",
+		BrokerTxType:   []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"}
+	if err := createTx(ctx, p, userID, "IBKR", "A", "", buy, attributed, nil); err != nil {
+		t.Fatalf("create attributed posting: %v", err)
+	}
+
+	// A position on no line that was sold down to nothing is not a repair either:
+	// there is no holding left to attribute.
+	closed, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Closed", "", "",
+		[]db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000104"}, Canonical: true}}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("ensure closed instrument: %v", err)
+	}
+	postingOnNoLine(t, p, userID, closed, "12", "B")
+	postingOnNoLine(t, p, userID, closed, "-12", "B")
+
+	named, unknown, err := p.CountUnattributedHoldings(ctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if got := named - baseNamed; got != 1 {
+		t.Errorf("no line named = %d, want 1: only the quoted security's position", got)
+	}
+	if got := unknown - baseUnknown; got != 1 {
+		t.Errorf("no currency known = %d, want 1: only the unquoted security's position", got)
+	}
+}

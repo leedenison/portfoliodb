@@ -48,4 +48,5 @@ export const qk = {
       ? (["residual-balances"] as const)
       : (["residual-balances", periodFrom, periodBefore ?? ""] as const),
   residualBalanceCounts: () => ["residual-balance-counts"] as const,
+  unattributedHoldingCounts: () => ["unattributed-holding-counts"] as const,
 };

@@ -69,6 +69,9 @@ test.describe("opening balances: pads and checked assertions", () => {
     await expect(rows.first().locator("[data-testid='declaration-status']")).toHaveText(
       "Opening balance"
     );
+    // A checkpoint is a quantity of one currency line, and the row says which.
+    // AMZN has a single line, so the form settled on it without asking.
+    await expect(rows.first()).toContainText("(USD)");
 
     // The declared quantity is now what the holdings page shows, which is the pad
     // doing its job: 12 units from before the history began, plus the 8 bought. The

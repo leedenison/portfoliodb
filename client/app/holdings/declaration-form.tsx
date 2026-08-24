@@ -13,8 +13,9 @@ import {
   protoDateToStr,
 } from "@/lib/portfolio-api";
 import type { BrokerAccounts } from "@/lib/portfolio-api";
-import { currentTicker } from "@/lib/identifiers";
-import type { HoldingDeclaration, Instrument } from "@/gen/api/v1/api_pb";
+import { currentTicker, lineLabel } from "@/lib/identifiers";
+import { LINE_DETAIL, lineOf, NO_CURRENCY_KNOWN } from "@/lib/listing";
+import type { HoldingDeclaration, Instrument, Listing } from "@/gen/api/v1/api_pb";
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -34,10 +35,15 @@ function initialBasis(decl: HoldingDeclaration): ShareCountBasis {
   return stored && stored !== asOf ? "today" : "as-of";
 }
 
-/** Ticker if the instrument has one, else its name, else the bare id. */
+/**
+ * Ticker if the line has one, else the security's name, else the bare id, with
+ * the currency line it is a quantity of. A holding is per line, so the label has
+ * to say which.
+ */
 function instrumentDisplayLabel(decl: HoldingDeclaration): string {
-  const ticker = currentTicker(decl.instrument);
-  return ticker || decl.instrument?.name || decl.instrumentId;
+  const ticker = currentTicker(decl.instrument, decl.listingId);
+  const label = ticker || decl.instrument?.name || decl.instrumentId;
+  return lineLabel(label, lineOf(decl.listingId, decl.instrument).currency);
 }
 
 export function DeclarationForm({
@@ -54,7 +60,15 @@ export function DeclarationForm({
   // The instrument the user picked, if any. Everything about the instrument is
   // derived from this or from the `editing` prop, so no effect copies the prop
   // into state.
-  const [picked, setPicked] = useState<{ id: string; label: string } | null>(null);
+  const [picked, setPicked] = useState<{
+    id: string;
+    label: string;
+    listings: Listing[];
+  } | null>(null);
+  // Which line of the picked security the quantity is a quantity of. Empty is a
+  // caller that has not said, which the server settles to the sole line and to
+  // no line where the security has several.
+  const [listingId, setListingId] = useState("");
   const [declaredQty, setDeclaredQty] = useState(editing?.declaredQty ?? "");
   const [asOfDate, setAsOfDate] = useState(editing?.asOfDate ? protoDateToStr(editing.asOfDate) : todayStr());
   // Which share count the quantity is in. A number copied off a statement of the
@@ -89,6 +103,12 @@ export function DeclarationForm({
   const instrumentLabel =
     picked?.label ?? (editing?.instrument ? instrumentDisplayLabel(editing) : "");
 
+  // The lines the picked security has, and the currency of the one chosen. Only
+  // a new checkpoint picks: editing declares nothing new, and the update request
+  // carries no line for the same reason.
+  const lines = picked?.listings ?? [];
+  const pickedCurrency = lines.find((l) => l.id === listingId)?.currency ?? "";
+
   const accounts = brokerAccounts.find((b) => b.broker === broker)?.accounts ?? [];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -116,6 +136,7 @@ export function DeclarationForm({
           declaredQty,
           asOfDate,
           shareCountBasis,
+          listingId,
         });
       }
       onDone();
@@ -128,7 +149,11 @@ export function DeclarationForm({
 
   const selectInstrument = (inst: Instrument) => {
     const ticker = currentTicker(inst);
-    setPicked({ id: inst.id, label: ticker || inst.name || inst.id });
+    setPicked({ id: inst.id, label: ticker || inst.name || inst.id, listings: inst.listings });
+    // A security quoted in one currency has one answer, so the form states it
+    // rather than asking. Several, and the user says which; none, and there is
+    // no line to declare against.
+    setListingId(inst.listings.length === 1 ? inst.listings[0].id : "");
     // Clearing the term disables the search query, so the results go with it.
     setInstrumentSearch("");
   };
@@ -149,6 +174,19 @@ export function DeclarationForm({
       </p>
 
       {error && <ErrorAlert>{error}</ErrorAlert>}
+
+      {/* What is being edited, including the line: the quantity is a quantity of
+          one currency line, and a checkpoint cannot be moved to another one. */}
+      {editing && (
+        <p data-testid="declaration-editing" className="text-sm text-text-primary">
+          <span className="font-medium">{instrumentDisplayLabel(editing)}</span>
+          <span className="text-text-muted">
+            {" "}
+            at {editing.broker}
+            {editing.account ? ` / ${editing.account}` : ""}
+          </span>
+        </p>
+      )}
 
       {!editing && (
         <>
@@ -198,10 +236,15 @@ export function DeclarationForm({
             </label>
             {instrumentId ? (
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-text-primary">{instrumentLabel}</span>
+                <span className="text-sm font-medium text-text-primary">
+                  {lineLabel(instrumentLabel, pickedCurrency)}
+                </span>
                 <button
                   type="button"
-                  onClick={() => setPicked({ id: "", label: "" })}
+                  onClick={() => {
+                    setPicked({ id: "", label: "", listings: [] });
+                    setListingId("");
+                  }}
                   className="text-xs text-accent-dark hover:underline"
                 >
                   Change
@@ -246,6 +289,40 @@ export function DeclarationForm({
               </>
             )}
           </div>
+
+          {/* Which currency line, where the security has more than one. A
+              holding is per line -- two lines of one security are an FX rate
+              apart -- so the two are declared separately rather than added. */}
+          {instrumentId && lines.length > 1 && (
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Currency Line
+              </label>
+              <select
+                data-testid="declaration-listing"
+                value={listingId}
+                onChange={(e) => setListingId(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Not stated</option>
+                {lines.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.currency}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-text-muted">
+                {listingId
+                  ? "The quantity is a quantity of this line."
+                  : "Left unstated, the checkpoint sits on no line and is checked only against transactions that name none either."}
+              </p>
+            </div>
+          )}
+          {instrumentId && lines.length === 0 && (
+            <p data-testid="declaration-no-line" className="text-xs text-text-muted">
+              {LINE_DETAIL[NO_CURRENCY_KNOWN]}
+            </p>
+          )}
         </>
       )}
 

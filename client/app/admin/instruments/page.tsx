@@ -9,8 +9,9 @@ import { qk } from "@/lib/query-keys";
 import { listInstruments } from "@/lib/portfolio-api";
 import { useDebounce } from "@/hooks/use-debounce";
 import { AssetClass, IdentifierType } from "@/gen/type/v1/type_pb";
-import type { Instrument, InstrumentIdentifier } from "@/gen/api/v1/api_pb";
+import type { Instrument, InstrumentIdentifier, Listing } from "@/gen/api/v1/api_pb";
 import { ALL_ASSET_CLASSES, DEFAULT_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
+import { lineLabel } from "@/lib/identifiers";
 
 const IDENTIFIER_LABELS: Record<number, string> = {
   [IdentifierType.ISIN]: "ISIN",
@@ -43,8 +44,33 @@ function isCurrent(id: InstrumentIdentifier): boolean {
   return !id.validBefore;
 }
 
+// A canonical name at either grain identifies the security. A SEDOL and a
+// composite FIGI name one currency line and live on it, so reading the
+// security's own list alone would report a security known only by those as
+// unidentified.
 function isIdentified(inst: Instrument): boolean {
-  return inst.identifiers.some((id) => id.canonical);
+  return (
+    inst.identifiers.some((id) => id.canonical) ||
+    inst.listings.some((l) => l.identifiers.some((id) => id.canonical)) ||
+    inst.unplacedIdentifiers.some((id) => id.canonical)
+  );
+}
+
+/** The currency of the line a derivative delivers, empty where it names none. */
+function underlyingCurrency(inst: Instrument): string {
+  return (
+    inst.underlying?.listings.find((l) => l.id === inst.underlyingListingId)
+      ?.currency ?? ""
+  );
+}
+
+/** What is known about a line beyond its currency: where it is quoted, and when
+ * it was tradeable. */
+function listingTitle(l: Listing): string {
+  const window = [l.validFrom ?? "", l.validBefore ?? ""].some(Boolean)
+    ? `${l.validFrom ?? "always"} to ${l.validBefore ?? "now"}`
+    : "";
+  return [l.venues.join(", "), window].filter(Boolean).join(" - ");
 }
 
 export default function AdminInstrumentsPage() {
@@ -178,11 +204,11 @@ function InstrumentList({
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Asset Class
                   </th>
+                  {/* One column for the lines rather than one exchange and one
+                      currency: currency is a fact about a line and a security
+                      quoted in two has two of them. */}
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
-                    Exchange
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
-                    Currency
+                    Listings
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Status
@@ -193,7 +219,7 @@ function InstrumentList({
                 {instruments.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={4}
                       className="px-4 py-8 text-center text-text-muted"
                     >
                       {search
@@ -217,7 +243,7 @@ function InstrumentList({
                       >
                         <td
                           className="px-4 py-3 font-medium text-text-primary"
-                          colSpan={expanded ? 5 : 1}
+                          colSpan={expanded ? 4 : 1}
                         >
                           {expanded ? (
                             <ExpandedDetail inst={inst} />
@@ -230,14 +256,8 @@ function InstrumentList({
                             <td className="px-4 py-3 text-text-muted">
                               {ASSET_CLASS_LABELS[inst.assetClass] || "\u2014"}
                             </td>
-                            <td
-                              className="px-4 py-3 text-text-muted"
-                              title={inst.exchangeInfo?.name || ""}
-                            >
-                              {inst.exchangeInfo?.acronym || inst.exchange || "\u2014"}
-                            </td>
-                            <td className="px-4 py-3 text-text-muted">
-                              {inst.currency || "\u2014"}
+                            <td className="px-4 py-3">
+                              <ListingChips inst={inst} />
                             </td>
                             <td className="px-4 py-3">
                               <span
@@ -277,16 +297,41 @@ function InstrumentList({
   );
 }
 
+/**
+ * The security's currency lines, disclosed by their currency. A security with
+ * none says so: nothing has stated a currency for it, so it has no line to be
+ * quoted on and nothing it holds can be priced.
+ */
+function ListingChips({ inst }: { inst: Instrument }) {
+  if (inst.listings.length === 0) {
+    return (
+      <span
+        data-testid="instrument-no-listing"
+        className="inline-block rounded-sm bg-accent-soft/60 px-1.5 py-0.5 text-xs font-medium text-accent-dark"
+      >
+        No currency line
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap gap-1">
+      {inst.listings.map((l) => (
+        <span
+          key={l.id}
+          data-testid="instrument-listing"
+          data-listing-currency={l.currency}
+          title={listingTitle(l)}
+          className="inline-block rounded-sm bg-primary-dark/10 px-1.5 py-0.5 font-mono text-xs text-primary-dark"
+        >
+          {l.currency}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function ExpandedDetail({ inst }: { inst: Instrument }) {
   const identified = isIdentified(inst);
-  // Current names first, then the ones given up, most recent first.
-  const canonicalIds = inst.identifiers
-    .filter((id) => id.canonical)
-    .sort((a, b) =>
-      isCurrent(a) === isCurrent(b)
-        ? (b.validBefore ?? "").localeCompare(a.validBefore ?? "")
-        : Number(isCurrent(b)) - Number(isCurrent(a))
-    );
   const brokerDescs = inst.identifiers.filter(
     (id) => id.type === IdentifierType.BROKER_DESCRIPTION
   );
@@ -319,77 +364,46 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
             {ASSET_CLASS_LABELS[inst.assetClass]}
           </span>
         )}
-        {inst.exchange && (
-          <span title={inst.exchangeInfo?.name || ""}>
-            <span className="font-semibold uppercase tracking-wider">
-              Exchange
-            </span>{" "}
-            {inst.exchangeInfo?.acronym || inst.exchange}
-          </span>
-        )}
-        {inst.currency && (
-          <span>
-            <span className="font-semibold uppercase tracking-wider">
-              Currency
-            </span>{" "}
-            {inst.currency}
-          </span>
-        )}
+        <span className="flex items-center gap-1.5">
+          <span className="font-semibold uppercase tracking-wider">Lines</span>{" "}
+          <ListingChips inst={inst} />
+        </span>
         {inst.underlyingId && (
           <span>
             <span className="font-semibold uppercase tracking-wider">
               Underlying
             </span>{" "}
-            <span>{inst.underlying?.name || inst.underlyingId}</span>
+            {/* The line the contract delivers, not just the security: a strike is
+                a price and a price is in a currency, so a deliverable in the USD
+                line is a different contract from one in the GBP line. */}
+            <span>
+              {lineLabel(
+                inst.underlying?.name || inst.underlyingId,
+                underlyingCurrency(inst)
+              )}
+            </span>
           </span>
         )}
       </div>
 
-      {/* Canonical identifiers */}
-      {canonicalIds.length > 0 && (
-        <div className="space-y-1">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-            Identifiers
-          </h4>
-          <div className="flex flex-wrap gap-1.5">
-            {canonicalIds.map((id) => (
-              <span
-                key={`${id.type}-${id.value}-${id.validFrom ?? ""}`}
-                data-testid="instrument-identifier"
-                data-identifier-type={idLabel(id)}
-                data-identifier-current={isCurrent(id) ? "true" : "false"}
-                title={
-                  isCurrent(id)
-                    ? undefined
-                    : `No longer in force from ${id.validBefore}`
-                }
-                className={
-                  "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-xs " +
-                  (isCurrent(id)
-                    ? "bg-primary-dark/10"
-                    : "bg-text-muted/10 opacity-60")
-                }
-              >
-                <span
-                  className={
-                    "font-semibold " +
-                    (isCurrent(id) ? "text-primary-dark" : "text-text-muted")
-                  }
-                >
-                  {idLabel(id)}
-                </span>
-                <span className="text-text-primary">{id.value}</span>
-                {id.domain && (
-                  <span className="text-text-muted">({id.domain})</span>
-                )}
-                {!isCurrent(id) && (
-                  <span className="text-text-muted">until {id.validBefore}</span>
-                )}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Identifiers, one block per grain. A name that names the security is a
+          different claim from one that names a line of it, and the flat list
+          this replaced could not say which a row was. */}
+      <IdentifierBlock heading="Names the security" ids={inst.identifiers} />
+      {inst.listings.map((l) => (
+        <IdentifierBlock
+          key={l.id}
+          heading={`Names the ${l.currency} line`}
+          headingTitle={listingTitle(l)}
+          ids={l.identifiers}
+          empty="No names on this line"
+        />
+      ))}
+      <IdentifierBlock
+        heading="Names no line"
+        headingTitle="Listing-grain names from a result that stated no currency"
+        ids={inst.unplacedIdentifiers}
+      />
 
       {/* Broker descriptions */}
       {brokerDescs.length > 0 && (
@@ -410,6 +424,90 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
               </span>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One grain's canonical names, current ones first and then the ones the
+ * instrument has given up, most recent first. A name with a closed validity
+ * interval is kept so a file naming it still resolves, and shown so an
+ * administrator can see why the instrument answers to two symbols. See
+ * docs/adr/0055-identifier-validity-is-an-interval.md.
+ *
+ * A block with nothing in it and nothing to say about that is not drawn: an
+ * instrument holds no names at most grains, and an empty heading per grain would
+ * be most of the panel.
+ */
+function IdentifierBlock({
+  heading,
+  headingTitle,
+  ids,
+  empty,
+}: {
+  heading: string;
+  headingTitle?: string;
+  ids: InstrumentIdentifier[];
+  empty?: string;
+}) {
+  const canonical = ids
+    .filter((id) => id.canonical)
+    .sort((a, b) =>
+      isCurrent(a) === isCurrent(b)
+        ? (b.validBefore ?? "").localeCompare(a.validBefore ?? "")
+        : Number(isCurrent(b)) - Number(isCurrent(a))
+    );
+  if (canonical.length === 0 && !empty) return null;
+
+  return (
+    <div className="space-y-1">
+      <h4
+        title={headingTitle || undefined}
+        className="text-xs font-semibold uppercase tracking-wider text-text-muted"
+      >
+        {heading}
+      </h4>
+      {canonical.length === 0 ? (
+        <p className="text-xs text-text-muted">{empty}</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {canonical.map((id) => (
+            <span
+              key={`${id.type}-${id.value}-${id.validFrom ?? ""}`}
+              data-testid="instrument-identifier"
+              data-identifier-type={idLabel(id)}
+              data-identifier-current={isCurrent(id) ? "true" : "false"}
+              title={
+                isCurrent(id)
+                  ? undefined
+                  : `No longer in force from ${id.validBefore}`
+              }
+              className={
+                "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-xs " +
+                (isCurrent(id)
+                  ? "bg-primary-dark/10"
+                  : "bg-text-muted/10 opacity-60")
+              }
+            >
+              <span
+                className={
+                  "font-semibold " +
+                  (isCurrent(id) ? "text-primary-dark" : "text-text-muted")
+                }
+              >
+                {idLabel(id)}
+              </span>
+              <span className="text-text-primary">{id.value}</span>
+              {id.domain && (
+                <span className="text-text-muted">({id.domain})</span>
+              )}
+              {!isCurrent(id) && (
+                <span className="text-text-muted">until {id.validBefore}</span>
+              )}
+            </span>
+          ))}
         </div>
       )}
     </div>

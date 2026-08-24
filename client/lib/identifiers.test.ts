@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { IdentifierType, IdentifierTypeSchema } from "@/gen/type/v1/type_pb";
-import { InstrumentIdentifierSchema } from "@/gen/api/v1/api_pb";
-import { currentTicker, VALID_IDENTIFIER_TYPES } from "./identifiers";
+import { InstrumentIdentifierSchema, ListingSchema } from "@/gen/api/v1/api_pb";
+import { currentTicker, lineLabel, VALID_IDENTIFIER_TYPES } from "./identifiers";
 
 /**
  * The set an import parser checks a hint against. It is derived from the proto
@@ -79,5 +79,69 @@ describe("currentTicker", () => {
     expect(currentTicker({ identifiers: [ident(IdentifierType.ISIN, "US0000000001")] })).toBeUndefined();
     expect(currentTicker({ identifiers: [] })).toBeUndefined();
     expect(currentTicker(undefined)).toBeUndefined();
+  });
+
+  /**
+   * A ticker names one currency line. Two lines of one security wear different
+   * symbols, so which line the caller means decides the answer.
+   */
+  describe("with lines", () => {
+    const line = (id: string, currency: string, ticker: string) =>
+      create(ListingSchema, {
+        id,
+        currency,
+        identifiers: [ident(IdentifierType.MIC_TICKER, ticker)],
+      });
+    const twoLine = {
+      identifiers: [ident(IdentifierType.ISIN, "GB0000000001")],
+      listings: [line("gbp", "GBP", "VOD"), line("usd", "USD", "VOD.US")],
+      unplacedIdentifiers: [],
+    };
+
+    it("takes the named line's ticker rather than its sibling's", () => {
+      expect(currentTicker(twoLine, "gbp")).toBe("VOD");
+      expect(currentTicker(twoLine, "usd")).toBe("VOD.US");
+    });
+
+    it("finds a ticker on some line when no line is named", () => {
+      // The answer for a caller that has not picked a grain: every line's ticker
+      // is a name this security answers to, and which one came back says nothing
+      // about which line the row is on.
+      expect(currentTicker(twoLine)).toBe("VOD");
+    });
+
+    it("returns undefined for a line the security does not hold", () => {
+      // Nothing is known to name that line, which is not the same as the
+      // security having no ticker at all.
+      expect(currentTicker(twoLine, "eur")).toBeUndefined();
+    });
+
+    it("reads a name that could be placed on no line", () => {
+      const unplaced = {
+        identifiers: [],
+        listings: [],
+        unplacedIdentifiers: [ident(IdentifierType.MIC_TICKER, "UNPL")],
+      };
+      expect(currentTicker(unplaced)).toBe("UNPL");
+      // It names the security and no line, so asking for a line's ticker is not
+      // answered by it.
+      expect(currentTicker(unplaced, "gbp")).toBeUndefined();
+    });
+  });
+});
+
+/**
+ * A line is disclosed by its currency, which tells a user the two lines of a
+ * security are an FX rate apart. A label with no line stands alone rather than
+ * acquiring empty parentheses.
+ */
+describe("lineLabel", () => {
+  it("suffixes the currency", () => {
+    expect(lineLabel("VOD", "GBP")).toBe("VOD (GBP)");
+  });
+
+  it("leaves a label with no line alone", () => {
+    expect(lineLabel("VOD", "")).toBe("VOD");
+    expect(lineLabel("VOD", undefined)).toBe("VOD");
   });
 });

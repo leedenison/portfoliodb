@@ -85,14 +85,14 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row == nil {
 		return nil
 	}
-	// Flattened, because the UI reads one list per instrument and the identity
-	// page it draws does not yet say which grain a row is at. Each listing also
-	// carries its own below, so the two views are consistent and a caller can
-	// already read the grain off the response. Removing the flat one is 0154.
-	identifiers := identifiersToProto(row.AllIdentifiers())
+	// At their grain rather than flattened: the security's own names here, each
+	// line's on the listing it names, and the ones nobody could place in a third
+	// list. A reader wanting every name a security answers to reads all three,
+	// which is what a reader that has picked a grain no longer has to do.
 	out := &apiv1.Instrument{
-		Id:          row.ID,
-		Identifiers: identifiers,
+		Id:                  row.ID,
+		Identifiers:         identifiersToProto(row.Identifiers),
+		UnplacedIdentifiers: identifiersToProto(row.UnplacedIdentifiers),
 	}
 	if row.AssetClass != nil {
 		out.AssetClass = db.StrToAssetClass(*row.AssetClass)

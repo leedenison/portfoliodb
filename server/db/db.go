@@ -474,6 +474,12 @@ type TxDB interface {
 type HoldingsDB interface {
 	ComputeHoldings(ctx context.Context, userID string, broker *typev1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
 	ComputeHoldingsForPortfolio(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
+	// CountUnattributedHoldings counts the live positions on no currency line,
+	// over all users, split by which question is open: the security has lines and
+	// no posting said which (the repair is on the postings), or it holds none at
+	// all (the repair is on the security). Both are unpriced, and they are counted
+	// apart because they are fixed in different places.
+	CountUnattributedHoldings(ctx context.Context) (noLineNamed, noCurrencyKnown int32, err error)
 }
 
 // ValuationPoint is one day's portfolio value.

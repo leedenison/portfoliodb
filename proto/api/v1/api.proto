@@ -382,6 +382,11 @@ service ApiService {
   // source's own rounding costs.
   rpc ListResidualBalances(ListResidualBalancesRequest) returns (ListResidualBalancesResponse);
   rpc CountResidualBalances(CountResidualBalancesRequest) returns (CountResidualBalancesResponse);
+
+  // Holdings on no currency line (admin-only). A position nothing could attribute
+  // to a line is unpriced and unvaluable, which is a repair rather than a fact
+  // about one portfolio.
+  rpc CountUnattributedHoldings(CountUnattributedHoldingsRequest) returns (CountUnattributedHoldingsResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -1372,4 +1377,22 @@ message CountResidualBalancesRequest {
 message CountResidualBalancesResponse {
   int32 imbalance_count = 1;       // non-zero IMBALANCE balances
   int32 stale_transfer_count = 2;  // TRANSFER_CLEARING balances older than the window
+}
+
+// CountUnattributedHoldings counts the live positions that sit on no currency
+// line, over all users. Such a position is real and its quantity is right; what
+// is unknown is what it is denominated in, so it is reported unpriced rather than
+// valued at a rate nobody stated.
+//
+// See docs/spec/display-currency.md and
+// docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+message CountUnattributedHoldingsRequest {}
+
+message CountUnattributedHoldingsResponse {
+  // The security is quoted in at least one currency and no posting of the
+  // position said which of them it is on. The repair is on the postings.
+  int32 no_line_named_count = 1;
+  // The security holds no currency line at all, so there is none for the position
+  // to be on. The repair is on the security: nothing has stated a currency for it.
+  int32 no_currency_known_count = 2;
 }

@@ -11,10 +11,13 @@ import {
   listWorkers,
   countUnhandledCorporateEvents,
   countResidualBalances,
+  countUnattributedHoldings,
   WorkerState,
   type ResidualBalanceCounts,
+  type UnattributedHoldingCounts,
   type WorkerRow,
 } from "@/lib/portfolio-api";
+import { NO_CURRENCY_KNOWN, NO_LINE_NAMED } from "@/lib/listing";
 
 const dashboardCards: {
   id: string;
@@ -29,6 +32,13 @@ const dashboardCards: {
     href: "/admin/instruments",
     description:
       "Browse and inspect instrument reference data, identifiers and status.",
+  },
+  {
+    id: "unattributed",
+    title: "Unattributed holdings",
+    href: "/admin/instruments",
+    description:
+      "Positions on no currency line: unpriced and unvaluable until one is established.",
   },
   {
     id: "prices",
@@ -94,9 +104,9 @@ const dashboardCards: {
 ];
 
 export default function AdminOverviewPage() {
-  // Five separate queries rather than one Promise.all whose catch swallowed
+  // One query per card rather than one Promise.all whose catch swallowed
   // everything: a card whose summary fails now blanks on its own instead of
-  // taking the other four with it. The plugin lists share their keys with the
+  // taking the others with it. The plugin lists share their keys with the
   // plugin pages, so navigating there is a cache hit.
   const names = (list: { displayName: string; pluginId: string }[]) =>
     list.map((p) => ({ displayName: p.displayName || p.pluginId }));
@@ -128,12 +138,20 @@ export default function AdminOverviewPage() {
     queryKey: qk.residualBalanceCounts(),
     queryFn: () => countResidualBalances(),
   });
+  const { data: unattributed } = useAuthedQuery<UnattributedHoldingCounts>({
+    queryKey: qk.unattributedHoldingCounts(),
+    queryFn: countUnattributedHoldings,
+  });
   // Both draw attention now. A stale transfer count is of transfers whose second
   // side never arrived -- a settled pair is matched and excluded -- so it is
   // something to act on rather than a restatement of how many were imported.
   const residualAttention =
     (residualCounts?.imbalanceCount ?? 0) > 0 ||
     (residualCounts?.staleTransferCount ?? 0) > 0;
+  // Either count is a position whose value nobody can state, so either draws.
+  const unattributedAttention =
+    (unattributed?.noLineNamedCount ?? 0) > 0 ||
+    (unattributed?.noCurrencyKnownCount ?? 0) > 0;
 
   function pluginSummary(
     id: string
@@ -156,6 +174,19 @@ export default function AdminOverviewPage() {
       return unhandledEventCount > 0
         ? `${unhandledEventCount} unhandled`
         : "No unhandled events";
+    }
+    // The two are different repairs -- one on the postings, one on the security
+    // -- so the summary names each rather than totalling them.
+    if (id === "unattributed") {
+      if (!unattributed) return null;
+      const parts: string[] = [];
+      if (unattributed.noLineNamedCount > 0) {
+        parts.push(`${unattributed.noLineNamedCount} ${NO_LINE_NAMED.toLowerCase()}`);
+      }
+      if (unattributed.noCurrencyKnownCount > 0) {
+        parts.push(`${unattributed.noCurrencyKnownCount} ${NO_CURRENCY_KNOWN.toLowerCase()}`);
+      }
+      return parts.length > 0 ? parts.join(", ") : "Every holding is on a line";
     }
     if (id === "imbalance") {
       if (!residualCounts) return null;
@@ -203,7 +234,8 @@ export default function AdminOverviewPage() {
               {summary && (
                 <p className={`mt-3 font-mono text-xs ${
                   (card.id === "corporate-events" && unhandledEventCount > 0) ||
-                  (card.id === "imbalance" && residualAttention)
+                  (card.id === "imbalance" && residualAttention) ||
+                  (card.id === "unattributed" && unattributedAttention)
                     ? "text-amber-600 dark:text-amber-400"
                     : "text-text-muted"
                 }`}>

@@ -116,3 +116,42 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 	}
 	return out, timeToTs(asOfT), nil
 }
+
+// CountUnattributedHoldings implements db.HoldingsDB.
+//
+// The unit is the holding rather than the posting: a position is what a person
+// repairs, and counting postings would report one security bought in twenty
+// instalments as twenty problems. It is closed the same way the holdings query
+// closes one, so a position sold down to nothing does not sit on the dashboard
+// forever.
+//
+// Cash never reaches this. A cash instrument resolves through a CURRENCY
+// identifier, so it always has exactly one line and its postings always name it.
+func (p *Postgres) CountUnattributedHoldings(ctx context.Context) (int32, int32, error) {
+	q := `
+		WITH unattributed AS (
+			SELECT t.instrument_id
+			FROM txs t
+			WHERE t.listing_id IS NULL
+			  AND t.instrument_id IS NOT NULL
+			  AND t.account_type = 'USER'
+			GROUP BY t.user_id, t.broker, t.account, t.instrument_id
+			` + holdingClosedTest + `
+		)
+		SELECT
+			COUNT(*) FILTER (WHERE EXISTS (
+				SELECT 1 FROM instrument_listings l WHERE l.instrument_id = u.instrument_id))::int
+				AS no_line_named,
+			COUNT(*) FILTER (WHERE NOT EXISTS (
+				SELECT 1 FROM instrument_listings l WHERE l.instrument_id = u.instrument_id))::int
+				AS no_currency_known
+		FROM unattributed u`
+	var counts struct {
+		NoLineNamed     int32 `db:"no_line_named"`
+		NoCurrencyKnown int32 `db:"no_currency_known"`
+	}
+	if err := p.q.GetContext(ctx, &counts, q); err != nil {
+		return 0, 0, fmt.Errorf("count unattributed holdings: %w", err)
+	}
+	return counts.NoLineNamed, counts.NoCurrencyKnown, nil
+}

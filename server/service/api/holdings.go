@@ -84,3 +84,21 @@ func (s *Server) GetHoldings(ctx context.Context, req *apiv1.GetHoldingsRequest)
 	}
 	return &apiv1.GetHoldingsResponse{Holdings: holdings, AsOf: asOf}, nil
 }
+
+// CountUnattributedHoldings returns the dashboard headline counts for positions
+// on no currency line. Admin only: an unattributed holding is a gap in the shared
+// instrument data rather than a fact about one portfolio, and the repair is made
+// where that data is.
+func (s *Server) CountUnattributedHoldings(ctx context.Context, req *apiv1.CountUnattributedHoldingsRequest) (*apiv1.CountUnattributedHoldingsResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	noLineNamed, noCurrencyKnown, err := s.db.CountUnattributedHoldings(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "count unattributed holdings: %v", err)
+	}
+	return &apiv1.CountUnattributedHoldingsResponse{
+		NoLineNamedCount:     noLineNamed,
+		NoCurrencyKnownCount: noCurrencyKnown,
+	}, nil
+}

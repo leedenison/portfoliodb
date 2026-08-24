@@ -59,3 +59,35 @@ func TestGetHoldings_WithPortfolioId_NotFound(t *testing.T) {
 	_, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{PortfolioId: "port-1"})
 	testutil.RequireGRPCCode(t, err, codes.NotFound)
 }
+
+func TestCountUnattributedHoldings_NonAdmin_PermissionDenied(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	_, err := srv.CountUnattributedHoldings(authCtx("user-1", "sub|1"), &apiv1.CountUnattributedHoldingsRequest{})
+	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
+}
+
+func TestCountUnattributedHoldings_Unauthenticated(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	_, err := srv.CountUnattributedHoldings(ctxNoAuth(), &apiv1.CountUnattributedHoldingsRequest{})
+	testutil.RequireGRPCCode(t, err, codes.Unauthenticated)
+}
+
+// The two counts stay apart on the way out. They are different repairs -- one on
+// the postings, one on the security -- and a surface that added them would be
+// telling a person how many problems there are without saying where any of them
+// is.
+func TestCountUnattributedHoldings_Success(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().CountUnattributedHoldings(gomock.Any()).Return(int32(4), int32(2), nil)
+
+	resp, err := srv.CountUnattributedHoldings(adminCtx("user-1", "sub|1"), &apiv1.CountUnattributedHoldingsRequest{})
+	if err != nil {
+		t.Fatalf("CountUnattributedHoldings: %v", err)
+	}
+	if resp.GetNoLineNamedCount() != 4 {
+		t.Errorf("no line named = %d, want 4", resp.GetNoLineNamedCount())
+	}
+	if resp.GetNoCurrencyKnownCount() != 2 {
+		t.Errorf("no currency known = %d, want 2", resp.GetNoCurrencyKnownCount())
+	}
+}

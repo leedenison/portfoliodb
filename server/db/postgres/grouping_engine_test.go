@@ -40,7 +40,7 @@ func engineFixture(t *testing.T, sub string) (*Postgres, string, string) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "ENG-" + sub, Domain: "ENGINE"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

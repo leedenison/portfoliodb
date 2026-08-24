@@ -30,7 +30,7 @@ func seedBalancedGroups(t testing.TB, p *Postgres, groups int) (string, string) 
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "BENCH", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -38,7 +38,7 @@ func seedBalancedGroups(t testing.TB, p *Postgres, groups int) (string, string) 
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "CURRENCY", Value: "USD"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure USD: %v", err)
 	}
@@ -86,7 +86,7 @@ func seedPairedJournals(t testing.TB, p *Postgres, groups int) (string, string, 
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "MRGA", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
@@ -94,7 +94,7 @@ func seedPairedJournals(t testing.TB, p *Postgres, groups int) (string, string, 
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "MRGB", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}

@@ -48,7 +48,7 @@ func usdInstrument(t *testing.T, p *Postgres) string {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "CURRENCY", Value: "USD"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure USD: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestListResidualBalances_SecurityCommodity(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure stock: %v", err)
 	}
@@ -409,7 +409,7 @@ func TestListResidualBalances_ShareResidualAcrossSplit(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "JRN", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestListResidualBalances_ShareResidualReportedInTodaysShareCount(t *testing
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "JRN2", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

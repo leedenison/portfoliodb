@@ -11,7 +11,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // JobEnqueuer enqueues a job for async processing. Returns an error if the queue is full.
@@ -118,12 +117,6 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	}
 	if row.UnderlyingID != nil {
 		out.UnderlyingId = *row.UnderlyingID
-	}
-	if row.ValidFrom != nil {
-		out.ValidFrom = timestamppb.New(*row.ValidFrom)
-	}
-	if row.ValidBefore != nil {
-		out.ValidBefore = timestamppb.New(*row.ValidBefore)
 	}
 	if row.CIK != nil {
 		out.Cik = *row.CIK

@@ -764,8 +764,6 @@ type InstrumentMerge struct {
 	Currency    string
 	CIK         string
 	SICCode     string
-	ValidFrom   *time.Time
-	ValidBefore *time.Time
 	Identifiers []IdentifierInput
 }
 
@@ -1276,8 +1274,6 @@ type InstrumentRow struct {
 	// docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
 	UnderlyingListingID *string
 	UnderlyingID        *string
-	ValidFrom           *time.Time
-	ValidBefore         *time.Time
 	CIK                 *string
 	SICCode             *string
 	Strike              *decimal.Decimal // denormalized from OCC; NULL for non-options
@@ -1645,7 +1641,7 @@ type InstrumentDB interface {
 	// answer. It is what separates an association somebody asserted from a set
 	// the caller assembled, and the merge below does not read it yet: the rule
 	// that does is 0140.
-	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, validFrom, validBefore *time.Time, optionFields *OptionFields) (instrumentID, listingID string, err error)
+	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
 	// EnsureArchiveInstrument is EnsureInstrument for a caller that states a
 	// security's whole listing set rather than one currency of it: the archive.
 	//

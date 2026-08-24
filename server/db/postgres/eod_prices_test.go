@@ -187,7 +187,7 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestListPricesForExport_OrdersByDomain(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XLON"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure XLON instrument: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestListPricesForExport_OrdersByDomain(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure XNAS instrument: %v", err)
 	}
@@ -438,7 +438,7 @@ func setupTickerInstrument(t *testing.T, p *Postgres, ticker string) string {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: ticker, Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument %s: %v", ticker, err)
 	}

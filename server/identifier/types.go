@@ -1,9 +1,6 @@
 package identifier
 
-import (
-	"strings"
-	"time"
-)
+import "strings"
 
 // Asset class must be one of: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN.
 // When AssetClass is OPTION or FUTURE, UnderlyingIdentifiers should be set so the
@@ -31,11 +28,6 @@ type Instrument struct {
 
 	// Provider-specific identifiers returned by identifier plugins.
 	ProviderIdentifiers []ProviderIdentifier
-
-	// Optional: the half-open [ValidFrom, ValidBefore) interval the instrument
-	// was available to trade on the exchange in. No plugin supplies these yet.
-	ValidFrom   *time.Time
-	ValidBefore *time.Time
 }
 
 // Listing is what a plugin said about one currency line of the security it

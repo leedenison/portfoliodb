@@ -54,3 +54,7 @@ it; see 0055 and adr/0017-option-identity-reflects-ex-date.md.
 
 The reasoning is recorded in adr/0004-instrument-resolution-and-merge.md and the
 resulting behaviour in spec/identifiers.md and spec/bitemporality.md.
+
+The two columns this issue read as the natural home for the interval have since
+been deleted: a tradability window is a fact about a currency line, and 0153
+moved it there. See adr/0076-a-listing-has-a-lifecycle-and-a-security-does-not.md.

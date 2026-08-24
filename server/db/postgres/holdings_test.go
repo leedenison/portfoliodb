@@ -32,7 +32,7 @@ func TestComputeHoldings_instrumentNameOverTxDescription(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "CURRENCY", Value: "USD"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure cash instrument: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GOOG", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil, nil, nil)
+	}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "FRAC", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "TSCO", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -212,7 +212,7 @@ func splitStraddlingHolding(t *testing.T, p *Postgres, sub, buyQty, sellQty stri
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SPL" + sub, Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestComputeHoldings_closedAcrossInexactSplit(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "REV", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

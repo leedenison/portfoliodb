@@ -402,7 +402,7 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 				Canonical: true,
 			}}},
 			gomock.Any(),
-			"", nil, nil, nil).
+			"", nil).
 		Return("inst-eurgbp", "listing-id", nil)
 	// No exported_at, so the vintage is now.
 	database.EXPECT().
@@ -504,7 +504,7 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 			gomock.Any(),
 			// The request states USD, so the option delivers NVDA's USD line,
 			// which the blanket EnsureListing stub above names.
-			"inst-nvda:USD", nil, nil, gomock.Not(gomock.Nil())).
+			"inst-nvda:USD", gomock.Not(gomock.Nil())).
 		Return("inst-opt", "listing-id", nil)
 	// No exported_at on the request, so the supplied OCC is taken at face value
 	// as current and the vintage is now.
@@ -571,7 +571,7 @@ func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 			gomock.Any(),
 			// The request states USD, so the option delivers NVDA's USD line,
 			// which the blanket EnsureListing stub above names.
-			"inst-nvda:USD", nil, nil, gomock.Not(gomock.Nil())).
+			"inst-nvda:USD", gomock.Not(gomock.Nil())).
 		Return("inst-opt", "listing-id", nil)
 
 	database.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)

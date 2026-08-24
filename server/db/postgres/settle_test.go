@@ -143,7 +143,7 @@ func TestSettle(t *testing.T) {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "TICKER", Value: "AAPL"},
 			Canonical: true,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure AAPL: %v", err)
 	}
@@ -413,7 +413,7 @@ func priceRoundingSeed(t *testing.T, sub, qty, price, cash string) string {
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "INRG", Domain: "F"},
 			Canonical: false,
-		}}, nil, "", nil, nil, nil)
+		}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

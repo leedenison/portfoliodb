@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Corporate events pick their grain
 milestone: M25
 dependencies: [0146]
@@ -29,3 +29,22 @@ both grains through one `instrument_id`.
 deliverable is shares of one line. That makes the currency agreement between an
 option and its underlying a check rather than a question, while OCC, OPRA and
 FUT_OPT stay security-grain, a contract being cleared in one place.
+
+## Outcome
+
+The currency column is neither derived from the listing nor checked against it.
+It stays, because it is the code the amount is quoted in and the family lets that
+differ from the code the line is stored under: nineteen pence is not nineteen
+pounds. Agreement is a property of the write path, which selects the line from
+the stated currency, so no writer can produce a row where the two disagree.
+
+The scope did not anticipate a dividend whose currency matches no line of its
+security. A stated currency selects a line and never mints one, so such a payment
+is stored nowhere and queued as an `UNATTRIBUTABLE_DIVIDEND`;
+`UpsertCashDividends` hands those rows back so an import reports each one as well
+as queuing it. That is the opposite trade from a posting, and adr/0073 records
+why the two differ.
+
+0157 later deleted the currency-unknown listing this issue's minting rule was
+written against, so a security with no line at all gains its first from the
+contract rather than having one relabelled.

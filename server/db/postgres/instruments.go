@@ -1802,8 +1802,7 @@ func (p *Postgres) SaveProviderIdentifiers(ctx context.Context, instrumentID, li
 // Both grains, because the caller is asking what it may key a request on and
 // that is a question about the security and every line of it. This is a
 // flattening at the boundary in the sense InstrumentRow.AllIdentifiers is, not a
-// lookup: nothing here is searching two tables for one row. Narrowing the
-// question to one listing is 0148 for prices and 0150 for corporate events.
+// lookup: nothing here is searching two tables for one row.
 func (p *Postgres) FindProviderIdentifiers(ctx context.Context, instrumentID, provider string) ([]db.ProviderIdentifierInput, error) {
 	uid, err := uuid.Parse(instrumentID)
 	if err != nil {

@@ -205,8 +205,12 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 			}
 			// Both grains, for the reason the price fetcher gives: an events
 			// request is keyed on a ticker as often as on anything else, and a
-			// ticker now lives on the listing. Which grain an event belongs to
-			// is 0150.
+			// ticker now lives on the listing. The fetch unit stays the
+			// security, so a call offers every name the security answers to at
+			// either grain, and what comes back is filed at the grain each
+			// event is a fact about -- a split against the security, a dividend
+			// against the line whose currency family matches the amount it
+			// states.
 			ids := pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.AllIdentifiers())
 			// Merge provider-specific identifiers for this plugin.
 			for _, pi := range inst.AllProviderIdentifiers() {

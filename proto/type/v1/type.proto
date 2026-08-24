@@ -66,6 +66,10 @@ enum TxType {
   TRANSFER          = 12;
   TRANSFER_INTERNAL = 13;  // The other side is another account of this user.
   TRANSFER_EXTERNAL = 14;  // The other side is outside the user's holdings.
+  // The broker moved a holding between two currency lines of one security.
+  // Numbered out of sequence because this enum never renumbers: 15 was taken
+  // before the value existed.
+  TRANSFER_LISTING = 16;
   // The root of the tree, and the value resolved_tx_type takes when nothing
   // narrows a cross-branch set. Distinct from TX_TYPE_UNSPECIFIED ("the field
   // was not set") and never legal in broker_tx_type, where a cross-branch set

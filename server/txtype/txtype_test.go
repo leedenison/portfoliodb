@@ -103,6 +103,7 @@ func TestMustBe(t *testing.T) {
 		{"set within one branch", []typev1.TxType{typev1.TxType_DIVIDEND, typev1.TxType_INTEREST}, []typev1.TxType{typev1.TxType_INCOME}, true},
 		{"internal node is not its leaf", []typev1.TxType{typev1.TxType_INCOME}, []typev1.TxType{typev1.TxType_DIVIDEND}, false},
 		{"several targets", []typev1.TxType{typev1.TxType_DIVIDEND, typev1.TxType_TRANSACTION_COST}, []typev1.TxType{typev1.TxType_INCOME, typev1.TxType_EXPENSE}, true},
+		{"a line conversion is a transfer", []typev1.TxType{typev1.TxType_TRANSFER_LISTING}, []typev1.TxType{typev1.TxType_TRANSFER}, true},
 		{"empty set holds nothing", nil, []typev1.TxType{typev1.TxType_INCOME}, false},
 	}
 	for _, tc := range tests {
@@ -125,6 +126,7 @@ func TestMayBe(t *testing.T) {
 		{"ancestor may be its leaf", []typev1.TxType{typev1.TxType_INCOME}, []typev1.TxType{typev1.TxType_DIVIDEND}, true},
 		{"cross branch is not", []typev1.TxType{typev1.TxType_TRADE_ASSET}, []typev1.TxType{typev1.TxType_TRANSFER}, false},
 		{"leaf may be itself", []typev1.TxType{typev1.TxType_DIVIDEND}, []typev1.TxType{typev1.TxType_DIVIDEND}, true},
+		{"siblings are not each other", []typev1.TxType{typev1.TxType_TRANSFER_LISTING}, []typev1.TxType{typev1.TxType_TRANSFER_INTERNAL}, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -145,6 +147,7 @@ func TestResolve(t *testing.T) {
 		{"siblings resolve to the branch", []typev1.TxType{typev1.TxType_DIVIDEND, typev1.TxType_INTEREST}, typev1.TxType_INCOME},
 		{"cross branch resolves to the root", []typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER}, typev1.TxType_AMBIGUOUS},
 		{"internal node resolves to itself", []typev1.TxType{typev1.TxType_EXPENSE}, typev1.TxType_EXPENSE},
+		{"transfer siblings resolve to the branch", []typev1.TxType{typev1.TxType_TRANSFER_LISTING, typev1.TxType_TRANSFER_INTERNAL}, typev1.TxType_TRANSFER},
 		{"empty set resolves to unspecified", nil, typev1.TxType_TX_TYPE_UNSPECIFIED},
 	}
 	for _, tc := range tests {

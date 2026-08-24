@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
 	"github.com/leedenison/portfoliodb/server/db"
@@ -36,6 +37,11 @@ import (
 // routes nothing to clearing.
 const unmatchedTransferSidesSQL = `
 	SELECT t.user_id, t.group_id, t.broker, t.account, t.instrument_id,
+		-- The line the residual is on, which balancing set to the line every leg it
+		-- balances shares and left null where they differ. Read rather than derived
+		-- again: the match records where each side sat, and a second rule for it
+		-- could disagree with the posting it is reading.
+		t.listing_id,
 		-- The split-adjusted column, not the raw one: money never splits and the two
 		-- agree for it, but the two sides of a securities journal recorded either
 		-- side of a split are in different denominations and would not cancel.
@@ -84,6 +90,7 @@ type transferSideRow struct {
 	Broker       string          `db:"broker"`
 	Account      string          `db:"account"`
 	InstrumentID string          `db:"instrument_id"`
+	ListingID    uuid.NullUUID   `db:"listing_id"`
 	Amount       decimal.Decimal `db:"amount"`
 	OrderDate    time.Time       `db:"order_date"`
 	Correlations []byte          `db:"correlations"`
@@ -104,6 +111,7 @@ func (r *transferSideRow) toDomain() (db.TransferSide, error) {
 		Broker:       strToBroker(r.Broker),
 		Account:      r.Account,
 		InstrumentID: r.InstrumentID,
+		ListingID:    uuidStr(r.ListingID),
 		Amount:       r.Amount,
 		OrderDate:    r.OrderDate,
 	}
@@ -144,9 +152,13 @@ func (p *Postgres) ListUnmatchedTransferSides(ctx context.Context, opts db.Trans
 //
 // This is what makes a matching pass re-runnable. A cycle over unchanged data
 // proposes the links that already exist and writes none of them.
+//
+// The two lines the link carries leave the guard alone: what it enforces is that
+// neither side is matched twice in one commodity, and the commodity is the security.
 const insertTransferMatchSQL = `
-	INSERT INTO transfer_matches (user_id, from_group_id, to_group_id, instrument_id, method)
-	SELECT $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5
+	INSERT INTO transfer_matches (user_id, from_group_id, to_group_id, instrument_id,
+	                              from_listing_id, to_listing_id, method)
+	SELECT $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7
 	WHERE NOT EXISTS (
 		SELECT 1 FROM transfer_matches m
 		WHERE m.instrument_id = $4::uuid
@@ -162,8 +174,16 @@ func (p *Postgres) CreateTransferMatches(ctx context.Context, matches []db.Trans
 	written := 0
 	err := p.runInTx(ctx, func(exec queryable) error {
 		for _, m := range matches {
+			from, err := parseNullUUID(m.FromListingID)
+			if err != nil {
+				return fmt.Errorf("insert transfer match: from listing id: %w", err)
+			}
+			to, err := parseNullUUID(m.ToListingID)
+			if err != nil {
+				return fmt.Errorf("insert transfer match: to listing id: %w", err)
+			}
 			res, err := exec.ExecContext(ctx, insertTransferMatchSQL,
-				m.UserID, m.FromGroupID, m.ToGroupID, m.InstrumentID, m.Method)
+				m.UserID, m.FromGroupID, m.ToGroupID, m.InstrumentID, from, to, m.Method)
 			if err != nil {
 				return fmt.Errorf("insert transfer match: %w", err)
 			}
@@ -183,27 +203,32 @@ func (p *Postgres) CreateTransferMatches(ctx context.Context, matches []db.Trans
 
 // transferMatchRow is the sqlx-scannable shape for one link.
 type transferMatchRow struct {
-	UserID       string `db:"user_id"`
-	FromGroupID  string `db:"from_group_id"`
-	ToGroupID    string `db:"to_group_id"`
-	InstrumentID string `db:"instrument_id"`
-	Method       string `db:"method"`
+	UserID        string        `db:"user_id"`
+	FromGroupID   string        `db:"from_group_id"`
+	ToGroupID     string        `db:"to_group_id"`
+	InstrumentID  string        `db:"instrument_id"`
+	FromListingID uuid.NullUUID `db:"from_listing_id"`
+	ToListingID   uuid.NullUUID `db:"to_listing_id"`
+	Method        string        `db:"method"`
 }
 
 func (r *transferMatchRow) toDomain() db.TransferMatch {
 	return db.TransferMatch{
-		UserID:       r.UserID,
-		FromGroupID:  r.FromGroupID,
-		ToGroupID:    r.ToGroupID,
-		InstrumentID: r.InstrumentID,
-		Method:       r.Method,
+		UserID:        r.UserID,
+		FromGroupID:   r.FromGroupID,
+		ToGroupID:     r.ToGroupID,
+		InstrumentID:  r.InstrumentID,
+		FromListingID: uuidStr(r.FromListingID),
+		ToListingID:   uuidStr(r.ToListingID),
+		Method:        r.Method,
 	}
 }
 
 // ListTransferMatches implements db.TransferMatchDB.
 func (p *Postgres) ListTransferMatches(ctx context.Context, userID string) ([]db.TransferMatch, error) {
 	q := `
-		SELECT user_id, from_group_id, to_group_id, instrument_id, method
+		SELECT user_id, from_group_id, to_group_id, instrument_id,
+		       from_listing_id, to_listing_id, method
 		FROM transfer_matches WHERE user_id = $1::uuid
 		ORDER BY matched_at DESC, id`
 	var rows []transferMatchRow

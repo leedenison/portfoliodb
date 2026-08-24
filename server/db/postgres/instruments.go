@@ -127,6 +127,12 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	// postings it links. Left behind it would point at an instrument the delete
 	// below is about to remove, and the pair would look unmatched again.
 	//
+	// The two lines move in the same statement, over the same pairing, for the
+	// reason a posting's does: the three say one thing about where the value went,
+	// and their foreign keys have no ON DELETE, so a line left behind would fail
+	// the merge outright. A null stays null -- a side that named no line still
+	// names none.
+	//
 	// This can in principle collide with idx_transfer_matches_from/_to, which are
 	// unique per (group, instrument): one group would have to hold matched
 	// residuals in both instruments being merged, which needs a security transfer group whose
@@ -136,8 +142,16 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	// unmatched with nothing to say why -- and a merge that aborts is recoverable,
 	// where a quietly wrong ledger is not.
 	if _, err := exec.ExecContext(ctx, `
-		UPDATE transfer_matches SET instrument_id = $1::uuid WHERE instrument_id = $2::uuid
-	`, survivor, mergedAway); err != nil {
+		UPDATE transfer_matches
+		SET instrument_id   = $1::uuid,
+		    from_listing_id = (SELECT m.to_id
+		                       FROM unnest($3::uuid[], $4::uuid[]) AS m(from_id, to_id)
+		                       WHERE m.from_id = transfer_matches.from_listing_id),
+		    to_listing_id   = (SELECT m.to_id
+		                       FROM unnest($3::uuid[], $4::uuid[]) AS m(from_id, to_id)
+		                       WHERE m.from_id = transfer_matches.to_listing_id)
+		WHERE instrument_id = $2::uuid
+	`, survivor, mergedAway, pq.Array(from), pq.Array(to)); err != nil {
 		return fmt.Errorf("update transfer matches: %w", err)
 	}
 	// The validity interval moves with the name. A name the loser wore and gave

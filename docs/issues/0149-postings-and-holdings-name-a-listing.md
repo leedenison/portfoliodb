@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Postings and holdings name a listing
 milestone: M25
 dependencies: [0146, 0156]
@@ -52,3 +52,19 @@ to widen with it, so a security quoted in two currencies takes a declaration and
 pad on each line. `transfer_matches` keeps its security-grain key and gains
 `from_listing_id` and `to_listing_id`, so a transfer between accounts and a
 conversion between currency lines are one object. 0153 uses the second form.
+
+## Outcome
+
+Landed in three changes: the postings, holdings, valuation, price fetching and
+merge; the declarations; and the transfer link.
+
+The transfer link takes each side's line off its own clearing residual, which
+balancing had already given the line every leg it balances shares. Nothing new is
+inferred, and the matcher is otherwise untouched -- it still partitions at
+security grain, which is what admits a conversion between two lines of one
+security at all.
+
+The netting suppression a differing pair needs stayed with 0153, where the issue
+put it. It is unreachable until then: no converter emits a currency-line
+conversion, so nothing writes a pair whose two lines differ, and the suppression
+would ship with no data exercising it.

@@ -116,6 +116,14 @@ func Match(sides []db.TransferSide, opts Opts) []db.TransferMatch {
 // never crosses a user, and never changes commodity: the two sides of a security transfer are
 // the same security and the two sides of a cash journal the same currency.
 //
+// The security and not the currency line it is quoted on. A residual carries a line
+// only where every leg it balances shares one, so the security is the only grain
+// every side has -- and a broker converting a holding between two lines of one
+// security is quantity-preserving, so it is a transfer whose two sides are on
+// different lines by definition. Partitioning by line would make exactly that case
+// unpairable. The lines are recorded on the link instead. See
+// docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+//
 // Each partition is returned as a pair of index slices, departures first. A departure
 // is a side whose residual is positive, meaning the value left that account, because
 // the group's own leg is negative and the clearing leg holds what is owed out. A zero
@@ -211,7 +219,12 @@ func run(sides []db.TransferSide, part partitioned, opts Opts, taken map[int]boo
 			FromGroupID:  sides[c.from].GroupID,
 			ToGroupID:    sides[c.to].GroupID,
 			InstrumentID: sides[c.from].InstrumentID,
-			Method:       method,
+			// Each side's own line, which may differ and may be absent. Taken from
+			// the side rather than reconciled: the pair is one movement of one
+			// security, and where it left and where it arrived are two facts.
+			FromListingID: sides[c.from].ListingID,
+			ToListingID:   sides[c.to].ListingID,
+			Method:        method,
 		})
 	}
 	return out

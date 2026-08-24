@@ -55,6 +55,30 @@ residual is positive because the group's own leg is negative. The direction cost
 nothing to record, being the sign of the residual, and a link without it would read
 identically for a transfer in either direction.
 
+## The lines are recorded, not keyed on
+
+A holding is per currency line ([0072](0072-a-posting-names-a-security-and-a-line.md)),
+so a link between two holdings has to say which two: `from_listing_id` and
+`to_listing_id`, each taken from its own side's residual and null where that side
+named no line.
+
+They are not part of the key, for the reason `weight_commodity` is not at listing
+grain either. A residual is weighed per security-grain commodity and carries a line
+only where every leg it balances shares one, so the security is the only grain every
+side has. Keying on the line would also make one real case unrepresentable rather
+than merely unrecorded: a broker converting a holding between two currency lines of
+one security is quantity-preserving with no economic event behind it, which makes it
+a transfer, and its two sides are on different lines by definition. Pairing at line
+grain would never find them.
+
+What follows from the two being able to differ is that a matched pair does not
+always net to zero at the grain valuation partitions on. Where they do differ the
+holding really has moved, and the netting that admits both clearing legs has to be
+suppressed rather than applied. That is
+[issue 0153](../issues/0153-a-listing-has-a-validity-interval-and-a-holding-moves-between-listings.md)'s,
+along with the transaction type and the converter support a conversion needs; until
+then nothing emits a pair whose lines differ.
+
 ## Derived and disposable
 
 The link is never authoritative and is always cheap to rebuild, which is what

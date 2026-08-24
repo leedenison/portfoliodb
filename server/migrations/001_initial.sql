@@ -1025,6 +1025,15 @@ CREATE UNIQUE INDEX idx_txs_initialize_unique_no_listing
 -- a different group. instrument_id moves with an instrument merge, alongside
 -- txs.instrument_id.
 --
+-- The line each side sat on is recorded and is not part of the key. A residual is
+-- weighed per security-grain commodity and carries a line only where every leg it
+-- balances shares one, so the security is the only grain every side has -- the same
+-- argument weight_commodity is decided by. Keying on the line would also make the
+-- one case these columns exist for unrepresentable: a broker converting a holding
+-- between two currency lines of one security is quantity-preserving and so is a
+-- transfer, and its two sides are on different lines by definition. See
+-- docs/adr/0072-a-posting-names-a-security-and-a-line.md.
+--
 -- Neither the quantity nor the ingestion job is stored. The two sides are equal and
 -- opposite by construction, so a stored amount could only disagree with them, and a
 -- match is not made by an ingestion job.
@@ -1041,14 +1050,38 @@ CREATE TABLE transfer_matches (
   from_group_id UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
   to_group_id   UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
   instrument_id UUID NOT NULL REFERENCES instruments (id),
+  -- The currency line each side's residual was on, and NULL where it named none.
+  -- A holding is per line, so a link between two holdings says which two, and a
+  -- departure and an arrival on different lines is a currency conversion rather
+  -- than a mismatch.
+  from_listing_id UUID,
+  to_listing_id   UUID,
   -- How the pair was found. POINTER is the source naming the other account outright;
   -- REFERENCE is the proximity of the two sides' broker references; MANUAL is a person
   -- saying so. There is no amount-and-window-alone value: a pair with no evidence
   -- beyond an equal and opposite amount is left unmatched rather than guessed at.
   method        TEXT NOT NULL CHECK (method IN ('POINTER', 'REFERENCE', 'MANUAL')),
   matched_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK (from_group_id <> to_group_id)
+  CHECK (from_group_id <> to_group_id),
+  -- Each line and the security it belongs to, referenced as a pair, so a match
+  -- cannot name a line of some other security. MATCH SIMPLE skips the check when
+  -- either column is null, which is what lets a side name a security whose line is
+  -- not known; instrument_id is NOT NULL here, so unlike txs there is no second
+  -- case for a CHECK to close.
+  --
+  -- No ON DELETE, for the reason txs_listing_id_fkey gives: a merge repoints its
+  -- loser's rows before deleting the loser, and one that forgot to should fail
+  -- rather than quietly cascade.
+  FOREIGN KEY (instrument_id, from_listing_id)
+    REFERENCES instrument_listings (instrument_id, id) MATCH SIMPLE,
+  FOREIGN KEY (instrument_id, to_listing_id)
+    REFERENCES instrument_listings (instrument_id, id) MATCH SIMPLE
 );
+
+-- No index on either listing column. The only predicate on them is the merge's,
+-- which rides an UPDATE ... WHERE instrument_id that this table does not index
+-- either: a link exists per unpaired transfer rather than per posting, so the
+-- table is small enough that a scan is the plan anyway.
 
 -- One match per side per commodity, in both directions. These are the uniqueness
 -- constraint and the lookup index at once: what holds the other side of a group is

@@ -374,3 +374,70 @@ func TestMatchWindow_FitsInsideTheStaleThreshold(t *testing.T) {
 			matchWindow, staleTransferDays)
 	}
 }
+
+// on copies a side onto a currency line, for the pairs whose lines are the thing
+// under test.
+func on(s db.TransferSide, listing string) db.TransferSide {
+	s.ListingID = listing
+	return s
+}
+
+// TestMatch_CarriesEachSidesLine verifies the link records where the value left and
+// where it arrived, and that the two are read off their own sides rather than
+// reconciled. A holding is per currency line, so a link between two holdings has to
+// say which two.
+func TestMatch_CarriesEachSidesLine(t *testing.T) {
+	sides := []db.TransferSide{
+		on(side("g1", "A", "20000", 0, "971613411"), "gbp-line"),
+		on(side("g2", "B", "-20000", 0, "971613414"), "gbp-line"),
+	}
+	ms := Match(sides, DefaultOpts())
+	if len(ms) != 1 {
+		t.Fatalf("got %d matches, want 1", len(ms))
+	}
+	if ms[0].FromListingID != "gbp-line" || ms[0].ToListingID != "gbp-line" {
+		t.Errorf("lines = %s -> %s, want gbp-line -> gbp-line",
+			ms[0].FromListingID, ms[0].ToListingID)
+	}
+}
+
+// TestMatch_PairsAcrossTwoLinesOfOneSecurity is the case the two columns exist for.
+// A broker converting a holding between the two currency lines of one security moves
+// a quantity with no economic event behind it, which makes it a transfer whose sides
+// are on different lines by definition. The partition is at security grain, so the
+// pair is found and the link records that the lines differ.
+func TestMatch_PairsAcrossTwoLinesOfOneSecurity(t *testing.T) {
+	sides := []db.TransferSide{
+		on(side("g1", "A", "500", 0, "971613411"), "gbx-line"),
+		on(side("g2", "B", "-500", 0, "971613414"), "gbp-line"),
+	}
+	ms := Match(sides, DefaultOpts())
+	if len(ms) != 1 {
+		t.Fatalf("got %d matches, want the conversion paired", len(ms))
+	}
+	if ms[0].FromListingID != "gbx-line" || ms[0].ToListingID != "gbp-line" {
+		t.Errorf("lines = %s -> %s, want gbx-line -> gbp-line",
+			ms[0].FromListingID, ms[0].ToListingID)
+	}
+}
+
+// TestMatch_ASideOnNoLineStaysOnNone verifies a side whose residual balanced legs
+// that disagreed about their line carries none, and pairs anyway. The line is
+// recorded, not required: a transfer between two accounts is a transfer whether or
+// not anyone said which currency the security is quoted in.
+func TestMatch_ASideOnNoLineStaysOnNone(t *testing.T) {
+	sides := []db.TransferSide{
+		side("g1", "A", "20000", 0, "971613411"),
+		on(side("g2", "B", "-20000", 0, "971613414"), "gbp-line"),
+	}
+	ms := Match(sides, DefaultOpts())
+	if len(ms) != 1 {
+		t.Fatalf("got %d matches, want 1", len(ms))
+	}
+	if ms[0].FromListingID != "" {
+		t.Errorf("departure line = %q, want none", ms[0].FromListingID)
+	}
+	if ms[0].ToListingID != "gbp-line" {
+		t.Errorf("arrival line = %q, want gbp-line", ms[0].ToListingID)
+	}
+}

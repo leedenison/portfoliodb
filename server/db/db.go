@@ -2161,6 +2161,10 @@ type TransferSide struct {
 	Broker       typev1.Broker
 	Account      string
 	InstrumentID string
+	// ListingID is the currency line the residual is on, empty where it names none.
+	// Balancing gives a residual the line every leg it balances shares and none
+	// where they differ, so this is read rather than inferred again here.
+	ListingID string
 	// Amount is the residual's split-adjusted quantity, signed. Positive means the
 	// value left this account -- the group's own leg is negative and the clearing
 	// leg holds what is owed out -- and negative means it arrived. A pair is two
@@ -2184,12 +2188,21 @@ type TransferSide struct {
 
 // TransferMatch links the two sides of one transfer in one commodity. FromGroupID is
 // the side the value left and ToGroupID where it arrived.
+//
+// The commodity is the security, which is the grain the link is keyed at, and the
+// two listing ids say which currency line each side was on -- empty where that side
+// named none. Recorded rather than keyed on, because a residual carries a line only
+// where the legs it balances agree on one, and because the two differ exactly when
+// the transfer is a broker converting a holding between two lines of one security.
+// See docs/adr/0072-a-posting-names-a-security-and-a-line.md.
 type TransferMatch struct {
-	UserID       string
-	FromGroupID  string
-	ToGroupID    string
-	InstrumentID string
-	Method       string
+	UserID        string
+	FromGroupID   string
+	ToGroupID     string
+	InstrumentID  string
+	FromListingID string
+	ToListingID   string
+	Method        string
 }
 
 // TransferSideOpts filters the unmatched sides read for matching. An empty UserID

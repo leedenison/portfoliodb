@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -136,11 +137,22 @@ func negate(t *testing.T, qty string) string {
 	return "-" + qty
 }
 
+// transferUser stands up a user and a security nobody has said a currency for, so
+// its postings name no line. That is the ordinary case for a broker description the
+// identifier plugins could not place, and it keeps the pairing tests about pairing.
 func transferUser(t *testing.T, p *Postgres, sub string) (userID, instID string) {
+	t.Helper()
+	return transferUserQuotedIn(t, p, sub, "")
+}
+
+// transferUserQuotedIn is transferUser for the tests that need the postings on a
+// line: a currency mints one, and resolution then puts the fixture's postings on it
+// as the security's only line.
+func transferUserQuotedIn(t *testing.T, p *Postgres, sub, currency string) (userID, instID string) {
 	t.Helper()
 	ctx := context.Background()
 	userID, _ = p.GetOrCreateUser(ctx, sub, "U", sub+"@t.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+	instID, _, err := p.EnsureInstrument(ctx, "", "", currency, "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GBP", Domain: sub},
 			Canonical: false,
@@ -384,5 +396,276 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 	}
 	if len(sides) != 0 {
 		t.Errorf("got %d unmatched sides after the merge, want none", len(sides))
+	}
+}
+
+// TestListUnmatchedTransferSides_CarriesTheResidualsLine verifies a side reports the
+// currency line its clearing residual sits on. The line is read off the posting
+// rather than worked out again here: balancing already gave the residual the line
+// every leg it balances shares, and a second rule for it could disagree.
+func TestListUnmatchedTransferSides_CarriesTheResidualsLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, instID := transferUserQuotedIn(t, p, "sub|tm-side-line", "GBP")
+	transferFixture(t, p, userID, instID)
+	line, err := p.SoleListing(ctx, instID)
+	if err != nil {
+		t.Fatalf("sole listing: %v", err)
+	}
+
+	sides, err := p.ListUnmatchedTransferSides(ctx, db.TransferSideOpts{UserID: userID})
+	if err != nil {
+		t.Fatalf("list sides: %v", err)
+	}
+	if len(sides) != 2 {
+		t.Fatalf("got %d unmatched sides, want 2", len(sides))
+	}
+	for _, s := range sides {
+		if s.ListingID != line {
+			t.Errorf("side in %s is on line %q, want the security's line %s", s.Account, s.ListingID, line)
+		}
+	}
+}
+
+// TestCreateTransferMatches_RecordsBothLines verifies the link stores where the value
+// left and where it arrived, including when the two differ. Two lines of one security
+// are two holdings an FX rate apart, so a broker converting between them moves a
+// holding -- and the link is where that is said, the key staying at security grain.
+func TestCreateTransferMatches_RecordsBothLines(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, instID := transferUserQuotedIn(t, p, "sub|tm-two-lines", "GBP")
+	from, to := transferFixture(t, p, userID, instID)
+	gbp, err := p.FindListing(ctx, instID, "GBP")
+	if err != nil {
+		t.Fatalf("find GBP line: %v", err)
+	}
+	usd, err := p.EnsureListing(ctx, instID, "USD")
+	if err != nil {
+		t.Fatalf("mint USD line: %v", err)
+	}
+
+	if _, err := p.CreateTransferMatches(ctx, []db.TransferMatch{{
+		UserID: userID, FromGroupID: from, ToGroupID: to,
+		InstrumentID: instID, FromListingID: gbp, ToListingID: usd,
+		Method: db.TransferMatchReference,
+	}}); err != nil {
+		t.Fatalf("create match: %v", err)
+	}
+	matches, err := p.ListTransferMatches(ctx, userID)
+	if err != nil {
+		t.Fatalf("list matches: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("got %d matches, want 1", len(matches))
+	}
+	if matches[0].FromListingID != gbp || matches[0].ToListingID != usd {
+		t.Errorf("lines = %s -> %s, want %s -> %s",
+			matches[0].FromListingID, matches[0].ToListingID, gbp, usd)
+	}
+	if matches[0].InstrumentID != instID {
+		t.Errorf("match instrument = %s, want %s: the key stays the security",
+			matches[0].InstrumentID, instID)
+	}
+}
+
+// TestCreateTransferMatches_ASideOnNoLineStoresNull verifies a side that named no
+// line is stored as NULL rather than as some stand-in row, and reads back as none.
+// The null is the first-class state a posting's is, so the two agree.
+func TestCreateTransferMatches_ASideOnNoLineStoresNull(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, instID := transferUser(t, p, "sub|tm-no-line")
+	from, to := transferFixture(t, p, userID, instID)
+
+	if _, err := p.CreateTransferMatches(ctx, []db.TransferMatch{{
+		UserID: userID, FromGroupID: from, ToGroupID: to,
+		InstrumentID: instID, Method: db.TransferMatchReference,
+	}}); err != nil {
+		t.Fatalf("create match: %v", err)
+	}
+	var nulls int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*) FROM transfer_matches
+		WHERE user_id = $1::uuid AND from_listing_id IS NULL AND to_listing_id IS NULL
+	`, userID).Scan(&nulls); err != nil {
+		t.Fatalf("count nulls: %v", err)
+	}
+	if nulls != 1 {
+		t.Errorf("got %d matches with both lines NULL, want 1", nulls)
+	}
+	matches, err := p.ListTransferMatches(ctx, userID)
+	if err != nil {
+		t.Fatalf("list matches: %v", err)
+	}
+	if len(matches) != 1 || matches[0].FromListingID != "" || matches[0].ToListingID != "" {
+		t.Errorf("read back %+v, want both lines empty", matches)
+	}
+}
+
+// TestTransferMatches_CannotNameAnotherSecuritysLine verifies the composite foreign
+// key. A link names a security and, for each side, a line within it; a line belonging
+// to some other security is unrepresentable rather than merely unintended, which a
+// plain reference to instrument_listings (id) would not give.
+func TestTransferMatches_CannotNameAnotherSecuritysLine(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, instID := transferUserQuotedIn(t, p, "sub|tm-fk", "GBP")
+	from, to := transferFixture(t, p, userID, instID)
+	other, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "",
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TMFK00000001"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure other security: %v", err)
+	}
+	elsewhere, err := p.SoleListing(ctx, other)
+	if err != nil {
+		t.Fatalf("other line: %v", err)
+	}
+
+	_, err = p.CreateTransferMatches(ctx, []db.TransferMatch{{
+		UserID: userID, FromGroupID: from, ToGroupID: to,
+		InstrumentID: instID, FromListingID: elsewhere,
+		Method: db.TransferMatchReference,
+	}})
+	if err == nil {
+		t.Fatal("wrote a match naming another security's line, want the foreign key to reject it")
+	}
+	if !strings.Contains(err.Error(), "transfer_matches") {
+		t.Errorf("error = %v, want the transfer_matches foreign key", err)
+	}
+}
+
+// TestTransferMatches_LinesMoveWithAnInstrumentMerge verifies the two lines move onto
+// the survivor's lines of the same currency family, in the statement that moves the
+// security. Left behind they would point at a line the merge is about to delete, and
+// their foreign keys have no ON DELETE, so the merge would fail outright.
+func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|tm-merge-line", "U", "u@mergeline.com")
+	mergedAway, _, err := p.EnsureInstrument(ctx, "", "", "GBP", "", "", "",
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM2"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure merged-away: %v", err)
+	}
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "GBP", "", "", "", []db.IdentifierInput{
+		{
+			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM2"},
+			Canonical: true,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "SEDOL", Value: "TM2"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil); err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	from, to := transferFixture(t, p, userID, mergedAway)
+	losersLine, err := p.SoleListing(ctx, mergedAway)
+	if err != nil {
+		t.Fatalf("loser's line: %v", err)
+	}
+	if _, err := p.CreateTransferMatches(ctx, []db.TransferMatch{{
+		UserID: userID, FromGroupID: from, ToGroupID: to,
+		InstrumentID: mergedAway, FromListingID: losersLine, ToListingID: losersLine,
+		Method: db.TransferMatchReference,
+	}}); err != nil {
+		t.Fatalf("create match: %v", err)
+	}
+
+	survivor, _, err := p.EnsureInstrument(ctx, "", "", "GBP", "", "", "", []db.IdentifierInput{
+		{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM2"},
+			Canonical: true,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM2"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if survivor == mergedAway {
+		t.Fatal("fixture did not merge away the instrument the match was keyed on")
+	}
+	survivorsLine, err := p.SoleListing(ctx, survivor)
+	if err != nil {
+		t.Fatalf("survivor's line: %v", err)
+	}
+
+	matches, err := p.ListTransferMatches(ctx, userID)
+	if err != nil {
+		t.Fatalf("list matches: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("got %d matches after the merge, want the pair to survive it", len(matches))
+	}
+	if matches[0].FromListingID != survivorsLine || matches[0].ToListingID != survivorsLine {
+		t.Errorf("lines after the merge = %s -> %s, want both on the survivor's GBP line %s",
+			matches[0].FromListingID, matches[0].ToListingID, survivorsLine)
+	}
+}
+
+// TestTransferMatches_NoLineStaysNoneAcrossAMerge verifies the merge fills nothing
+// in. A side that named no line still names none once its security has moved: the
+// merge repoints what the loser held and does not decide what nobody stated.
+func TestTransferMatches_NoLineStaysNoneAcrossAMerge(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|tm-merge-none", "U", "u@mergenone.com")
+	mergedAway, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM3"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure merged-away: %v", err)
+	}
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "GBP", "", "", "", []db.IdentifierInput{
+		{
+			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM3"},
+			Canonical: true,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "SEDOL", Value: "TM3"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil); err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	from, to := transferFixture(t, p, userID, mergedAway)
+	if _, err := p.CreateTransferMatches(ctx, []db.TransferMatch{{
+		UserID: userID, FromGroupID: from, ToGroupID: to,
+		InstrumentID: mergedAway, Method: db.TransferMatchReference,
+	}}); err != nil {
+		t.Fatalf("create match: %v", err)
+	}
+
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{
+			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM3"},
+			Canonical: true,
+		},
+		{
+			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM3"},
+			Canonical: true,
+		}}, nil, "", nil, nil, nil); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	matches, err := p.ListTransferMatches(ctx, userID)
+	if err != nil {
+		t.Fatalf("list matches: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("got %d matches after the merge, want 1", len(matches))
+	}
+	if matches[0].FromListingID != "" || matches[0].ToListingID != "" {
+		t.Errorf("lines after the merge = %q -> %q, want both still none",
+			matches[0].FromListingID, matches[0].ToListingID)
 	}
 }

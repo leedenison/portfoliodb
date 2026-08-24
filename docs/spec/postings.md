@@ -495,12 +495,20 @@ transfer whose second side has just landed does not wait for the next tick. A cy
 reads every side no match names and writes nothing when there is nothing new, so
 running it often is cheap.
 
-A match is a link between the two tx groups -- both group ids, the commodity, how they were matched and
-when -- rather than a status on the posting or a third group closing both sides out.
+A match is a link between the two tx groups -- both group ids, the commodity, the
+currency line each side sat on, how they were matched and when -- rather than a status
+on the posting or a third group closing both sides out.
 It records which group, and so which account, holds the other side, because that is
 what the membership test above consumes. The link is derived and disposable: it
 cascades when a re-upload replaces one side's groups, and the job rebuilds it. See
 adr/0037-transfer-matches-are-links-not-postings.md.
+
+The commodity is the security and the two lines are recorded beside it rather than
+keyed on. A residual carries a line only where every leg it balances shares one, so
+the security is the only grain every side has; and the two lines differ exactly when
+the transfer is a broker converting a holding between two currency lines of one
+security, which pairing at line grain would make unrepresentable. Either line is
+absent where its side named none.
 
 A pair is found on evidence that identifies the occurrence, in this order:
 

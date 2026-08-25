@@ -19,14 +19,19 @@ set and accepts a line with none, the price-gap CLI quotes a line at whichever o
 its venues its quote source knows, and a surface showing venues shows all of them
 rather than choosing.
 
-**"Are these the same line?" is strict.** When two identifier plugins answer about
-one security, a venue each named is a discriminator between their answers, and
-adopting one plugin's names onto another's listing is how a London ticker comes
-to sit on a New York instrument. `Venue.Permits` and `Venue.Agrees` decide it,
-`consistentWith` excludes a result that fails it, and `fillBlanks` adopts a venue
-only onto an answer that named none and permits this one. These compare two
-answers rather than an answer against the store, so the open-world rule does not
-reach them: neither side is a partial record.
+**"Are these the same line?" is strict, and the currency is what it asks about.**
+A line is a currency of a security ([0068](0068-a-listing-is-a-currency-of-a-security.md)),
+so two identifier plugins stating currencies of one family have described one
+line however many venues they name between them, and two stating different
+families have described two. The venue stands in where no currency was stated,
+and only there: an answer naming a market or a venue and nothing else has still
+said where it trades, and adopting another plugin's names onto it is how a London
+ticker comes to sit on a New York instrument. So `Venue.Agrees` decides admission
+in exactly the case the currencies leave open, `Venue.Permits` decides whether
+`fillBlanks` may restate a market as a venue inside it, and `consistentWith`
+excludes a result failing either. These compare two answers rather than an answer
+against the store, so the open-world rule does not reach them: neither side is a
+partial record.
 
 ## Consequences
 
@@ -58,9 +63,19 @@ derived from it are retired rather than recomputed
 and why exchange reference data reaches the API on each line's venues rather than
 on the security.
 
-## Left open
+**A listing-grain domain is a venue restated, and does not contradict on its own
+account.** `contradicts` read two `MIC_TICKER`s under different domains as two
+listings. Every identifier plugin sets that domain from the venue it put on the
+answer, so the test said what the venue comparison already said -- and said it on
+a field 0068 does not key a line on, in a spelling no country normalisation
+reaches, a composite's `US` against a venue's `XLON`. It is gone: a difference in
+the value under one subject is the whole of what an identifier can contradict
+(issue [0159](../issues/0159-merge-admission-tells-two-lines-apart-by-currency.md)).
 
-`contradicts` treats two results naming one symbol at two venues as naming two
-listings. Under 0068 what makes two lines is their currency, so the venue there
-stands in for the currency rather than deciding on its own account. It is merge
-admission, and so strict by the rule above, but on the wrong field.
+**A subject is what dedupes a merged identifier, not a type.** `flattenClaims`
+kept one row per identifier type, which for a ticker meant one venue -- dropping
+the second whether it arrived from a second result or from one result naming
+both, so a winner's own answer was trimmed on the way to the store. The venue set
+is derived from those rows, so a venue went with each one lost. It keys on the
+subject, the type and its normalised domain, which is what `sameSubject` already
+meant by one thing.

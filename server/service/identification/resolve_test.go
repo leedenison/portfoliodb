@@ -721,15 +721,18 @@ func TestConsistentWith_CurrencyMismatch(t *testing.T) {
 	}
 }
 
-func TestConsistentWith_ExchangeMismatch(t *testing.T) {
+// Neither result states a currency, so the venue stands in for it and two
+// venues are two answers. With a currency on both they would be one line; that
+// is TestConsistentWith_TwoVenuesQuotingOneCurrencyAreOneLine below.
+func TestConsistentWith_VenueMismatchWhereNoCurrencyWasStated(t *testing.T) {
 	w := &pluginResult{
-		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
+		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}}},
 	}
 	o := &pluginResult{
-		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNYS"}, Currency: "USD"}},
+		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNYS"}}},
 	}
 	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
-		t.Error("expected inconsistent on exchange mismatch")
+		t.Error("expected inconsistent on venue mismatch")
 	}
 }
 
@@ -865,6 +868,50 @@ func TestCompareHints_CurrencyCaseInsensitive(t *testing.T) {
 	diffs := CompareHints(context.Background(), hints, nil, inst, nil, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs for case-insensitive match, got %v", diffs)
+	}
+}
+
+// A source stating pence against a plugin resolving pounds has named the line
+// the plugin named. The comparison is on the family everywhere it happens, so
+// the plugin path says what the database path says (adr/0068).
+func TestCompareHints_GBXIsGBP(t *testing.T) {
+	diffs := CompareHints(context.Background(), identifier.Hints{Currency: "GBX"}, nil,
+		&identifier.Instrument{Listing: identifier.Listing{Currency: "GBP"}}, nil, nil)
+	if len(diffs) != 0 {
+		t.Errorf("expected GBX against GBP to be one line, got %v", diffs)
+	}
+	// And a currency that really is another line still is.
+	diffs = CompareHints(context.Background(), identifier.Hints{Currency: "GBX"}, nil,
+		&identifier.Instrument{Listing: identifier.Listing{Currency: "USD"}}, nil, nil)
+	if len(diffs) != 1 {
+		t.Errorf("expected GBX against USD to differ, got %v", diffs)
+	}
+}
+
+// The other side of the same fact: a stated GBX is corroborated by a resolved
+// GBP, which is what an invented identifier round-trips against (adr/0059).
+func TestConfirmedFields_GBXIsConfirmedByGBP(t *testing.T) {
+	got := confirmedFields(context.Background(), identifier.Hints{Currency: "GBX"}, nil,
+		&identifier.Instrument{Listing: identifier.Listing{Currency: "GBP"}}, nil, nil)
+	found := false
+	for _, f := range got {
+		if f == "Currency" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected GBX to be confirmed by GBP, got %v", got)
+	}
+}
+
+// And a proposal of one is confirmed by a resolution of the other rather than
+// recorded as contradicted.
+func TestProposalOutcome_GBXIsConfirmedByGBP(t *testing.T) {
+	out := proposalOutcomes(context.Background(),
+		[]identifier.Identifier{{Type: "CURRENCY", Value: "GBX"}},
+		&identifier.Instrument{Listing: identifier.Listing{Currency: "GBP"}}, nil, nil)
+	if len(out) != 1 || out[0].Outcome != db.TelemetryCandidateFieldConfirmed {
+		t.Errorf("expected GBX proposal confirmed by GBP resolution, got %+v", out)
 	}
 }
 
@@ -1059,6 +1106,127 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	}
 }
 
+// The behaviour change at the level a user sees: two plugins answering about one
+// line at two venues merge, where the differing MIC_TICKER domains used to
+// exclude the second outright, and the loser's identifiers reach the instrument
+// -- its own venue among them. Nothing derives a venue from the security, so the
+// London ticker travels as a MIC_TICKER domain and recompute_listing_venues
+// reads the line's venue set off those rows (adr/0068, adr/0077).
+func TestResolveWithPlugins_TwoVenuesOfOneCurrencyMerge(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Vodafone", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
+		ids: []identifier.Identifier{
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"},
+			{Type: "ISIN", Value: "GB00BH4HKS39"},
+		},
+	})
+	// One line, quoted in USD at a second venue. Under the retired rule the
+	// differing MIC_TICKER domains excluded this outright.
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Vodafone Group", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XLON"}, Currency: "USD"}},
+		ids: []identifier.Identifier{
+			{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"},
+			{Type: "SEDOL", Value: "BH4HKS3"},
+		},
+	})
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "VOD").
+		Return("", "", nil, nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "VOD").
+		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "VOD").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "USD", "Vodafone", "", "", gomock.Any(), gomock.Any(), "", nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
+			var sedol, london bool
+			for _, idn := range idns {
+				if idn.Ref.Type == "SEDOL" && idn.Ref.Value == "BH4HKS3" {
+					sedol = true
+				}
+				if idn.Ref.Type == "MIC_TICKER" && idn.Ref.Domain == "XLON" && idn.Ref.Value == "VOD" {
+					london = true
+				}
+			}
+			if !sedol {
+				t.Error("expected the SEDOL from the second venue to be merged")
+			}
+			if !london {
+				t.Error("expected the London MIC_TICKER to reach the instrument")
+			}
+			return "id", "listing-id", nil
+		})
+
+	_, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "VOD"}}, Hints: identifier.Hints{}},
+		false, nil, Attempt{}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+// One result naming a line at two venues keeps both on the way to the store.
+// Keying on the type alone trimmed a winner's own answer, and the venue set is
+// derived from these rows (adr/0068), so a venue went with each row lost.
+func TestFlattenClaims_OneSubjectPerRowNotOneTypePerRow(t *testing.T) {
+	claims := []db.IdentityClaim{{Identifiers: []db.ClaimedIdentifier{
+		{Role: db.ClaimRoleReturned, Ref: db.InstrumentRef{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"}},
+		{Role: db.ClaimRoleReturned, Ref: db.InstrumentRef{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"}},
+		{Role: db.ClaimRoleReturned, Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00BH4HKS39"}},
+	}}}
+	got := flattenClaims(context.Background(), testMICNormalizer(), claims)
+	if len(got) != 3 {
+		t.Fatalf("expected both venues and the ISIN, got %+v", got)
+	}
+}
+
+// A segment MIC and the venue that operates it are one subject, so the second
+// is still dropped rather than becoming a duplicate row the store normalizes
+// into a collision (adr/0003).
+func TestFlattenClaims_ASegmentAndItsOperatingMICAreOneSubject(t *testing.T) {
+	claims := []db.IdentityClaim{
+		{Identifiers: []db.ClaimedIdentifier{
+			{Role: db.ClaimRoleReturned, Ref: db.InstrumentRef{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+		}},
+		{Identifiers: []db.ClaimedIdentifier{
+			{Role: db.ClaimRoleReturned, Ref: db.InstrumentRef{Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL"}},
+		}},
+	}
+	got := flattenClaims(context.Background(), testMICNormalizer(), claims)
+	if len(got) != 1 || got[0].Domain != "XNAS" {
+		t.Fatalf("expected one row on the operating MIC, got %+v", got)
+	}
+}
+
+// A filtered value was corroborated rather than supplied, and is not written.
+func TestFlattenClaims_FilteredIdentifiersAreNotWritten(t *testing.T) {
+	claims := []db.IdentityClaim{{Identifiers: []db.ClaimedIdentifier{
+		{Role: db.ClaimRoleFiltered, Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00BH4HKS39"}},
+	}}}
+	if got := flattenClaims(context.Background(), testMICNormalizer(), claims); len(got) != 0 {
+		t.Fatalf("expected a filtered identifier not to be written, got %+v", got)
+	}
+}
+
 // --- MIC normalization tests ---
 
 func testMICNormalizer() MICNormalizer {
@@ -1076,13 +1244,15 @@ func testMICNormalizer() MICNormalizer {
 
 func TestConsistentWith_SegmentVsOperatingMIC(t *testing.T) {
 	w := &pluginResult{
-		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
+		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}}},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	}
 	o := &pluginResult{
-		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNGS"}, Currency: "USD"}},
+		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNGS"}}},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}},
 	}
+	// Neither states a currency, so the venue decides and normalization is what
+	// decides the venue.
 	// Without normalizer: different exchanges are inconsistent.
 	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
 		t.Error("expected inconsistent without normalizer")
@@ -1717,6 +1887,13 @@ func TestResolveWithPlugins_VenueInsideTheMarketIsAdopted(t *testing.T) {
 
 // testMICCountry answers the MIC-to-country question the way the seeded ISO
 // reference data does, for the venues these tests name.
+// testCountryOf is testMICCountry in the shape merge admission takes it, so a
+// unit test can exercise the market-level arm without a mock DB.
+func testCountryOf(mic string) string {
+	c, _ := testMICCountry(context.Background(), mic)
+	return c
+}
+
 func testMICCountry(_ context.Context, mic string) (string, error) {
 	switch mic {
 	case "XNYS", "XNAS", "OTCM", "XCIS", "BATS", "IEXG":
@@ -2411,10 +2588,11 @@ func claimsFromResolve(t *testing.T, a, b identifier.Plugin, onStore ...func([]d
 
 // --- a domain scopes an identifier rather than decorating it (0144) ---
 
-// Two plugins naming one symbol on two venues have described two listings of a
-// security, not one instrument twice. Both instruments are venue-silent here, so
-// the venue comparison decides nothing and the identifiers have to.
-func TestConsistentWith_OneSymbolOnTwoVenuesIsNotAgreement(t *testing.T) {
+// One symbol at two venues is not a contradiction. A line is a currency
+// (adr/0068), so what the two domains say is where each plugin looked, not that
+// they looked at two lines. Both instruments are silent here, so nothing else
+// speaks either and the result is admitted.
+func TestConsistentWith_OneSymbolAtTwoVenuesIsNotAContradiction(t *testing.T) {
 	w := &pluginResult{
 		inst: &identifier.Instrument{AssetClass: "STOCK"},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
@@ -2423,8 +2601,92 @@ func TestConsistentWith_OneSymbolOnTwoVenuesIsNotAgreement(t *testing.T) {
 		inst: &identifier.Instrument{AssetClass: "STOCK"},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "AAPL"}},
 	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+		t.Error("expected one symbol at two venues to be consistent")
+	}
+}
+
+// What the retired rule was reaching for still holds, one level up: two results
+// that named two venues and no currency have not been shown to describe one
+// line, and the venue on the instrument is what says so.
+func TestConsistentWith_TwoVenuesWithNoCurrencyAreTwoAnswers(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}}},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XLON"}}},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "AAPL"}},
+	}
 	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
-		t.Error("expected two listings of one symbol to be inconsistent")
+		t.Error("expected two venues and no currency to be inconsistent")
+	}
+}
+
+// The issue's headline. Both results state USD, so they described one line
+// (adr/0068) and the venues they name between them are two places that line
+// trades. countryOf is non-nil, so the venue arm would have teeth if it ran.
+func TestConsistentWith_TwoVenuesQuotingOneCurrencyAreOneLine(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XLON"}, Currency: "USD"}},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), testCountryOf) {
+		t.Error("expected two venues quoting one currency to be one line")
+	}
+}
+
+// GBX is GBP under a different unit prefix, so a London line stated either way
+// is one line. Paired with a currency that really is another line, so the
+// family test cannot pass by comparing nothing.
+func TestConsistentWith_GBXAndGBPAreOneLine(t *testing.T) {
+	w := &pluginResult{inst: &identifier.Instrument{Listing: identifier.Listing{Currency: "GBX"}}}
+	o := &pluginResult{inst: &identifier.Instrument{Listing: identifier.Listing{Currency: "GBP"}}}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+		t.Error("expected GBX and GBP to be one line")
+	}
+	u := &pluginResult{inst: &identifier.Instrument{Listing: identifier.Listing{Currency: "USD"}}}
+	if consistentWith(context.Background(), nil, "a", "b", w, u, nil, nil) {
+		t.Error("expected GBX and USD to be two lines")
+	}
+}
+
+// Where one side states no currency there is nothing to decide on, so the venue
+// stands in for it. This is what stops fillBlanks writing a London currency on
+// to a NASDAQ answer.
+func TestConsistentWith_TheVenueDecidesWhereNoCurrencyDoes(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBP"}},
+	}
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), testCountryOf) {
+		t.Error("expected a foreign venue to be inconsistent where no currency was stated")
+	}
+}
+
+// A winner may name one subject twice -- two tickers at one venue, where a
+// provider carries both share classes. Reading only the conflicting pair would
+// have it reject a result naming either of its own values.
+func TestConsistentWith_AWinnerNamingOneSubjectTwiceAcceptsEither(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{AssetClass: "STOCK"},
+		ids: []identifier.Identifier{
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "GOOG"},
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "GOOGL"},
+		},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{AssetClass: "STOCK"},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "GOOGL"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+		t.Error("expected a winner naming one subject twice to accept either value")
 	}
 }
 

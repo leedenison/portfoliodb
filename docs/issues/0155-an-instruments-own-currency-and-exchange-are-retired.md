@@ -85,5 +85,6 @@ thing that let it, and `EnsureArchiveInstrument` has already ensured every line
 the file states by the time it runs, so a line it could mint would be one the file
 did not name.
 
-Left standing, as issue 0159: `contradicts` treats two venues as two lines, where
-adr/0068 says two venues quoting one currency are one listing.
+`contradicts` treated two venues as two lines, where adr/0068 says two venues
+quoting one currency are one listing. That was left standing here and is now
+closed as issue 0159.

@@ -348,25 +348,44 @@ func claimed(idn identifier.Identifier, role string) db.ClaimedIdentifier {
 }
 
 // flattenClaims is the lossy step, kept to one place so that what it loses is
-// visible. For each identifier type it takes the value from the first claim
-// carrying it -- the claims arrive in precedence-descending order -- and drops
-// which result said what, which is exactly the distinction that makes an
-// association a claim rather than a set. It is what the instrument is stored
-// with, and 0140 is what stops the merge being decided on it.
+// visible. For each subject it takes the value from the first claim carrying it
+// -- the claims arrive in precedence-descending order -- and drops which result
+// said what, which is exactly the distinction that makes an association a claim
+// rather than a set. It is what the instrument is stored with, and 0140 is what
+// stops the merge being decided on it.
+//
+// The subject and not the type, because a domain scopes a value rather than
+// decorating it: MIC_TICKER/XNAS/VOD and MIC_TICKER/XLON/VOD are what the line
+// is called at two venues, and keying on the type would keep whichever came
+// first and silently lose the other. A line's venue set is derived from these
+// rows (adr/0068), so the venue would go with it -- and it went whether the two
+// arrived from two results or from one result naming both, which is a winner's
+// own answer being trimmed on the way to the store. Domains normalize to
+// operating MICs first, per adr/0003, so a segment and the venue that operates
+// it are one subject here as they are in sameSubject.
 //
 // Only returned identifiers are flattened. A filtered value was corroborated
 // rather than supplied, and writing it is a decision about what an admitted
 // claim licenses, which is 0140's.
-func flattenClaims(claims []db.IdentityClaim) []identifier.Identifier {
-	seenType := make(map[string]bool)
+func flattenClaims(ctx context.Context, normalizeMIC MICNormalizer, claims []db.IdentityClaim) []identifier.Identifier {
+	// What sameSubject compares, as a map key. Upper-cased because sameSubject
+	// folds case and a key cannot.
+	type subject struct{ typ, domain string }
+
+	seen := make(map[subject]bool)
 	var out []identifier.Identifier
 	for _, c := range claims {
 		for _, idn := range c.Identifiers {
-			if idn.Role != db.ClaimRoleReturned || seenType[idn.Ref.Type] {
+			if idn.Role != db.ClaimRoleReturned {
 				continue
 			}
-			seenType[idn.Ref.Type] = true
-			out = append(out, identifier.Identifier{Type: idn.Ref.Type, Domain: idn.Ref.Domain, Value: idn.Ref.Value})
+			id := identifier.Identifier{Type: idn.Ref.Type, Domain: idn.Ref.Domain, Value: idn.Ref.Value}
+			s := subject{id.Type, strings.ToUpper(domainOf(ctx, normalizeMIC, id))}
+			if seen[s] {
+				continue
+			}
+			seen[s] = true
+			out = append(out, id)
 		}
 	}
 	return out
@@ -502,68 +521,106 @@ func normalizeMICValue(ctx context.Context, normalizeMIC MICNormalizer, mic stri
 	return normalizeMIC(ctx, mic)
 }
 
-// consistentWith returns true if other's instrument metadata is consistent with
-// winner's. Checks Currency, Exchange, and the identifiers the two results
-// share a subject on. Logs a warning and returns false on mismatch. Exchange
-// comparison normalizes both sides to operating MICs via normalizeMIC (if
-// non-nil).
+// mismatch is what excluded a result from a merge, ready for the log line.
+type mismatch struct{ field, winner, other string }
+
+// lineMismatch reports whether two results described different lines, and what
+// said so.
 //
-// This is merge admission, which is why it is contradicts and not sameSubject
-// that decides: two results naming one symbol on two venues have described two
-// listings, and merging them is how a London ticker comes to sit on a New York
-// instrument for a price plugin to fetch the wrong line's close against.
-//
-// The currency check stays, and stays an exclusion rather than becoming a
-// second listing. One resolution answers about one line: it writes the
+// The currency decides. A line is a currency of a security (adr/0068), so two
+// results stating currencies of one family have described one line however many
+// venues they name between them, and two stating different families have
+// described two. One resolution answers about one line: it writes the
 // identifiers it gathered against the line its winner named, so a result about
 // another line has nothing to contribute to this one and its identifiers must
 // not be filed under this currency. Unioning two results into two listings is
 // adr/0071.
-func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer, countryOf MICCountry) bool {
-	l = resolveLogger(l)
-	if winner.inst.Listing.Currency != "" && other.inst.Listing.Currency != "" &&
-		!strings.EqualFold(winner.inst.Listing.Currency, other.inst.Listing.Currency) {
-		l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
-			"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
-			"field", "Currency", "winner_value", winner.inst.Listing.Currency, "other_value", other.inst.Listing.Currency)
-		return false
+//
+// The venue stands in where the currency is silent, and only there. A result
+// naming a market or a venue and no currency has still said where it trades,
+// and taking another plugin's names onto it is how a London ticker comes to sit
+// on a New York instrument for a price plugin to fetch the wrong line's close
+// against. Both sides normalize to operating MICs first, per adr/0003, so a
+// segment and the venue that operates it are one answer.
+//
+// Strict rather than open-world because both sides are whole answers rather
+// than partial records; see adr/0077.
+func lineMismatch(ctx context.Context, normalizeMIC MICNormalizer, countryOf MICCountry, winner, other *identifier.Instrument) *mismatch {
+	wc, oc := winner.Listing.Currency, other.Listing.Currency
+	if wc != "" && oc != "" {
+		if !sameCurrency(wc, oc) {
+			return &mismatch{"Currency", wc, oc}
+		}
+		return nil
 	}
-	winnerVenue := normalizeVenue(ctx, normalizeMIC, winner.inst.Listing.Venue)
-	otherVenue := normalizeVenue(ctx, normalizeMIC, other.inst.Listing.Venue)
-	if !winnerVenue.Agrees(otherVenue, countryOf) {
-		l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
-			"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
-			"field", "Venue", "winner_value", venueString(winnerVenue), "other_value", venueString(otherVenue))
-		return false
+	wv := normalizeVenue(ctx, normalizeMIC, winner.Listing.Venue)
+	ov := normalizeVenue(ctx, normalizeMIC, other.Listing.Venue)
+	if !wv.Agrees(ov, countryOf) {
+		return &mismatch{"Venue", venueString(wv), venueString(ov)}
 	}
-	// Every pair, rather than a map keyed on the type: a result may name one
-	// type twice -- a ticker on each of two venues -- and keying would keep
-	// whichever came last and compare the other against nothing.
-	//
-	// An identifier the winner also named is agreement, and agreement anywhere
-	// in the winner's answer settles it. Asking only whether something conflicts
-	// would have a winner that named two listings reject a result naming one of
-	// them, which is the winner disagreeing with itself.
-	for _, o := range other.ids {
+	return nil
+}
+
+// idMismatch reports whether other's identifiers contradict winner's, and which
+// pair did.
+//
+// A difference in the value under one subject is the whole of what an
+// identifier can contradict. A listing-grain domain used to contradict on its
+// own account, two venues being read as two lines; a line is a currency
+// (adr/0068), and every plugin sets that domain from the venue it put on the
+// answer, so the test restated lineMismatch's venue comparison on a field that
+// does not key a line -- and restated it in a spelling, a composite's US
+// against a venue's XLON, that no normalization reaches.
+//
+// Every pair, rather than a map keyed on the type: a result may name one type
+// twice -- a ticker on each of two venues -- and keying would keep whichever
+// came last and compare the other against nothing.
+//
+// An identifier the winner also named is agreement, and agreement anywhere in
+// the winner's answer settles it. Reading the conflicting half alone would have
+// a winner that named one subject twice reject a result naming either of its
+// values, which is the winner disagreeing with itself.
+func idMismatch(ctx context.Context, normalizeMIC MICNormalizer, winner, other []identifier.Identifier) *mismatch {
+	for _, o := range other {
 		var conflict identifier.Identifier
 		agreed, found := false, false
-		for _, w := range winner.ids {
-			if sameSubject(ctx, normalizeMIC, w, o) && w.Value == o.Value {
+		for _, w := range winner {
+			if !sameSubject(ctx, normalizeMIC, w, o) {
+				continue
+			}
+			if w.Value == o.Value {
 				agreed = true
 				break
 			}
-			if !found && contradicts(ctx, normalizeMIC, w, o) {
+			if !found {
 				conflict, found = w, true
 			}
 		}
 		if !agreed && found {
-			l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
-				"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
-				"field", "Identifier:"+o.Type, "winner_value", conflict.String(), "other_value", o.String())
-			return false
+			return &mismatch{"Identifier:" + o.Type, conflict.String(), o.String()}
 		}
 	}
-	return true
+	return nil
+}
+
+// consistentWith reports whether other's answer may be merged into winner's,
+// and logs what excluded it when it may not.
+//
+// Merge admission asks two things, and they are different questions. Whether
+// the two results described one line, which the currency decides. And whether
+// they contradict each other about the security, which the identifiers do.
+func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer, countryOf MICCountry) bool {
+	m := lineMismatch(ctx, normalizeMIC, countryOf, winner.inst, other.inst)
+	if m == nil {
+		m = idMismatch(ctx, normalizeMIC, winner.ids, other.ids)
+	}
+	if m == nil {
+		return true
+	}
+	resolveLogger(l).WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
+		"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
+		"field", m.field, "winner_value", m.winner, "other_value", m.other)
+	return false
 }
 
 // fillBlanks copies fields src knows and dst does not. Only empty fields are
@@ -584,6 +641,13 @@ func fillBlanks(ctx context.Context, normalizeMIC MICNormalizer, countryOf MICCo
 	// market-level answer is not an absence of opinion: taking a venue outside
 	// the country it named would replace a real constraint with a value that
 	// contradicts it. The market itself is kept when nothing better arrives.
+	//
+	// A result admitted on its currency may still name a venue this refuses, and
+	// that is coherent rather than a gap. The currency said the two described one
+	// line; this says a market cannot be restated as a venue outside it. Nothing
+	// is lost either way: the venue arrived as the domain of a MIC_TICKER, and
+	// recompute_listing_venues derives the line's venue set from those rows
+	// rather than from this field.
 	if dst.Listing.Venue.MIC == "" && src.Listing.Venue.MIC != "" &&
 		dst.Listing.Venue.Permits(normalizeMICValue(ctx, normalizeMIC, src.Listing.Venue.MIC), countryOf) {
 		dst.Listing.Venue.MIC = src.Listing.Venue.MIC
@@ -601,7 +665,8 @@ func fillBlanks(ctx context.Context, normalizeMIC MICNormalizer, countryOf MICCo
 	// would refuse a fact about the line from a result that named the line.
 	//
 	// What still guards it is consistentWith, which has already excluded any
-	// result whose currency contradicts the winner's.
+	// result whose currency is of another family than the winner's, or -- where
+	// one of them stated none -- whose venue the winner's answer does not permit.
 	if dst.Listing.Currency == "" {
 		dst.Listing.Currency = src.Listing.Currency
 	}
@@ -654,34 +719,16 @@ func domainOf(ctx context.Context, normalizeMIC MICNormalizer, id identifier.Ide
 // their values can be compared at all.
 //
 // The domain scopes the value rather than decorating it, so it is part of the
-// subject: MIC_TICKER/XNAS/AAPL and MIC_TICKER/XLON/AAPL name two listings and
-// have not agreed about anything by both saying AAPL. An identifier naming no
-// domain names no particular listing, which is not the same subject as one that
-// does -- comparing them would be reading a bare ticker as though it had said
-// which venue.
+// subject: MIC_TICKER/XNAS/AAPL says what this security is called at NASDAQ and
+// MIC_TICKER/XLON/AAPL says what it is called in London, and two answers have
+// not agreed about either by both saying AAPL. Whether those two venues are one
+// line is a question about the currency, and lineMismatch asks it (adr/0068).
+// An identifier naming no domain names no particular venue, which is not the
+// same subject as one that does -- comparing them would be reading a bare
+// ticker as though it had said where.
 func sameSubject(ctx context.Context, normalizeMIC MICNormalizer, a, b identifier.Identifier) bool {
 	return a.Type == b.Type &&
 		strings.EqualFold(domainOf(ctx, normalizeMIC, a), domainOf(ctx, normalizeMIC, b))
-}
-
-// contradicts reports whether two identifiers cannot both be true of one
-// instrument.
-//
-// Two ways they cannot. One subject named twice with different values is the
-// plain case. The other is two listings: where the type names a listing and
-// both sides named a venue, different venues are different lines of the
-// security, and one instrument is not both of them however equal the symbols
-// are. That second clause is why this is not merely sameSubject read
-// negatively.
-func contradicts(ctx context.Context, normalizeMIC MICNormalizer, a, b identifier.Identifier) bool {
-	if a.Type != b.Type {
-		return false
-	}
-	if identifier.NamesAListing(a.Type) && a.Domain != "" && b.Domain != "" &&
-		!strings.EqualFold(domainOf(ctx, normalizeMIC, a), domainOf(ctx, normalizeMIC, b)) {
-		return true
-	}
-	return sameSubject(ctx, normalizeMIC, a, b) && a.Value != b.Value
 }
 
 // CompareHints compares supplied hints and identifier hints against the
@@ -702,7 +749,7 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 
 	// Currency.
 	if hints.Currency != "" && inst.Listing.Currency != "" &&
-		!strings.EqualFold(hints.Currency, inst.Listing.Currency) {
+		!sameCurrency(hints.Currency, inst.Listing.Currency) {
 		diffs = append(diffs, identifier.HintDiff{Field: "Currency", HintValue: hints.Currency, ResolvedValue: inst.Listing.Currency})
 	}
 
@@ -725,11 +772,11 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 	// Identifier values: compare client-supplied hints against resolved
 	// identifiers, on the subject they share rather than on the type alone.
 	//
-	// sameSubject and not contradicts, which is the one place the two part
-	// company. A hint diff is read by a person, and a resolution that landed on
-	// another venue is already said readably above as an Exchange difference. A
-	// second row naming the ticker type, whose two values are the same string,
-	// would be that fact restated as noise.
+	// On the subject the two share, which for a ticker is the venue as well as
+	// the type. A resolution that landed on another venue is not a difference at
+	// all, for the reason given above, so there is nothing here to report about
+	// it; a row naming the ticker type whose two values are the same string
+	// would be a venue difference restated as noise.
 	for _, h := range identifierHints {
 		if h.Value == "" {
 			continue
@@ -844,13 +891,23 @@ func ConfirmedDBFields(hints identifier.Hints, r ResolvedInstrument) []string {
 	return out
 }
 
+// sameCurrency reports whether two codes name one line's currency.
+//
+// On family and not on the code: GBX is GBP under a different unit prefix, so a
+// line quoted in one is the line the other names and a security never holds
+// both (adr/0068). Every currency comparison in this package goes through here,
+// because a rule about what makes two lines cannot hold in one place and not
+// another -- a source stating GBX would then contradict on the plugin path what
+// it corroborates on the database path.
+func sameCurrency(a, b string) bool {
+	return currency.Family(strings.ToUpper(a)) == currency.Family(strings.ToUpper(b))
+}
+
 // holdsCurrency reports whether one of these lines is quoted in the currency
-// stated, comparing on family because GBX and GBP are one line's currency under
-// two unit prefixes and a security never holds both.
+// stated.
 func holdsCurrency(currencies []string, stated string) bool {
-	want := currency.Family(strings.ToUpper(stated))
 	for _, c := range currencies {
-		if currency.Family(strings.ToUpper(c)) == want {
+		if sameCurrency(c, stated) {
 			return true
 		}
 	}
@@ -918,7 +975,7 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 	// That is what makes it a real test of a guessed ticker: the currency comes
 	// off the transaction, not off the guess, so a ticker naming the wrong company
 	// only survives if that company also trades in the currency the source stated.
-	if hints.Currency != "" && inst.Listing.Currency != "" && strings.EqualFold(hints.Currency, inst.Listing.Currency) {
+	if hints.Currency != "" && inst.Listing.Currency != "" && sameCurrency(hints.Currency, inst.Listing.Currency) {
 		out = append(out, "Currency")
 	}
 	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
@@ -994,7 +1051,7 @@ func proposalOutcome(ctx context.Context, p identifier.Identifier, inst *identif
 		switch {
 		case inst.Listing.Currency == "":
 			return db.TelemetryCandidateFieldUntested
-		case strings.EqualFold(inst.Listing.Currency, p.Value):
+		case sameCurrency(inst.Listing.Currency, p.Value):
 			return db.TelemetryCandidateFieldConfirmed
 		default:
 			return db.TelemetryCandidateFieldContradicted
@@ -1318,12 +1375,12 @@ func ResolveWithPlugins(
 		// and the filled venue is what picks the line out of the security's
 		// listings below -- a security quoted at one venue in two currencies is
 		// the case where naming the venue settles which line the result is
-		// about. Note consistentWith skips a comparison where either side is
-		// empty, so a field being filled here was never checked against the
-		// winner; it is adopted because that plugin agreed on everything it
-		// could be checked on, which is the same basis its identifiers are
-		// merged on.
-		mergedIds := flattenClaims(claims)
+		// about. Note consistentWith skips the currency comparison where either
+		// side stated none, and checks the venue in precisely that case, so a
+		// field filled here was never contradicted; it is adopted because that
+		// plugin agreed on everything it could be checked on, which is the same
+		// basis its identifiers are merged on.
+		mergedIds := flattenClaims(ctx, normMIC, claims)
 		merged := *winner.inst
 		for _, src := range fills {
 			fillBlanks(ctx, normMIC, countryOf, &merged, src)

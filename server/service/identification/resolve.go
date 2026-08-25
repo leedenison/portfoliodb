@@ -959,7 +959,7 @@ func holdsCurrency(currencies []string, stated string) bool {
 // trade. That exclusion is about the comparison and not about what a source
 // said, which is why this is not the same question as three others nearby:
 //
-//   - ingestion.identityComplete asks whether the stated identifiers already
+//   - ingestion.statedIdentityComplete asks whether the stated identifiers already
 //     pick out one listing, and a composite exchange code does, so it counts one
 //     where this does not.
 //   - pluginutil.anyLineHasVenue asks it of a stored row, where a venue is a

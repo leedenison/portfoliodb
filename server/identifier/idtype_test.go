@@ -40,6 +40,25 @@ func TestPropsCoversProtoVocabulary(t *testing.T) {
 		if p.Grain == GrainUnknown {
 			t.Errorf("%s: grain not declared", name)
 		}
+		if p.Domain == DomainUnknown {
+			t.Errorf("%s: domain not declared", name)
+		}
+		if p.Lines == LinesUnknown {
+			t.Errorf("%s: lines not declared", name)
+		}
+		// A security-grain type has no line for a domain to pick out, so its
+		// domain names something beside the value however it is spelled.
+		if p.Grain == GrainSecurity && p.Domain == DomainScopes {
+			t.Errorf("%s: security grain with a domain that scopes the value", name)
+		}
+		// A listing-grain value names one line by definition. Lines says so per
+		// entry and this is what keeps the two from drifting: a listing-grain
+		// type declared LinesMany would be the silent false this table exists to
+		// prevent, since ReachesOneLine and everything downstream of it read
+		// Lines rather than Grain.
+		if p.Grain == GrainListing && p.Lines != LinesOne {
+			t.Errorf("%s: listing grain but lines is not one", name)
+		}
 	}
 	for name := range idTypes {
 		if !seen[name] {
@@ -100,6 +119,51 @@ func TestProviderNamesAListing(t *testing.T) {
 		t.Run(tt.typ, func(t *testing.T) {
 			if got := ProviderNamesAListing(tt.typ); got != tt.want {
 				t.Errorf("ProviderNamesAListing(%q) = %v, want %v", tt.typ, got, tt.want)
+			}
+		})
+	}
+}
+
+// What one identifier, with the domain it carries, picks out. Two halves: Lines
+// says whether values of the type reach a line, Domain whether this value is one
+// of them.
+func TestReachesOneLine(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		id   Identifier
+		want bool
+	}{
+		{"a ticker with its MIC", Identifier{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}, true},
+		{"a bare ticker", Identifier{Type: "MIC_TICKER", Value: "AAPL"}, false},
+		// A domain of blanks is not a venue, which is the reading the gate this
+		// backs has always taken.
+		{"a ticker whose MIC is blanks", Identifier{Type: "MIC_TICKER", Domain: "  ", Value: "AAPL"}, false},
+		{"a ticker with a composite code", Identifier{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"}, true},
+		{"a bare OpenFIGI ticker", Identifier{Type: "OPENFIGI_TICKER", Value: "AAPL"}, false},
+		// Listing-grain and needing no domain to say which line: each is issued
+		// per market, and a market's venues share a currency.
+		{"a SEDOL", Identifier{Type: "SEDOL", Value: "2046251"}, true},
+		{"a composite FIGI", Identifier{Type: "OPENFIGI_COMPOSITE", Value: "BBG000B9XRY4"}, true},
+		// Security-grain and still one line: the security each names has exactly
+		// one. A contract is cleared in one place; a currency is the cash
+		// instrument entire.
+		{"a contract symbol", Identifier{Type: "OCC", Value: "AAPL  251219C00200000"}, true},
+		{"a currency", Identifier{Type: "CURRENCY", Value: "USD"}, true},
+		{"an FX pair", Identifier{Type: "FX_PAIR", Value: "GBPUSD"}, true},
+		// Registry keys, which reach every line the security trades in.
+		{"an ISIN", Identifier{Type: "ISIN", Value: "US0378331005"}, false},
+		{"a CUSIP", Identifier{Type: "CUSIP", Value: "037833100"}, false},
+		// The class the lines belong to, not one of them, so it leaves which
+		// line exactly as open as an ISIN does.
+		{"a share class FIGI", Identifier{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}, false},
+		// Its domain is the source that wrote the text, and it names no security
+		// to have a line of.
+		{"a broker description", Identifier{Type: "BROKER_DESCRIPTION", Domain: "SRC", Value: "APPLE INC"}, false},
+		{"a type outside the vocabulary", Identifier{Type: "CONID", Domain: "IBKR", Value: "265598"}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ReachesOneLine(tt.id); got != tt.want {
+				t.Errorf("ReachesOneLine(%v) = %v, want %v", tt.id, got, tt.want)
 			}
 		})
 	}

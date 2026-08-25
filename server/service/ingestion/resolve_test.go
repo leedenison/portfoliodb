@@ -1081,7 +1081,11 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 // The line falls at the venue: a source that named one has said the last thing
 // that changes which listing resolution lands on, and everything else has left a
 // choice open no provider lookup closes.
-func TestIdentityComplete(t *testing.T) {
+//
+// Every case here but the share class FIGI answers as it did before the rule was
+// derived from identifier.Props, which is what says the derivation changed only
+// the entry it meant to.
+func TestStatedIdentityComplete(t *testing.T) {
 	cases := []struct {
 		name   string
 		stated []identifier.Identifier
@@ -1100,7 +1104,10 @@ func TestIdentityComplete(t *testing.T) {
 		{"a currency", []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}}, true},
 		{"an FX pair", []identifier.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}, true},
 		{"a contract symbol", []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00200000"}}, true},
-		{"a share class FIGI", []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}}, true},
+		// The class the lines belong to, so which line is as open as an ISIN
+		// leaves it. See the entry in identifier.idTypes for why this once read
+		// the other way.
+		{"a share class FIGI", []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}}, false},
 		{"an ISIN and a venue-qualified ticker", []identifier.Identifier{
 			{Type: "ISIN", Value: "US0378331005"},
 			{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
@@ -1112,8 +1119,8 @@ func TestIdentityComplete(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := identityComplete(c.stated); got != c.want {
-				t.Errorf("identityComplete(%v) = %v, want %v", c.stated, got, c.want)
+			if got := statedIdentityComplete(c.stated); got != c.want {
+				t.Errorf("statedIdentityComplete(%v) = %v, want %v", c.stated, got, c.want)
 			}
 		})
 	}

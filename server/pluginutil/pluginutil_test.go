@@ -117,6 +117,27 @@ func TestPluginAccepts(t *testing.T) {
 			inst: &db.InstrumentRow{},
 			want: true,
 		},
+		{
+			// The currency is compared on the family, as every currency
+			// comparison is: the line is one line whether it is quoted in
+			// pounds or in pence. See adr/0068.
+			name: "a plugin declaring GBP carries the line quoted in pence",
+			cu:   map[string]bool{"GBP": true},
+			inst: &db.InstrumentRow{Listings: lines([]string{"GBX", "XLON"})},
+			want: true,
+		},
+		{
+			name: "and a plugin declaring pence carries the line quoted in pounds",
+			cu:   map[string]bool{"GBX": true},
+			inst: &db.InstrumentRow{Listings: lines([]string{"GBP", "XLON"})},
+			want: true,
+		},
+		{
+			name: "a currency in no declared family is refused",
+			cu:   map[string]bool{"GBP": true},
+			inst: &db.InstrumentRow{Listings: lines([]string{"USD", "XNAS"})},
+			want: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,4 +218,34 @@ func TestTrigger(t *testing.T) {
 		ch <- struct{}{}
 		Trigger(ch) // should not block
 	})
+}
+
+// The line grain asks the same currency question the security grain does, and
+// has to answer it the same way: a rule about what makes two lines cannot hold
+// on one path and not another.
+func TestPluginAcceptsListing_CurrencyFamily(t *testing.T) {
+	tests := []struct {
+		name string
+		cu   map[string]bool
+		lst  *db.Listing
+		want bool
+	}{
+		{"a plugin declaring GBP prices the line quoted in pence",
+			map[string]bool{"GBP": true}, &db.Listing{Currency: "GBX"}, true},
+		{"and the other way round",
+			map[string]bool{"GBX": true}, &db.Listing{Currency: "GBP"}, true},
+		{"case is folded, as it is for a code off a provider",
+			map[string]bool{"USD": true}, &db.Listing{Currency: "usd"}, true},
+		{"a currency in no declared family is refused",
+			map[string]bool{"GBP": true}, &db.Listing{Currency: "USD"}, false},
+		{"a plugin declaring nothing prices anything",
+			nil, &db.Listing{Currency: "GBX"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PluginAcceptsListing(nil, nil, tc.cu, nil, tc.lst); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

@@ -31,6 +31,11 @@ func TestPluginAcceptsCurrency(t *testing.T) {
 	if pluginAcceptsCurrency(p, "USD") {
 		t.Error("expected USD rejected")
 	}
+	// On the family: a plugin publishing an index for GBP publishes it for the
+	// line quoted in pence. See adr/0068.
+	if !pluginAcceptsCurrency(p, "GBX") {
+		t.Error("expected GBX accepted by a plugin declaring GBP")
+	}
 }
 
 func TestComputeGapRange_NoCoverage(t *testing.T) {

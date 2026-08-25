@@ -36,3 +36,28 @@ func TestMinorUnits_holdsOnlyGBX(t *testing.T) {
 		t.Errorf("MinorUnits[0] = %+v, want %+v", MinorUnits[0], want)
 	}
 }
+
+func TestSameAny(t *testing.T) {
+	tests := []struct {
+		name  string
+		codes map[string]bool
+		code  string
+		want  bool
+	}{
+		{"a declared code matches itself", map[string]bool{"USD": true}, "USD", true},
+		{"a minor unit is the major unit's line", map[string]bool{"GBP": true}, "GBX", true},
+		{"and the other way round", map[string]bool{"GBX": true}, "GBP", true},
+		{"case is folded", map[string]bool{"USD": true}, "usd", true},
+		{"one of several", map[string]bool{"USD": true, "GBP": true}, "GBX", true},
+		{"no member matches", map[string]bool{"USD": true}, "EUR", false},
+		{"an empty set matches nothing", map[string]bool{}, "USD", false},
+		{"a nil set matches nothing", nil, "USD", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SameAny(tt.codes, tt.code); got != tt.want {
+				t.Errorf("SameAny(%v, %q) = %v, want %v", tt.codes, tt.code, got, tt.want)
+			}
+		})
+	}
+}

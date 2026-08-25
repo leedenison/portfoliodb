@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Overlapping predicates answer one question with different tolerances
 milestone: M25
 ---
@@ -39,3 +39,63 @@ where" differently is not, unless it is said somewhere that they do.
 
 Settle each question once, and where several predicates are genuinely wanted have
 each say which of the others it is not.
+
+## Outcome
+
+Each question is settled once, and the asset class one turned out to be about
+the vocabulary rather than about the predicates.
+
+**Asset class had no way to say "a share or a fund"**, so every site that
+compared a stated class to a resolved one invented its own tolerance, and the
+non-transitive pair table was the largest of them: a workaround for the missing
+value rather than a rule anyone wanted. The vocabulary is now a tree, as the
+transaction types have been since adr/0044, with `EQUITY` over STOCK, ETF and
+MUTUAL_FUND, `DERIVATIVE` over OPTION and FUTURE, and `SECURITY` where UNKNOWN
+used to stand -- which freed UNKNOWN to be the root and folded `InstrumentKind`,
+a second vocabulary with a second gate, into the one tree. `db.IsDerivative`
+went the same way. A source now says what it can defend: an OFX `BUYSTOCK` is
+`EQUITY`, because OFX has no ETF tag.
+
+**Seven sites, two questions.** `assetclass.Contradicts` is permissive and
+symmetric -- two claims disagree when no reading admits them both -- and gates
+ingest validation and every reported hint difference. `assetclass.Corroborates`
+is strict and asymmetric: the claim must have ruled something out and the answer
+must fall inside it, so EQUITY is corroborated by ETF and STOCK is not
+corroborated by EQUITY. Routing asks `MayBe` over what a plugin declares, so a
+plugin declaring STOCK is reached by the EQUITY a statement line says. Nothing
+compares two classes for equality, and every call site says which question it is
+asking.
+
+Two bugs fell out, both of a plugin answering more specifically than its
+provider had. The Massive identifier plugin read `market == "stocks"` and
+answered STOCK, throwing the ticker type beside it away, so every ETF resolved
+through it was stored as a share in a company. And OpenFIGI's fallback on
+`marketSector == "Equity"` answered STOCK, where that sector holds equity
+options, single stock futures, warrants and rights beside shares and funds --
+the recorded responses show an equity option carrying it. Both answer SECURITY
+where the provider left it open, the vocabulary having no node for "a security
+in the equity market sector" and SECURITY being the nearest one that is true.
+
+**The currency family holds on every path.** `pluginutil.PluginAccepts`,
+`PluginAcceptsListing`, `inflationfetcher.pluginAcceptsCurrency` and the ONS
+plugin's own guard below it go through `currency.Same`, so a plugin declaring
+GBP is offered a line stored as GBX. The spec sentence that claimed this was
+true is now true.
+
+`currency.Same` had claimed to be the only currency comparison in the Go code,
+which was the wrong claim to make rather than a false one: the places asking
+whether two codes are the same *unit* -- a posting quoted in pence and settled
+in pounds names one line and still needs its decimal point moved -- are asking a
+different question and compare codes directly. It now says which question it
+answers.
+
+**The venue predicates were a naming problem, and stay three.** The three
+representations are real and `venueStated`'s exclusion of a composite exchange
+code was right; what was wrong was its name and its comment, which claimed a
+question it does not ask. It is `micStated`, it says it asks whether a source
+named something comparable against a MIC, and it names the three predicates it
+is not -- `ingestion.identityComplete`, which counts a composite because it asks
+whether the identity picks out a listing; `pluginutil.anyLineHasVenue`, on a
+stored row; and `identifier.Venue.Known`, on a provider's answer. Folding
+`identityComplete` into the properties table is 0165, and naming `Venue.Known`
+is 0164.

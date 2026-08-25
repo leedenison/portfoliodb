@@ -15,6 +15,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 )
 
 func TestPlugin_Identify_Stock_Success(t *testing.T) {
@@ -347,7 +348,7 @@ func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
 		identifier.SecurityTypeHintEquity,
 		identifier.SecurityTypeHintOption,
 	} {
-		if !identifier.ShouldAttemptPlugin(types, c) {
+		if !pluginutil.AcceptsSecurityType(types, c) {
 			t.Errorf("a row stating %s does not reach the plugin", c)
 		}
 	}
@@ -356,7 +357,7 @@ func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
 		identifier.SecurityTypeHintCash,
 		identifier.SecurityTypeHintFixedIncome,
 	} {
-		if identifier.ShouldAttemptPlugin(types, c) {
+		if pluginutil.AcceptsSecurityType(types, c) {
 			t.Errorf("a row stating %s reached the plugin", c)
 		}
 	}

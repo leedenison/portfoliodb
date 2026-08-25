@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/worker"
@@ -134,7 +133,7 @@ func processCurrencies(ctx context.Context, database db.DB, plugins []pluginEntr
 
 func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry, code string, endMonth time.Time, log *slog.Logger) {
 	for _, pe := range plugins {
-		if !pluginAcceptsCurrency(pe.plugin, code) {
+		if !pluginutil.AcceptsCurrency(pe.plugin.SupportedCurrencies(), code) {
 			continue
 		}
 
@@ -187,20 +186,6 @@ func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry,
 	if log != nil {
 		log.InfoContext(ctx, "inflation fetch: no plugin supports currency", "currency", code)
 	}
-}
-
-// pluginAcceptsCurrency checks if a plugin supports the given currency.
-//
-// On the family, as every currency comparison is: a plugin publishing an index
-// for GBP publishes it for the line quoted in pence, the two being one currency
-// under a different unit prefix (adr/0068).
-func pluginAcceptsCurrency(p Plugin, code string) bool {
-	for _, c := range p.SupportedCurrencies() {
-		if currency.Same(c, code) {
-			return true
-		}
-	}
-	return false
 }
 
 // computeGapRange determines the date range [from, to) of missing months.

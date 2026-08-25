@@ -222,7 +222,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 		reached := false
 		bars := 0
 		for _, pe := range plugins {
-			if !pluginutil.PluginAcceptsListing(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst.AssetClass, lst) {
+			if !pluginutil.AcceptsListing(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst.AssetClass, lst) {
 				continue
 			}
 			if blocked[ig.ListingID][pe.id] {

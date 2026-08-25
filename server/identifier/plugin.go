@@ -82,9 +82,9 @@ type Plugin interface {
 	//
 	// Declare the classes the plugin actually covers rather than every class a
 	// source might spell them as. A plugin is offered any row whose stated class
-	// could be one of these -- see ShouldAttemptPlugin -- so a plugin covering
-	// shares declares STOCK and is offered the EQUITY a statement line says, and
-	// a cash plugin declares CASH and is offered nothing else.
+	// could be one of these -- see pluginutil.AcceptsSecurityType -- so a plugin
+	// covering shares declares STOCK and is offered the EQUITY a statement line
+	// says, and a cash plugin declares CASH and is offered nothing else.
 	AcceptableSecurityTypes() map[string]bool
 
 	// Identify resolves to canonical instrument data and identifiers. When ident.Stated is non-empty, resolution is from those identifiers (e.g. mapping by TICKER/FIGI); when empty, the plugin may use instrumentDescription only if it can do so safely (e.g. no raw search with long text).

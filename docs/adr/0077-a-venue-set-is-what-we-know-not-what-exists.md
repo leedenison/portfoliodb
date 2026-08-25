@@ -14,7 +14,7 @@ asks.
 ordinary -- a composite identifier names a market and stores no MIC -- and a line
 admitted to several is one line, its venues differing by a spread rather than by
 anything a provider holds separate data for. Carrying any one of them is carrying
-the line, so `PluginAcceptsListing` accepts a plugin covering any venue in the
+the line, so `pluginutil.AcceptsListing` accepts a plugin covering any venue in the
 set and accepts a line with none, the price-gap CLI quotes a line at whichever of
 its venues its quote source knows, and a surface showing venues shows all of them
 rather than choosing.

@@ -28,7 +28,7 @@ func strPtr(s string) *string { return &s }
 
 // The price fetcher's eligibility test runs at the grain a price is quoted at:
 // the security's asset class, and the line's own currency and venue set.
-func TestPluginAcceptsListing(t *testing.T) {
+func TestAcceptsListing(t *testing.T) {
 	tests := []struct {
 		name       string
 		plugin     *filterStub
@@ -100,17 +100,17 @@ func TestPluginAcceptsListing(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := pluginutil.PluginAcceptsListing(tc.plugin.AcceptableAssetClasses(), tc.plugin.AcceptableExchanges(), tc.plugin.AcceptableCurrencies(), tc.assetClass, tc.listing)
+			got := pluginutil.AcceptsListing(tc.plugin.AcceptableAssetClasses(), tc.plugin.AcceptableExchanges(), tc.plugin.AcceptableCurrencies(), tc.assetClass, tc.listing)
 			if got != tc.want {
-				t.Errorf("PluginAcceptsListing = %v, want %v", got, tc.want)
+				t.Errorf("AcceptsListing = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-// PluginAccepts stays as it is for the corporate event fetcher, which works at
+// Accepts stays as it is for the corporate event fetcher, which works at
 // the security.
-func TestPluginAccepts(t *testing.T) {
+func TestAccepts(t *testing.T) {
 	tests := []struct {
 		name   string
 		plugin *filterStub
@@ -174,7 +174,7 @@ func TestPluginAccepts(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := pluginutil.PluginAccepts(tc.plugin.AcceptableAssetClasses(), tc.plugin.AcceptableExchanges(), tc.plugin.AcceptableCurrencies(), tc.inst)
+			got := pluginutil.Accepts(tc.plugin.AcceptableAssetClasses(), tc.plugin.AcceptableExchanges(), tc.plugin.AcceptableCurrencies(), tc.inst)
 			if got != tc.want {
 				t.Errorf("pluginAccepts = %v, want %v", got, tc.want)
 			}

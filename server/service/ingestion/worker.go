@@ -364,7 +364,7 @@ func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentID
 // thing that changes which listing resolution lands on, and is left alone; a
 // source that stated an ISIN and no venue has left the choice among that
 // security's listings open, and is exactly what the stage exists to close. See
-// identityComplete for where the line falls, and completesPartialIdentity for
+// identityComplete for where the line falls, and mayPayForCompletion for
 // why only a broker upload is offered it.
 //
 // The returned outcome map is at key grain, and is stage one of each key's
@@ -460,7 +460,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 			// and the source had already named a listing; the other says this kind
 			// of run is never offered completion at all. They move for different
 			// reasons and a rate that blends them says nothing.
-			if !deps.completesPartialIdentity() {
+			if !deps.mayPayForCompletion() {
 				outcome[key] = db.TelemetryCandidateNotAttemptedRunKind
 				continue
 			}

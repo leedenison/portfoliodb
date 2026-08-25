@@ -1,42 +1,9 @@
 package inflationfetcher
 
 import (
-	"context"
 	"testing"
 	"time"
 )
-
-// stubPlugin is a minimal Plugin implementation for worker tests.
-type stubPlugin struct {
-	name       string
-	currencies []string
-}
-
-func (s *stubPlugin) DisplayName() string           { return s.name }
-func (s *stubPlugin) SupportedCurrencies() []string { return s.currencies }
-func (s *stubPlugin) DefaultConfig() []byte         { return []byte(`{}`) }
-func (s *stubPlugin) FetchInflation(_ context.Context, _ []byte, _ string, _, _ time.Time) (*FetchResult, error) {
-	return nil, ErrNoData
-}
-
-func TestPluginAcceptsCurrency(t *testing.T) {
-	p := &stubPlugin{currencies: []string{"GBP", "EUR"}}
-
-	if !pluginAcceptsCurrency(p, "GBP") {
-		t.Error("expected GBP accepted")
-	}
-	if !pluginAcceptsCurrency(p, "gbp") {
-		t.Error("expected case-insensitive match")
-	}
-	if pluginAcceptsCurrency(p, "USD") {
-		t.Error("expected USD rejected")
-	}
-	// On the family: a plugin publishing an index for GBP publishes it for the
-	// line quoted in pence. See adr/0068.
-	if !pluginAcceptsCurrency(p, "GBX") {
-		t.Error("expected GBX accepted by a plugin declaring GBP")
-	}
-}
 
 func TestComputeGapRange_NoCoverage(t *testing.T) {
 	end := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)

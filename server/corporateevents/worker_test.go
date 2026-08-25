@@ -70,7 +70,7 @@ func TestComputeMissingIntervals_AbuttingCoverageLeavesNoSeam(t *testing.T) {
 	}
 }
 
-func TestPluginAccepts(t *testing.T) {
+func TestAccepts(t *testing.T) {
 	tests := []struct {
 		name string
 		p    *stubPlugin
@@ -111,7 +111,7 @@ func TestPluginAccepts(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := pluginutil.PluginAccepts(tc.p.AcceptableAssetClasses(), tc.p.AcceptableExchanges(), tc.p.AcceptableCurrencies(), tc.inst); got != tc.want {
+			if got := pluginutil.Accepts(tc.p.AcceptableAssetClasses(), tc.p.AcceptableExchanges(), tc.p.AcceptableCurrencies(), tc.inst); got != tc.want {
 				t.Errorf("got %v want %v", got, tc.want)
 			}
 		})

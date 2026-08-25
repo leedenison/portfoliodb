@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 func strPtr(s string) *string { return &s }
@@ -23,7 +24,7 @@ func lines(spec ...[]string) []*db.Listing {
 	return out
 }
 
-func TestPluginAccepts(t *testing.T) {
+func TestAccepts(t *testing.T) {
 	tests := []struct {
 		name string
 		ac   map[string]bool
@@ -141,7 +142,7 @@ func TestPluginAccepts(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := PluginAccepts(tc.ac, tc.ex, tc.cu, tc.inst); got != tc.want {
+			if got := Accepts(tc.ac, tc.ex, tc.cu, tc.inst); got != tc.want {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
@@ -223,7 +224,7 @@ func TestTrigger(t *testing.T) {
 // The line grain asks the same currency question the security grain does, and
 // has to answer it the same way: a rule about what makes two lines cannot hold
 // on one path and not another.
-func TestPluginAcceptsListing_CurrencyFamily(t *testing.T) {
+func TestAcceptsListing_CurrencyFamily(t *testing.T) {
 	tests := []struct {
 		name string
 		cu   map[string]bool
@@ -243,9 +244,76 @@ func TestPluginAcceptsListing_CurrencyFamily(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := PluginAcceptsListing(nil, nil, tc.cu, nil, tc.lst); got != tc.want {
+			if got := AcceptsListing(nil, nil, tc.cu, nil, tc.lst); got != tc.want {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAcceptsSecurityType(t *testing.T) {
+	cashTypes := map[string]bool{identifier.SecurityTypeHintCash: true}
+	stockTypes := map[string]bool{identifier.SecurityTypeHintStock: true, identifier.SecurityTypeHintFixedIncome: true}
+
+	tests := []struct {
+		name       string
+		acceptable map[string]bool
+		secType    string
+		want       bool
+	}{
+		// A plugin covering shares is offered what a statement line says, which
+		// is the coarse value rather than the leaf below it.
+		{"stock plugin accepts EQUITY", stockTypes, identifier.SecurityTypeHintEquity, true},
+		{"stock plugin accepts STOCK", stockTypes, identifier.SecurityTypeHintStock, true},
+		{"stock plugin accepts one of several declared", stockTypes, identifier.SecurityTypeHintFixedIncome, true},
+
+		// A row whose source said only that it is a security is offered every
+		// security plugin, and none of them has to enumerate the vocabulary to
+		// be reached by it.
+		{"stock plugin accepts SECURITY", stockTypes, identifier.SecurityTypeHintSecurity, true},
+
+		// And the coarse value does not reach across the tree.
+		{"cash plugin rejects a security", cashTypes, identifier.SecurityTypeHintSecurity, false},
+		{"cash plugin rejects EQUITY", cashTypes, identifier.SecurityTypeHintEquity, false},
+		{"stock plugin rejects CASH", stockTypes, identifier.SecurityTypeHintCash, false},
+		{"cash plugin accepts CASH", cashTypes, identifier.SecurityTypeHintCash, true},
+
+		// A class the plugin does not cover is refused however specific it is.
+		{"stock plugin rejects OPTION", stockTypes, identifier.SecurityTypeHintOption, false},
+		{"stock plugin rejects ETF", stockTypes, identifier.SecurityTypeHintETF, false},
+
+		// The root reaches everything: it rules nothing out, so no plugin can
+		// be said not to cover it.
+		{"cash plugin accepts the root", cashTypes, identifier.SecurityTypeHintUnknown, true},
+		{"stock plugin accepts the root", stockTypes, identifier.SecurityTypeHintUnknown, true},
+
+		{"a plugin declaring nothing accepts everything", nil, identifier.SecurityTypeHintOption, true},
+		{"a row stating nothing reaches every plugin", cashTypes, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := AcceptsSecurityType(tt.acceptable, tt.secType); got != tt.want {
+				t.Errorf("AcceptsSecurityType(%v, %q) = %v, want %v", tt.acceptable, tt.secType, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAcceptsCurrency(t *testing.T) {
+	gbpEur := []string{"GBP", "EUR"}
+
+	if !AcceptsCurrency(gbpEur, "GBP") {
+		t.Error("expected GBP accepted")
+	}
+	if !AcceptsCurrency(gbpEur, "gbp") {
+		t.Error("expected case-insensitive match")
+	}
+	if AcceptsCurrency(gbpEur, "USD") {
+		t.Error("expected USD rejected")
+	}
+	// On the family: a plugin publishing an index for GBP publishes it for the
+	// line quoted in pence. See adr/0068.
+	if !AcceptsCurrency(gbpEur, "GBX") {
+		t.Error("expected GBX accepted by a plugin declaring GBP")
 	}
 }

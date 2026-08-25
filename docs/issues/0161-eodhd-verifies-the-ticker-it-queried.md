@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: EODHD verifies the ticker it queried
 milestone: M25
 dependencies: []
@@ -30,3 +30,14 @@ Verify a ticker query against `Code` the way an ISIN query is verified against
 `ISIN`, and return `ErrNotIdentified` where they differ. Both sides normalize
 their class separator first: the query carries EODHD's dash and a provider
 writes the separator however it likes, so one symbol must not read as two.
+
+## Outcome
+
+The query is verified against the result whatever was asked, in one switch: an
+ISIN against the result's ISIN as before, and a ticker against its `Code`. Both
+sides normalize the class separator first, so a query carrying EODHD's dash and a
+result written with a dot are one symbol rather than two.
+
+The recorded cassettes needed no re-recording. Every search in them already
+answers with the code it was asked for, which is what the check now requires
+rather than assumes.

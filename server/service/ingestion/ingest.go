@@ -46,9 +46,10 @@ type ingestDeps struct {
 // to fill a gap in an identity its source only partly stated.
 //
 // A question about the run and not about the identity, which is what separates
-// it from statedIdentityComplete beside it at the call site: that one reads the
-// stated identifiers and asks whether they already pick out a listing, this one
-// reads nothing but RunKind. A batch can fail either and the two are recorded
+// it from statedIdentityComplete beside it at the call site: that one reads what
+// the source stated -- the identifiers and the currency it quoted them in -- and
+// asks whether they already pick out a listing, this one reads nothing but
+// RunKind. A batch can fail either and the two are recorded
 // apart.
 //
 // Only a broker upload may. An archive names one identifier per posting, chosen

@@ -3,11 +3,13 @@
 Amended by [0068](0068-a-listing-is-a-currency-of-a-security.md), which
 redefines the listing as a currency rather than a venue and so narrows this
 stage considerably: a stated currency now completes an identity where it used to
-be treated as naming a market at best, and the stage runs only for a source that
-states no currency at all. The QFX case below inverts with it -- a file stating
-an ISIN, a trading currency and no venue is complete. What stands is the gate
-this ADR chose: completion is asked of a partial identity, not only of a posting
-holding no identifiers whatever.
+be treated as naming a market at best. It completes the half of one it supplies
+and no more -- a currency names a line of a security something else named -- so
+the stage still runs for a source that stated a currency beside a bare ticker or
+a description, neither of which reached a security. The QFX case below inverts
+with it -- a file stating an ISIN, a trading currency and no venue is complete.
+What stands is the gate this ADR chose: completion is asked of a partial
+identity, not only of a posting holding no identifiers whatever.
 
 The candidate stage runs when what a source stated leaves the choice of listing open,
 rather than when a source stated nothing at all. A broker upload that names an ISIN and
@@ -40,9 +42,11 @@ underlying, expiry, right and strike and names its market by construction; and a
 is a provider's key into the provider's own data, which a model asked to improve on
 could only invent.
 
-Currency deliberately does not count. A source that states a ticker and a currency has
-named a market at best, and USD covers a dozen US venues -- the choice the stage exists
-to make is still open.
+Currency counted for nothing under this decision: a source that states a ticker and a
+currency had named a market at best, and USD covers a dozen US venues. 0068 reverses
+that for a currency stated beside a name that reached the security, and leaves it
+standing for one stated beside a bare ticker, which is the case this paragraph was
+written about.
 
 ## Only a broker upload is offered completion
 

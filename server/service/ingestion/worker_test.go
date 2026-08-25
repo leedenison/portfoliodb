@@ -853,10 +853,13 @@ func expectCandidateConfig(database *mock.MockDB) {
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 1}}, nil)
 }
 
-// A source that stated an ISIN and no venue has left the choice among that
-// security's listings open, which is what the candidate stage is for. The stage
-// used to be skipped for any posting that stated anything at all, so the QFX
-// case -- a CUSIP or ISIN, a currency and no exchange -- never reached it.
+// A source that stated an ISIN and no currency has left the choice among that
+// security's listings open, which is what the candidate stage is for.
+//
+// The currency is what separates this from the test above it: a line is a
+// security and a currency, so an ISIN with one is complete and an ISIN without
+// one is the gap. hintedTx states no trading currency, which is what makes this
+// the second case.
 func TestProposeCandidates_AStatedIsinWithNoVenueIsCompleted(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -900,6 +903,43 @@ func TestProposeCandidates_AStatedIsinWithNoVenueIsCompleted(t *testing.T) {
 	// of it the source did state.
 	if len(plugin.seen) != 1 || len(plugin.seen[0].Stated) != 1 || plugin.seen[0].Stated[0].Value != "US0378331005" {
 		t.Errorf("plugin saw Stated = %v, want the stated ISIN", plugin.seen)
+	}
+}
+
+// A security-level name and the currency it is quoted in are the two halves of
+// one line, so a source stating both is left alone -- the IBKR QFX case, which
+// states a CUSIP or an ISIN, a trading currency and no venue at all. This is the
+// case adr/0068 reached back into adr/0058 to change, and the gate did not see
+// it until the currency was read beside the identifiers.
+func TestProposeCandidates_AnISINAndACurrencyAreNotCompleted(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
+
+	plugin := &fakeDescPlugin{
+		acceptable:    map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc: map[string][]identifier.Identifier{"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
+	}
+
+	tx := hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"})
+	tx.TradingCurrency = "USD"
+	txs := []*apiv1.Tx{tx}
+	txHints := [][]identifier.Identifier{{{Type: "ISIN", Value: "US0378331005"}}}
+
+	deps := ingestDeps{DB: database, CandidateRegistry: candidateRegistry(plugin), RunKind: db.TelemetryRunTxImport}
+	pre, err := proposeCandidates(context.Background(), deps, "SRC", "IBKR", txs, txHints)
+	if err != nil {
+		t.Fatalf("proposeCandidates: %v", err)
+	}
+	key := cacheKeyWithHints("SRC", "APPLE INC", txHints[0])
+	if len(plugin.seen) != 0 {
+		t.Errorf("the plugin was called for a complete identity: %v", plugin.seen)
+	}
+	if pre.outcome[key] != db.TelemetryCandidateNotAttemptedIdentityComplete {
+		t.Errorf("outcome = %q, want %q", pre.outcome[key], db.TelemetryCandidateNotAttemptedIdentityComplete)
 	}
 }
 

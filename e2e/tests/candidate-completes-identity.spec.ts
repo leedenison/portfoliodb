@@ -43,6 +43,14 @@ function ofxStamp(daysAgo: number): string {
 // copied, the account number and the FITID are invented, and the ISIN is public
 // reference data. Do not restore the originals.
 //
+// The BUYSTOCK deliberately carries no CURRENCY block, which is what makes the
+// identity it states partial: a line is a security and a currency, so an ISIN
+// with a trading currency beside it is complete and does not reach this stage at
+// all. Only quoteCurrency is left unstated by the omission -- figureCurrency
+// falls back to the statement's CURDEF, so the cash leg is still USD and the
+// group still balances. Adding a CURSYM here would make this suite assert the
+// opposite of what it is named for.
+//
 // It is rendered rather than committed as a fixture because its dates decide the
 // window the price fetcher asks providers for. Committed dates make that window
 // grow by a day every day, so a cassette recorded once would eventually need a
@@ -101,10 +109,6 @@ NEWFILEUID:NONE
 <UNITS>10
 <UNITPRICE>420.00
 <TOTAL>-4200.00
-<CURRENCY>
-<CURRATE>1.0
-<CURSYM>USD
-</CURRENCY>
 </INVBUY>
 <BUYTYPE>BUY
 </BUYSTOCK>
@@ -147,7 +151,7 @@ test.describe("a candidate plugin completes a partial identity", () => {
     sessionId = await seedSession("user");
   });
 
-  test("an ISIN with no venue reaches the candidate stage", async ({
+  test("an ISIN with no currency reaches the candidate stage", async ({
     context,
     page,
     browser,

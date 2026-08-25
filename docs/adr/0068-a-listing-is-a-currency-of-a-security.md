@@ -86,9 +86,11 @@ is a separate property.
 
 A composite exchange code becomes a complete answer rather than a gap: it names
 a country's venues, which share a currency, so it names a listing exactly. For
-the same reason a currency hint now completes an identity, which is the opposite
-of what [0058](0058-candidate-plugins-complete-a-partial-identity.md) assumed,
-and that stage narrows to sources stating no currency at all.
+the same reason a currency hint now completes an identity where 0058 assumed it
+could not -- though only the half of one it is: a currency names a line of a
+security something else named, so it completes an ISIN and leaves a bare ticker
+as open as [0058](0058-candidate-plugins-complete-a-partial-identity.md) found
+it.
 
 A venue migration stops being an event and becomes a change to a set.
 

@@ -1078,49 +1078,68 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 	}
 }
 
-// The line falls at the venue: a source that named one has said the last thing
-// that changes which listing resolution lands on, and everything else has left a
-// choice open no provider lookup closes.
-//
-// Every case here but the share class FIGI answers as it did before the rule was
-// derived from identifier.Props, which is what says the derivation changed only
-// the entry it meant to.
+// The line is a security and a currency, so a source has picked one out either
+// with a name that reaches a line on its own or with a name that reached the
+// security and the currency it is quoted in. Everything else has left a choice
+// open no provider lookup closes.
 func TestStatedIdentityComplete(t *testing.T) {
 	cases := []struct {
-		name   string
-		stated []identifier.Identifier
-		want   bool
+		name string
+		// quotedIn is the currency the source stated the security trades in,
+		// empty where it stated none.
+		quotedIn string
+		stated   []identifier.Identifier
+		want     bool
 	}{
-		{"nothing stated", nil, false},
-		{"a bare ticker", []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, false},
-		{"a ticker with its MIC", []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}, true},
-		{"an ISIN alone", []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}, false},
-		{"a CUSIP alone", []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}}, false},
+		{"nothing stated", "", nil, false},
+		{"a bare ticker", "", []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, false},
+		{"a ticker with its MIC", "", []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}, true},
+		{"an ISIN alone", "", []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}, false},
+		{"a CUSIP alone", "", []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}}, false},
 		// Issued per market and per line, so it names the line without a domain
 		// to say which.
-		{"a SEDOL alone", []identifier.Identifier{{Type: "SEDOL", Value: "2046251"}}, true},
-		{"a composite FIGI alone", []identifier.Identifier{{Type: "OPENFIGI_COMPOSITE", Value: "BBG000B9XRY4"}}, true},
-		{"a broker description", []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "SRC", Value: "APPLE INC"}}, false},
-		{"a currency", []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}}, true},
-		{"an FX pair", []identifier.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}, true},
-		{"a contract symbol", []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00200000"}}, true},
+		{"a SEDOL alone", "", []identifier.Identifier{{Type: "SEDOL", Value: "2046251"}}, true},
+		{"a composite FIGI alone", "", []identifier.Identifier{{Type: "OPENFIGI_COMPOSITE", Value: "BBG000B9XRY4"}}, true},
+		{"a broker description", "", []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "SRC", Value: "APPLE INC"}}, false},
+		{"a currency", "", []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}}, true},
+		{"an FX pair", "", []identifier.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}, true},
+		{"a contract symbol", "", []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00200000"}}, true},
 		// The class the lines belong to, so which line is as open as an ISIN
 		// leaves it. See the entry in identifier.idTypes for why this once read
 		// the other way.
-		{"a share class FIGI", []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}}, false},
-		{"an ISIN and a venue-qualified ticker", []identifier.Identifier{
+		{"a share class FIGI", "", []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}}, false},
+		{"an ISIN and a venue-qualified ticker", "", []identifier.Identifier{
 			{Type: "ISIN", Value: "US0378331005"},
 			{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
 		}, true},
-		{"an ISIN and a bare ticker", []identifier.Identifier{
+		{"an ISIN and a bare ticker", "", []identifier.Identifier{
 			{Type: "ISIN", Value: "US0378331005"},
 			{Type: "MIC_TICKER", Value: "AAPL"},
 		}, false},
+
+		// The two halves of a line stated apart. adr/0068 makes the currency the
+		// other half of what a security-level name left open, which is the common
+		// broker case and the one adr/0058 was rewritten around.
+		{"an ISIN and a trading currency", "USD", []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}, true},
+		{"a CUSIP and a trading currency", "USD", []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}}, true},
+		// It names the class the lines belong to, which is a security, so a
+		// currency says which of its lines.
+		{"a share class FIGI and a trading currency", "GBP", []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}}, true},
+		// A currency completes a name that reached the security and nothing else.
+		// A bare ticker reached neither -- tickers are reused across venues -- so
+		// USD beside it names the line of no particular security, which is the
+		// choice this stage exists to make.
+		{"a bare ticker and a trading currency", "USD", []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, false},
+		// Not injective, so a currency beside it says which line of neither.
+		{"a broker description and a trading currency", "USD", []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "SRC", Value: "APPLE INC"}}, false},
+		// The currency is never the whole answer: with nothing naming a security
+		// there is no security whose line it could be.
+		{"a trading currency alone", "USD", nil, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := statedIdentityComplete(c.stated); got != c.want {
-				t.Errorf("statedIdentityComplete(%v) = %v, want %v", c.stated, got, c.want)
+			if got := statedIdentityComplete(c.stated, c.quotedIn); got != c.want {
+				t.Errorf("statedIdentityComplete(%v, %q) = %v, want %v", c.stated, c.quotedIn, got, c.want)
 			}
 		})
 	}

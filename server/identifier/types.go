@@ -98,8 +98,13 @@ type Venue struct {
 	Country string // ISO 3166 country code, when a market was named instead
 }
 
-// Known reports whether the provider said anything about where it trades.
-func (v Venue) Known() bool { return v.MIC != "" || v.Country != "" }
+// Named reports whether the provider said anything about where it trades, at
+// either precision. The type's own vocabulary: a provider names either a venue
+// or a market, and this is whether it named one of them.
+//
+// Not Known. identifier.Known is membership of the identifier type vocabulary,
+// which is an unrelated question asked in this same package.
+func (v Venue) Named() bool { return v.MIC != "" || v.Country != "" }
 
 // Permits reports whether mic is consistent with what this answer said.
 //
@@ -109,7 +114,7 @@ func (v Venue) Known() bool { return v.MIC != "" || v.Country != "" }
 // its country and may be nil, in which case a market-level answer can only be
 // checked against another answer's country.
 func (v Venue) Permits(mic string, countryOf func(string) string) bool {
-	if !v.Known() || mic == "" {
+	if !v.Named() || mic == "" {
 		return true
 	}
 	if v.MIC != "" {
@@ -128,6 +133,10 @@ func (v Venue) Permits(mic string, countryOf func(string) string) bool {
 // Agrees reports whether two answers can describe the same listing. Each is
 // checked against the other, so a market-level answer and a venue-level one are
 // compared at whichever precision they share.
+//
+// Two provider answers, and only those. Whether a source stated a venue an
+// answer landed on is identification.micAmongStated, which compares one MIC
+// against stated identifiers rather than two Venue values against each other.
 func (v Venue) Agrees(other Venue, countryOf func(string) string) bool {
 	if !v.Permits(other.MIC, countryOf) || !other.Permits(v.MIC, countryOf) {
 		return false

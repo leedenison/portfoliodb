@@ -4,6 +4,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"testing"
 )
 
@@ -40,10 +41,10 @@ func TestHintsFromTx_FlooredHintRoutesAsASecurity(t *testing.T) {
 	h := HintsFromTx(&apiv1.Tx{AssetClassHint: typev1.AssetClass_ASSET_CLASS_UNSPECIFIED})
 	cash := map[string]bool{identifier.SecurityTypeHintCash: true}
 	stocks := map[string]bool{identifier.SecurityTypeHintStock: true}
-	if identifier.ShouldAttemptPlugin(cash, h.SecurityTypeHint) {
+	if pluginutil.AcceptsSecurityType(cash, h.SecurityTypeHint) {
 		t.Error("a row nobody called cash reached a cash plugin")
 	}
-	if !identifier.ShouldAttemptPlugin(stocks, h.SecurityTypeHint) {
+	if !pluginutil.AcceptsSecurityType(stocks, h.SecurityTypeHint) {
 		t.Error("a row stating only that it is a security was refused a security plugin")
 	}
 }

@@ -200,7 +200,7 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 			if blocked[pe.id] {
 				continue
 			}
-			if !pluginutil.PluginAccepts(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst) {
+			if !pluginutil.Accepts(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst) {
 				continue
 			}
 			// Both grains, for the reason the price fetcher gives: an events

@@ -63,7 +63,7 @@ func newPriceGaps(ctx context.Context, tel db.TelemetryDB, runID string,
 		// prices reads by security, so both are recorded.
 		//
 		// The currency and the venues are the line's own, because they are what
-		// PluginAcceptsListing compares and this row exists to explain that
+		// AcceptsListing compares and this row exists to explain that
 		// comparison. The venue set is joined rather than reduced to one: a
 		// plugin carrying any of them accepts the line, so any one of them alone
 		// would misreport the decision.

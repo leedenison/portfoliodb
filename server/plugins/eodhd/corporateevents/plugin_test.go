@@ -181,7 +181,7 @@ func TestParseSplit_BadFormat(t *testing.T) {
 	}
 }
 
-func TestPluginAcceptsAssetClasses(t *testing.T) {
+func TestAcceptableAssetClasses(t *testing.T) {
 	p := NewPlugin(nil, nil, nil)
 	ac := p.AcceptableAssetClasses()
 	if !ac[db.AssetClassStock] || !ac[db.AssetClassETF] {

@@ -181,6 +181,10 @@ func Props(t string) (TypeProps, bool) {
 // Known reports whether a type is in the controlled vocabulary. Candidate
 // plugins must return hints whose Type is one of these; anything else is
 // discarded.
+//
+// A question about an identifier type, and the only one in this package
+// spelled this way. Venue.Named asks whether a provider said where a security
+// trades, which is the question a reader might expect this name to answer.
 func Known(t string) bool {
 	_, ok := idTypes[t]
 	return ok

@@ -11,6 +11,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/identifier"
 	candpkg "github.com/leedenison/portfoliodb/server/identifier/candidate"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 )
 
 func TestIsOpenAIModelNotFound(t *testing.T) {
@@ -163,13 +164,13 @@ func TestPlugin_AcceptableSecurityTypes_ReachesEveryShareholding(t *testing.T) {
 		identifier.SecurityTypeHintMutualFund,
 		identifier.SecurityTypeHintEquity,
 	} {
-		if !identifier.ShouldAttemptPlugin(types, c) {
+		if !pluginutil.AcceptsSecurityType(types, c) {
 			t.Errorf("a row stating %s does not reach the OpenAI plugin", c)
 		}
 	}
 	// And the set reaches no further across the tree: cash belongs to the cash
 	// plugin.
-	if identifier.ShouldAttemptPlugin(types, identifier.SecurityTypeHintCash) {
+	if pluginutil.AcceptsSecurityType(types, identifier.SecurityTypeHintCash) {
 		t.Error("a cash row reached the OpenAI plugin")
 	}
 }

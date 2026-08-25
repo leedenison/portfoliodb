@@ -38,12 +38,18 @@ type ingestDeps struct {
 	Telemetry db.TelemetryDB
 	RunID     string
 	// RunKind is what kind of import this batch belongs to, and it decides more
-	// than how the run is filed: see completesPartialIdentity.
+	// than how the run is filed: see mayPayForCompletion.
 	RunKind string
 }
 
-// completesPartialIdentity reports whether this batch may pay a candidate plugin
+// mayPayForCompletion reports whether this batch may pay a candidate plugin
 // to fill a gap in an identity its source only partly stated.
+//
+// A question about the run and not about the identity, which is what separates
+// it from identityComplete beside it at the call site: that one reads the
+// stated identifiers and asks whether they already pick out a listing, this one
+// reads nothing but RunKind. A batch can fail either and the two are recorded
+// apart.
 //
 // Only a broker upload may. An archive names one identifier per posting, chosen
 // out of an identity the exporting instance had already resolved -- a pointer to
@@ -55,7 +61,7 @@ type ingestDeps struct {
 // This bounds completion, not the stage: a posting an archive names no
 // identifier for is one the exporting instance never resolved either, and it
 // reaches the candidate plugins on its description exactly as it always has.
-func (d ingestDeps) completesPartialIdentity() bool {
+func (d ingestDeps) mayPayForCompletion() bool {
 	return d.RunKind == db.TelemetryRunTxImport
 }
 

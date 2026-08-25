@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/candidate"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 	"log/slog"
 	"slices"
@@ -230,7 +231,7 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 			if resolved[item.ID] {
 				continue
 			}
-			if identifier.ShouldAttemptPlugin(acceptableTypes, item.Hints.SecurityTypeHint) {
+			if pluginutil.AcceptsSecurityType(acceptableTypes, item.Hints.SecurityTypeHint) {
 				filtered = append(filtered, item)
 				attempted[item.ID] = true
 			}

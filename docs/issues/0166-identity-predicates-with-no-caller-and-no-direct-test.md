@@ -14,7 +14,7 @@ and has no default, because a chain drawn through a user-owned association would
 merge instance-global rows on one unauthenticated file -- and the only thing
 exercising that today is its unit test.
 
-`identifier.Venue.Known` is exported with one caller, `Permits`, in its own file.
+`identifier.Venue.Named` is exported with one caller, `Permits`, in its own file.
 `identifier.Venue.Agrees` is exported with one caller.
 
 `identifier.CorroboratesSecurity` has no direct unit test. `idtype_test.go`

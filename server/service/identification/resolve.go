@@ -866,7 +866,7 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 	// MIC_TICKER names has answered about a different line, and a guess must not
 	// promote it.
 	if r.inst.Listing.Venue.MIC != "" && micStated(identifierHints) {
-		return venueAgrees(ctx, normalizeMIC, r.inst.Listing.Venue.MIC, identifierHints)
+		return micAmongStated(ctx, normalizeMIC, r.inst.Listing.Venue.MIC, identifierHints)
 	}
 	// At least one hint field must have been compared (both sides non-empty).
 	if hints.Currency != "" && r.inst.Listing.Currency != "" {
@@ -950,7 +950,8 @@ func holdsCurrency(currencies []string, stated string) bool {
 }
 
 // micStated reports whether any of these identifiers named a venue that can be
-// compared against a MIC, which is the only comparison venueAgrees below makes.
+// compared against a MIC, which is the only comparison micAmongStated below
+// makes.
 //
 // So a MIC_TICKER carrying its domain and nothing else: an OPENFIGI_TICKER's
 // domain is a composite exchange code, which names a market rather than a
@@ -963,7 +964,7 @@ func holdsCurrency(currencies []string, stated string) bool {
 //     where this does not.
 //   - pluginutil.anyLineHasVenue asks it of a stored row, where a venue is a
 //     MIC on a line rather than the domain of a name.
-//   - identifier.Venue.Known asks it of a provider's answer, which may name a
+//   - identifier.Venue.Named asks it of a provider's answer, which may name a
 //     market instead and says so in a field of its own.
 func micStated(idns []identifier.Identifier) bool {
 	for _, h := range idns {
@@ -974,14 +975,21 @@ func micStated(idns []identifier.Identifier) bool {
 	return false
 }
 
-// venueAgrees reports whether mic is one of the venues these identifiers named.
+// micAmongStated reports whether mic is one of the venues these identifiers
+// named. It is micStated's second half: that one asks whether a source named a
+// venue at all, this one whether it named this venue.
 //
 // Every one of them is consulted, not just the first: a source that named two
 // listings has said the security trades on both, and an answer landing on either
 // agrees with it. Stopping at the first would turn the order they arrived in into
 // a verdict. Both sides are normalised to operating MICs, so a segment MIC and
 // the operating MIC it belongs to are the same venue.
-func venueAgrees(ctx context.Context, normalizeMIC MICNormalizer, mic string, idns []identifier.Identifier) bool {
+//
+// Not identifier.Venue.Agrees, which this used to be spelled like. That
+// compares two provider answers to each other, symmetrically and at whichever
+// precision the two share; this compares one MIC against what a source stated,
+// and a source states identifiers rather than a Venue.
+func micAmongStated(ctx context.Context, normalizeMIC MICNormalizer, mic string, idns []identifier.Identifier) bool {
 	want := normalizeMICValue(ctx, normalizeMIC, mic)
 	for _, h := range idns {
 		if h.Type != "MIC_TICKER" || h.Domain == "" {
@@ -1042,7 +1050,7 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 	// which is not a finding. Empty where the database answered on its own: it
 	// returns no venue, so there was nothing to check. See
 	// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
-	if inst.Listing.Venue.MIC != "" && venueAgrees(ctx, normalizeMIC, inst.Listing.Venue.MIC, stated) {
+	if inst.Listing.Venue.MIC != "" && micAmongStated(ctx, normalizeMIC, inst.Listing.Venue.MIC, stated) {
 		out = append(out, "Exchange")
 	}
 	// Corroboration is on the whole triple. A stated ticker is confirmed by a
@@ -1232,7 +1240,7 @@ func ResolveWithPlugins(
 		if p == nil {
 			continue
 		}
-		if !identifier.ShouldAttemptPlugin(p.AcceptableSecurityTypes(), hints.SecurityTypeHint) {
+		if !pluginutil.AcceptsSecurityType(p.AcceptableSecurityTypes(), hints.SecurityTypeHint) {
 			continue
 		}
 		inputs = append(inputs, pluginInput{config: c, plugin: p})

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -2173,5 +2174,79 @@ func TestIdentifierJoins_PickPerGrain(t *testing.T) {
 	}
 	if ref.Type != "ISIN" {
 		t.Fatalf("listing join on a line with no ticker = %s %s, want the security's ISIN", ref.Type, ref.Value)
+	}
+}
+
+// db.Identified reads a loaded row and holdsNoCanonicalIdentifier asks the same
+// question in SQL, because the resolution path reaches it holding a UUID and
+// nothing else. Neither can call the other, so this is what holds them in step.
+// It walks every grain a canonical name can live at, because the grains are what
+// the two implementations have to agree about.
+func TestIdentifiedMatchesTheStore(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	desc := db.IdentifierInput{
+		Ref:       db.InstrumentRef{Type: "IBKR:statement", Value: "ACME CORP"},
+		Canonical: false,
+	}
+	cases := []struct {
+		name string
+		ids  []db.IdentifierInput
+		want bool
+	}{
+		{
+			name: "a broker description alone is not an identity",
+			ids:  []db.IdentifierInput{desc},
+			want: false,
+		},
+		{
+			name: "a security-grain name identifies",
+			ids: []db.IdentifierInput{desc, {
+				Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000001"},
+				Canonical: true,
+			}},
+			want: true,
+		},
+		{
+			// The grain reading the security's own list alone would miss: a
+			// SEDOL names one currency line and is stored against it.
+			name: "a listing-grain name identifies",
+			ids: []db.IdentifierInput{desc, {
+				Ref:       db.InstrumentRef{Type: "SEDOL", Value: "0000001"},
+				Canonical: true,
+			}},
+			want: true,
+		},
+	}
+	for i, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ids := make([]db.IdentifierInput, len(c.ids))
+			copy(ids, c.ids)
+			// Distinct values per case: the identifier triple is unique across
+			// the instance, so two cases sharing one would be one instrument.
+			for j := range ids {
+				ids[j].Ref.Value = fmt.Sprintf("%s-%d", ids[j].Ref.Value, i)
+			}
+			instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", ids, nil, "", nil)
+			if err != nil {
+				t.Fatalf("ensure instrument: %v", err)
+			}
+			row, err := p.GetInstrument(ctx, instID)
+			if err != nil {
+				t.Fatalf("get instrument: %v", err)
+			}
+			got := db.Identified(row)
+			if got != c.want {
+				t.Errorf("db.Identified = %v, want %v", got, c.want)
+			}
+			descOnly, err := holdsNoCanonicalIdentifier(ctx, p.q, uuid.MustParse(instID))
+			if err != nil {
+				t.Fatalf("holdsNoCanonicalIdentifier: %v", err)
+			}
+			if descOnly == got {
+				t.Errorf("holdsNoCanonicalIdentifier = %v and db.Identified = %v; the SQL and the Go rule disagree", descOnly, got)
+			}
+		})
 	}
 }

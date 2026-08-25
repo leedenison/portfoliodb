@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: The instrument predicates state one rule in several places
 milestone: M25
 ---
@@ -42,3 +42,37 @@ Equivalent today, with nothing keeping them so.
 
 Reduce each of these to one definition. The `listingFor` pair is the one with a
 behavioural difference to settle first.
+
+## Outcome
+
+Each rule now has one definition, and one of the copies turned out to be a bug.
+
+**`db.LineFor`** is the line-naming rule: a stated currency names the line in its
+family, no currency stated names the sole line, and each rung refuses rather than
+reaching past itself. The ingestion copy and its two helpers are gone, and the
+postgres one loads the security's lines and asks it -- one query where the rungs
+used to take two.
+
+The two implementations had disagreed about a stated currency matching no line,
+and the ingestion one was wrong: it fell through to the sole line, placing a
+posting that stated GBP on a security's only line when that line was USD. What
+made it survive is that the case was tested with two listings, where the rung it
+falls through to cannot fire either, so the test passed under both behaviours.
+docs/spec/postings.md already said a posting naming a currency its security has
+no line for names no line; adr/0072 described the ladder without the guard, and
+now states it.
+
+**`currency.Same`** is the only currency comparison in the Go code.
+`identification.sameCurrency` is gone. The SQL `currency_family` stays a separate
+implementation for the reason it always was -- an index expression must be
+IMMUTABLE -- and its lockstep test is unchanged.
+
+**`db.IsDerivative`** is the only statement of which asset classes require an
+underlying line. The four sites call it, converting from the proto enum or a
+provider vocabulary first where that is what they hold.
+
+**`db.Identified`** is the only statement of what identified means, and the API
+carries it as a derived field. The client's copy is gone. The store still asks
+the question in SQL, because the resolution path reaches it holding a UUID and no
+row; `TestIdentifiedMatchesTheStore` holds the two in step, in the pattern the
+currency family test follows.

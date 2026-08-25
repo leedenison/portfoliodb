@@ -42,12 +42,10 @@ const USComposite = "US"
 // UnderlyingSecTypeHint returns the inferred security type for a derivative's
 // underlying. Returns "" if the asset class is not a derivative.
 func UnderlyingSecTypeHint(derivativeAssetClass string) string {
-	switch derivativeAssetClass {
-	case db.AssetClassOption, db.AssetClassFuture:
-		return SecurityTypeHintStock
-	default:
+	if !db.IsDerivative(derivativeAssetClass) {
 		return ""
 	}
+	return SecurityTypeHintStock
 }
 
 // ShouldAttemptPlugin returns whether a plugin should be tried given the

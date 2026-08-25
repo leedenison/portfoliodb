@@ -37,9 +37,20 @@ func TestResolveListings(t *testing.T) {
 			// Nothing mints: a broker states a currency to say what its figures
 			// are in, and a line the security does not have is not evidence it
 			// trades in one.
-			name:     "a stated currency the security has no line in falls through",
+			name:     "a stated currency the security has no line in names none",
 			tx:       &apiv1.Tx{TradingCurrency: "EUR"},
 			listings: []*db.Listing{listing("gbp", "GBP"), listing("usd", "USD")},
+			want:     "",
+		},
+		{
+			// The case above with one line rather than two, which is the one
+			// that discriminates: a stated currency that matches nothing does
+			// not fall through to the sole-line rung. Reaching it would place a
+			// posting stating EUR on a USD line -- an FX rate nobody stated,
+			// arrived at because there was only one candidate to guess at.
+			name:     "a stated currency matching no line does not fall through to the sole line",
+			tx:       &apiv1.Tx{TradingCurrency: "EUR"},
+			listings: []*db.Listing{listing("usd", "USD")},
 			want:     "",
 		},
 		{

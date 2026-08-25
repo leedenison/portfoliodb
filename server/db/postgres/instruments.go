@@ -1400,6 +1400,12 @@ func nilUUIDToString(id uuid.UUID) string {
 // ticker-only instrument answering true here would be completed in place by the
 // next resolution that matched its description, which is a write adr/0004
 // reserves for an instrument that has no identity at all.
+//
+// It is the negation of [db.Identified], asked in SQL because this runs where no
+// row has been loaded -- the resolution path holds a UUID and nothing else. The
+// two are held in lockstep by TestIdentifiedMatchesTheStore rather than by one
+// calling the other, in the pattern currency.Family and the SQL currency_family
+// follow.
 func holdsNoCanonicalIdentifier(ctx context.Context, exec queryable, id uuid.UUID) (bool, error) {
 	var exists bool
 	err := exec.QueryRowContext(ctx, `

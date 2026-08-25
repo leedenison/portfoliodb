@@ -67,36 +67,43 @@ message Instrument {
   // The currency lines this security trades in. Empty where nobody has named one:
   // a line carries a currency or does not exist, so a security nothing has stated
   // a currency for holds none.
-  repeated Listing listings = 6;
+  // Whether a canonical name identifies this security, at any of the three
+  // grains above. Derived rather than stored, and sent because it is the
+  // server's question to answer: canonical = false marks a broker description
+  // and nothing else, so a client computing this itself would be keeping a
+  // second copy of a rule the server already applies when deciding whether an
+  // instrument may be completed in place.
+  bool identified = 6;
+  repeated Listing listings = 7;
   // The line an OPTION or FUTURE delivers. A contract's strike is a price and a
   // price is in a currency, so the deliverable is one currency line of the
   // underlying security. Set for every derivative; empty otherwise. See
   // docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
-  string underlying_listing_id = 7;
+  string underlying_listing_id = 8;
   // The security that line belongs to, derived rather than stored. It is what
   // `underlying` below carries, and what a caller naming an underlying without
   // caring which of its lines is asking for.
-  string underlying_id = 8;
+  string underlying_id = 9;
   // The underlying security, populated in ListTxs/GetHoldings so clients need
   // not fetch separately. The security rather than the line: which line the
   // contract delivers is underlying_listing_id above, and a surface showing the
   // deliverable names that line among the listings this message carries.
-  Instrument underlying = 9;
-  string cik = 10;  // SEC Central Index Key (optional).
-  string sic_code = 11; // SIC industry classification code (optional).
+  Instrument underlying = 10;
+  string cik = 11;  // SEC Central Index Key (optional).
+  string sic_code = 12; // SIC industry classification code (optional).
   // Option fields (denormalized from OCC identifier).
   // strike is a component of option identity, decoded from the OCC symbol's
   // eight digits of thousandths, so it is an exact decimal string rather than a
   // double: comparing identity components as floats is a latent bug. Optional
   // rather than sentinel-zero, because a non-option has no strike and
   // an instrument import would otherwise have to send one.
-  optional string strike = 12 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  string expiry = 13;   // YYYY-MM-DD expiry date; empty for non-options.
-  string put_call = 14; // "C" or "P"; empty for non-options.
+  optional string strike = 13 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string expiry = 14;   // YYYY-MM-DD expiry date; empty for non-options.
+  string put_call = 15; // "C" or "P"; empty for non-options.
   // Deliverable multiplier as a decimal string; unset means the column default
   // of 1. A non-standard split leaves a fraction here (3:2 gives 1.5), and it
   // multiplies a posting's weight, so it stays exact.
-  optional string contract_multiplier = 15 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string contract_multiplier = 16 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
 }
 
 // Listing is one currency a security trades in. Currency and exchange are facts

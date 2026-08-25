@@ -89,12 +89,6 @@ type ResolvedInstrument struct {
 	Currencies []string
 }
 
-// isDerivativeClass reports whether an asset class is one the schema requires an
-// underlying line for.
-func isDerivativeClass(assetClass string) bool {
-	return assetClass == db.AssetClassOption || assetClass == db.AssetClassFuture
-}
-
 // identifierTypesOf is the type of each identifier, for the vocabulary-level
 // questions that do not care what any one of them spells.
 func identifierTypesOf(ids []identifier.Identifier) []string {
@@ -548,7 +542,7 @@ type mismatch struct{ field, winner, other string }
 func lineMismatch(ctx context.Context, normalizeMIC MICNormalizer, countryOf MICCountry, winner, other *identifier.Instrument) *mismatch {
 	wc, oc := winner.Listing.Currency, other.Listing.Currency
 	if wc != "" && oc != "" {
-		if !sameCurrency(wc, oc) {
+		if !currency.Same(wc, oc) {
 			return &mismatch{"Currency", wc, oc}
 		}
 		return nil
@@ -807,7 +801,7 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 
 	// Currency.
 	if hints.Currency != "" && inst.Listing.Currency != "" &&
-		!sameCurrency(hints.Currency, inst.Listing.Currency) {
+		!currency.Same(hints.Currency, inst.Listing.Currency) {
 		diffs = append(diffs, identifier.HintDiff{Field: "Currency", HintValue: hints.Currency, ResolvedValue: inst.Listing.Currency})
 	}
 
@@ -949,23 +943,11 @@ func ConfirmedDBFields(hints identifier.Hints, r ResolvedInstrument) []string {
 	return out
 }
 
-// sameCurrency reports whether two codes name one line's currency.
-//
-// On family and not on the code: GBX is GBP under a different unit prefix, so a
-// line quoted in one is the line the other names and a security never holds
-// both (adr/0068). Every currency comparison in this package goes through here,
-// because a rule about what makes two lines cannot hold in one place and not
-// another -- a source stating GBX would then contradict on the plugin path what
-// it corroborates on the database path.
-func sameCurrency(a, b string) bool {
-	return currency.Family(strings.ToUpper(a)) == currency.Family(strings.ToUpper(b))
-}
-
 // holdsCurrency reports whether one of these lines is quoted in the currency
 // stated.
 func holdsCurrency(currencies []string, stated string) bool {
 	for _, c := range currencies {
-		if sameCurrency(c, stated) {
+		if currency.Same(c, stated) {
 			return true
 		}
 	}
@@ -1033,7 +1015,7 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 	// That is what makes it a real test of a guessed ticker: the currency comes
 	// off the transaction, not off the guess, so a ticker naming the wrong company
 	// only survives if that company also trades in the currency the source stated.
-	if hints.Currency != "" && inst.Listing.Currency != "" && sameCurrency(hints.Currency, inst.Listing.Currency) {
+	if hints.Currency != "" && inst.Listing.Currency != "" && currency.Same(hints.Currency, inst.Listing.Currency) {
 		out = append(out, "Currency")
 	}
 	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
@@ -1109,7 +1091,7 @@ func proposalOutcome(ctx context.Context, p identifier.Identifier, inst *identif
 		switch {
 		case inst.Listing.Currency == "":
 			return db.TelemetryCandidateFieldUntested
-		case sameCurrency(inst.Listing.Currency, p.Value):
+		case currency.Same(inst.Listing.Currency, p.Value):
 			return db.TelemetryCandidateFieldConfirmed
 		default:
 			return db.TelemetryCandidateFieldContradicted
@@ -1597,7 +1579,7 @@ func ResolveWithPlugins(
 		// identity nobody corroborated is dropped as a guess before this asks
 		// what it delivers, and it has no authority to mint a line either. See
 		// adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
-		if isDerivativeClass(inst.AssetClass) && underlyingListingID == "" && fallback != nil {
+		if db.IsDerivative(inst.AssetClass) && underlyingListingID == "" && fallback != nil {
 			l.InfoContext(ctx, "instrument resolution: contract declares no strike currency, using broker description only",
 				"source", source, "instrument_description", instrumentDescription,
 				"asset_class", inst.AssetClass, "resolved", instrumentSummary(inst))

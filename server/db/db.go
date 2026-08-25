@@ -1245,6 +1245,19 @@ func IsAssetClassCompatible(implied, resolved string) bool {
 	return assetClassEquivalents[[2]string{implied, resolved}]
 }
 
+// IsDerivative reports whether an asset class is one the schema requires an
+// underlying line for, and is the only statement of which classes those are.
+//
+// A contract's strike is a price and a price is in a currency, so an OPTION or a
+// FUTURE delivers one currency line of its underlying rather than the security
+// above it. Callers holding the proto enum or a provider's own vocabulary
+// convert to the stored spelling first: the classes are what this is about, and
+// a second copy keyed on a second representation is how the two come to disagree.
+// See docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+func IsDerivative(assetClass string) bool {
+	return assetClass == AssetClassOption || assetClass == AssetClassFuture
+}
+
 // InstrumentKind constants. Coarser than asset class; used as a first-pass
 // filter to separate cash from securities during plugin routing.
 const (
@@ -1304,6 +1317,43 @@ type InstrumentRow struct {
 	// above is what names a listing in a file. Populated by the same query and
 	// empty everywhere else.
 	UnderlyingCurrency string
+}
+
+// Identified reports whether a canonical name identifies this security, and is
+// the only statement of what "identified" means.
+//
+// A canonical name at any of the three grains counts. A SEDOL and a composite
+// FIGI name one currency line and live on it, and a listing-grain name nobody
+// could place lives on neither, so reading the security's own list alone would
+// report a security known only by those as unidentified.
+//
+// canonical = false marks a broker description and nothing else, so the absence
+// of a canonical name at every grain is the stored form of
+// broker-description-only. The store asks the same question in SQL, at a point
+// where no row has been loaded; the two are held together by a test rather than
+// by one calling the other.
+func Identified(row *InstrumentRow) bool {
+	if row == nil {
+		return false
+	}
+	for _, idn := range row.Identifiers {
+		if idn.Canonical {
+			return true
+		}
+	}
+	for _, idn := range row.UnplacedIdentifiers {
+		if idn.Canonical {
+			return true
+		}
+	}
+	for _, l := range row.Listings {
+		for _, idn := range l.Identifiers {
+			if idn.Canonical {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Listing is one currency a security trades in. Currency and exchange are facts

@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -28,7 +27,7 @@ import (
 // including the code it is quoted in. GBX does not become GBP.
 func ensureListing(ctx context.Context, exec queryable, instrumentID uuid.UUID, currency string) (uuid.UUID, error) {
 	if currency == "" {
-		return soleListing(ctx, exec, instrumentID)
+		return listingFor(ctx, exec, instrumentID, "")
 	}
 	// ON CONFLICT names the unique index by restating its expression, so a
 	// security already quoted in this family is a no-op rather than an error --
@@ -114,59 +113,31 @@ func claimForLine(ctx context.Context, exec queryable, instrumentID, listingID u
 
 // listingFor reads the line a currency names, writing nothing.
 //
-// uuid.Nil means there is no answer to give: the security has no line in that
-// currency family, or no currency was stated and it has more than one line. A
-// caller that needs the line to exist follows this with ensureListing; one that
-// only needs to know which line was named -- which is every match on an
+// The rule is [db.LineFor] and is not restated here: this loads the security's
+// lines and asks it. One query rather than the two the rungs used to take, and
+// the same query whether or not a currency was stated -- a security has a
+// handful of lines, so reading them all and matching in Go costs what reading
+// one of them cost.
+//
+// uuid.Nil means there is no answer to give, which LineFor's two rungs spell
+// out. A caller that needs the line to exist follows this with ensureListing;
+// one that only needs to know which line was named -- which is every match on an
 // instrument that already exists -- is spared the write and the transaction
 // around it, and that is the whole of a bulk import's hot path.
 func listingFor(ctx context.Context, exec queryable, instrumentID uuid.UUID, currency string) (uuid.UUID, error) {
-	if currency == "" {
-		return soleListing(ctx, exec, instrumentID)
+	listings, err := queryListings(ctx, exec, []uuid.UUID{instrumentID})
+	if err != nil {
+		return uuid.Nil, err
 	}
-	// The family, not the code: a line stored in GBX is the line GBP names.
-	var id uuid.UUID
-	err := exec.QueryRowContext(ctx, `
-		SELECT id FROM instrument_listings
-		WHERE instrument_id = $1 AND currency_family(currency) = currency_family($2)
-	`, instrumentID, currency).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
+	id := db.LineFor(listings, currency)
+	if id == "" {
 		return uuid.Nil, nil
 	}
+	parsed, err := uuid.Parse(id)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("read listing %s: %w", currency, err)
 	}
-	return id, nil
-}
-
-// soleListing returns the security's only listing, or uuid.Nil where it has none
-// or several. A caller reaching this stated no currency, so it has named no line,
-// and the answer is only unambiguous while there is one line to name.
-func soleListing(ctx context.Context, exec queryable, instrumentID uuid.UUID) (uuid.UUID, error) {
-	rows, err := exec.QueryContext(ctx, `
-		SELECT id FROM instrument_listings WHERE instrument_id = $1 LIMIT 2
-	`, instrumentID)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("read listings: %w", err)
-	}
-	defer rows.Close()
-	var id uuid.UUID
-	n := 0
-	for rows.Next() {
-		var next uuid.UUID
-		if err := rows.Scan(&next); err != nil {
-			return uuid.Nil, fmt.Errorf("scan listing: %w", err)
-		}
-		n++
-		id = next
-	}
-	if err := rows.Err(); err != nil {
-		return uuid.Nil, err
-	}
-	if n != 1 {
-		return uuid.Nil, nil
-	}
-	return id, nil
+	return parsed, nil
 }
 
 // requireListing rejects a listing that no strike could be read against, which is
@@ -317,7 +288,8 @@ func (p *Postgres) FindListing(ctx context.Context, instrumentID, currency strin
 
 // SoleListing implements db.ListingDB.
 //
-// A security quoted in two currencies has no sole line, and neither has one
+// It is listingFor with no currency stated, which is the rung that answers this:
+// a security quoted in two currencies has no sole line, and neither has one
 // nobody has named a line for. Both are cases where nothing has said which line,
 // and picking one would value a holding at an FX rate nobody stated.
 func (p *Postgres) SoleListing(ctx context.Context, instrumentID string) (string, error) {
@@ -325,20 +297,11 @@ func (p *Postgres) SoleListing(ctx context.Context, instrumentID string) (string
 	if err != nil {
 		return "", fmt.Errorf("sole listing: invalid instrument id %q: %w", instrumentID, err)
 	}
-	var listingID uuid.UUID
-	err = p.q.QueryRowContext(ctx, `
-		SELECT l.id FROM instrument_listings l
-		WHERE l.instrument_id = $1
-		  AND NOT EXISTS (SELECT 1 FROM instrument_listings o
-		                  WHERE o.instrument_id = $1 AND o.id <> l.id)
-	`, id).Scan(&listingID)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
+	listingID, err := listingFor(ctx, p.q, id, "")
 	if err != nil {
 		return "", fmt.Errorf("sole listing: %w", err)
 	}
-	return listingID.String(), nil
+	return nilUUIDToString(listingID), nil
 }
 
 // EnsureListing implements db.ListingDB.

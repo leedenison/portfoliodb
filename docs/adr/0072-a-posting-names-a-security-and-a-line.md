@@ -66,14 +66,22 @@ residuals into the same group, which `transfer_matches` can never pair.
 
 ## Naming the line
 
-A posting's line is settled at ingest, from what is already in hand: the stated
-`trading_currency`, then the line identification itself named, then the security's
-sole line where it has exactly one with a currency, then none. Every rung reads
-what the security already has; none mints a line, because a broker states a
-currency to say what its own figures are in, and a security is quoted in a
-currency whether or not anyone traded it. Lines come into existence when a
-provider or a listing-grain identifier asserts one
+A posting's line is settled at ingest, from what is already in hand: the line
+identification itself named, then the stated `trading_currency`, then -- where
+nothing stated one -- the security's sole line where it has exactly one with a
+currency, then none. Every rung reads what the security already has; none mints a
+line, because a broker states a currency to say what its own figures are in, and
+a security is quoted in a currency whether or not anyone traded it. Lines come
+into existence when a provider or a listing-grain identifier asserts one
 ([0069](0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md)).
+
+The sole-line rung is reached only where nothing stated a currency, and not where
+a stated one matched no line. Those are different states: the first is silence,
+which the security having one line answers, and the second is a disagreement,
+which it does not. Falling through would place a posting that stated GBP on a
+security's only line because that line was the only candidate -- a currency nobody
+stated, and an FX rate nobody stated, arrived at by guessing where there was
+exactly one guess available.
 
 `settlement_currency` is not a rung. It is what the record settled in, which for
 every source the repository reads is the account's own currency, so on a security

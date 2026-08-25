@@ -360,12 +360,14 @@ func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentID
 // only the description is in descOnly, and none is queried twice.
 //
 // What reaches the plugins is the key whose identity is incomplete rather than
-// the key that stated nothing. A source that named a venue has said the last
-// thing that changes which listing resolution lands on, and is left alone; a
-// source that stated an ISIN and no venue has left the choice among that
-// security's listings open, and is exactly what the stage exists to close. See
-// statedIdentityComplete for where the line falls, and mayPayForCompletion for
-// why only a broker upload is offered it.
+// the key that stated nothing. A source that named the line has said the last
+// thing that changes where resolution lands, and is left alone -- by a ticker
+// carrying its MIC, or by an ISIN and the currency the security is quoted in,
+// which are the two halves of one line. A source that stated an ISIN and no
+// currency has left the choice among that security's listings open, and is
+// exactly what the stage exists to close. See statedIdentityComplete for where
+// the line falls, and mayPayForCompletion for why only a broker upload is
+// offered it.
 //
 // The returned outcome map is at key grain, and is stage one of each key's
 // resolution record.
@@ -464,7 +466,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 				outcome[key] = db.TelemetryCandidateNotAttemptedRunKind
 				continue
 			}
-			if statedIdentityComplete(txHints[i]) {
+			if statedIdentityComplete(txHints[i], quotedIn(tx)) {
 				outcome[key] = db.TelemetryCandidateNotAttemptedIdentityComplete
 				continue
 			}

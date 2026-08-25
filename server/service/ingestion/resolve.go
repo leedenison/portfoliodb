@@ -106,19 +106,34 @@ func cacheKeyWithHints(source, instrumentDescription string, hints []identifier.
 // statedIdentityComplete reports whether what a source stated already picks out
 // one listing, so that a candidate plugin has nothing left to offer.
 //
-// identifier.ReachesOneLine asked of a set: one identifier that names a line has
-// named it, whatever else was stated alongside. Which types do, and why an OCC
-// does where an ISIN does not, is the Lines property of the type and is not
-// restated here -- a type added to the vocabulary is answered by this the day it
-// is added.
+// Two ways to have picked one out, because a line is a security and a currency
+// (adr/0068). A name that reaches one line on its own has done it, and one such
+// name is enough whatever else was stated alongside. Otherwise the source may
+// have supplied the halves separately: a name that reached the security and left
+// only the line open, and quotedIn saying which line.
+//
+// A currency is not enough by itself, which is narrower than adr/0068 reads
+// where it says this stage narrows to sources stating no currency at all. A
+// currency names one line of a security somebody named; beside a bare ticker it
+// names the line of no particular security, tickers being reused across venues,
+// and choosing among those is what adr/0058 built this stage for. So a currency
+// completes a name that had already reached the security, and completes nothing
+// else.
+//
+// Which types do which is the Lines property of the type and is not restated
+// here -- a type added to the vocabulary is answered by this the day it is
+// added.
 //
 // A question about the identity, which is what separates it from
 // mayPayForCompletion beside it at the call site: that one reads nothing but
 // RunKind. A batch can fail either and the two are recorded apart.
 //
 // See docs/adr/0058-candidate-plugins-complete-a-partial-identity.md.
-func statedIdentityComplete(stated []identifier.Identifier) bool {
-	return slices.ContainsFunc(stated, identifier.ReachesOneLine)
+func statedIdentityComplete(stated []identifier.Identifier, quotedIn string) bool {
+	if slices.ContainsFunc(stated, identifier.ReachesOneLine) {
+		return true
+	}
+	return quotedIn != "" && slices.ContainsFunc(stated, identifier.NamesTheSecurity)
 }
 
 // shortHashForBatch returns a short stable id (first 8 hex chars of SHA256) for batch description extraction response matching.

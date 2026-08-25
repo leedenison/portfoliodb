@@ -130,11 +130,16 @@ const (
 	// LinesOne reaches one line, so a source stating one has said the last thing
 	// that changes where resolution lands.
 	LinesOne
-	// LinesMany reaches every line the security trades in, or names no security
-	// to count the lines of. The two are one member for the reason
-	// ReassignRoutine gives: a registry key that maps to every listing and a
-	// description that named nothing answer every rule here identically.
+	// LinesMany reaches every line the security trades in: the security is
+	// named and which of its lines is open. A stated currency closes exactly
+	// that gap, which is why this and LinesNone are two members. They answered
+	// every rule alike until a currency was allowed to complete an identity, and
+	// a rule now tells them apart.
 	LinesMany
+	// LinesNone names no security, so it has no lines to count and no currency
+	// completes it. A broker description is not injective -- two securities can
+	// wear one -- so a currency beside it says which line of neither.
+	LinesNone
 )
 
 // TypeProps are the declared properties of one identifier type.
@@ -234,9 +239,9 @@ var idTypes = map[string]TypeProps{
 	// domain is the source that wrote the text rather than a venue, so two
 	// sources describing one security are two names for it and not two listings.
 	// It states no security, so it leaves the identity as incomplete as it found
-	// it -- open on a wider question than a registry key rather than a narrower
-	// one, and no rule here distinguishes the two.
-	"BROKER_DESCRIPTION": {ScopeDescription, ReassignRoutine, GrainSecurity, DomainBeside, LinesMany},
+	// it, and a currency stated beside it completes nothing: it would name a
+	// line of whichever security the text turns out to mean.
+	"BROKER_DESCRIPTION": {ScopeDescription, ReassignRoutine, GrainSecurity, DomainBeside, LinesNone},
 
 	// ScopeBroker has no members yet. A broker's own contract identifier is the
 	// first, and it arrives with 0123, which declares its lines; its domain
@@ -309,6 +314,28 @@ func ReachesOneLine(id Identifier) bool {
 		return false
 	}
 	return p.Domain != DomainScopes || strings.TrimSpace(id.Domain) != ""
+}
+
+// NamesTheSecurity reports whether this identifier names the security it belongs
+// to and leaves only which of its lines open, so that a currency stated beside
+// it completes the identity.
+//
+// LinesMany exactly. A LinesOne value has already named the line and needs no
+// currency, or -- a bare MIC_TICKER -- has named neither the line nor the
+// security, tickers being reused across venues, and a currency beside it would
+// name the line of no particular security. A LinesNone value named no security
+// at all.
+//
+// The domain does not enter, though this takes an identifier so that it reads
+// beside ReachesOneLine at a call site that asks both. No LinesMany type has a
+// domain that scopes its value -- they are security-grain, and a security has no
+// line for a domain to pick out -- so there is nothing for a domain to decide.
+// idtype_test.go asserts it rather than leaving it to this comment.
+//
+// False for a type outside the vocabulary, for the reason NamesAListing gives.
+func NamesTheSecurity(id Identifier) bool {
+	p, ok := idTypes[id.Type]
+	return ok && p.Lines == LinesMany
 }
 
 // CorroboratesSecurity reports whether two results naming one value of this type

@@ -59,6 +59,12 @@ func TestPropsCoversProtoVocabulary(t *testing.T) {
 		if p.Grain == GrainListing && p.Lines != LinesOne {
 			t.Errorf("%s: listing grain but lines is not one", name)
 		}
+		// NamesTheSecurity reads Lines and ignores the domain, which is only
+		// sound while no LinesMany type has one that scopes its value. Asserted
+		// here rather than left to that function's comment.
+		if p.Lines == LinesMany && p.Domain == DomainScopes {
+			t.Errorf("%s: reaches many lines and has a domain that scopes the value", name)
+		}
 	}
 	for name := range idTypes {
 		if !seen[name] {
@@ -164,6 +170,38 @@ func TestReachesOneLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ReachesOneLine(tt.id); got != tt.want {
 				t.Errorf("ReachesOneLine(%v) = %v, want %v", tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
+// Which identifiers a stated currency can complete: the ones that reached the
+// security and left only the line open.
+func TestNamesTheSecurity(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		id   Identifier
+		want bool
+	}{
+		{"an ISIN", Identifier{Type: "ISIN", Value: "US0378331005"}, true},
+		{"a CUSIP", Identifier{Type: "CUSIP", Value: "037833100"}, true},
+		// The class the lines belong to is a security, so a currency says which
+		// of its lines.
+		{"a share class FIGI", Identifier{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}, true},
+		// Already at one line, so there is nothing for a currency to complete.
+		{"a SEDOL", Identifier{Type: "SEDOL", Value: "2046251"}, false},
+		{"a contract symbol", Identifier{Type: "OCC", Value: "AAPL  251219C00200000"}, false},
+		{"a ticker with its MIC", Identifier{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}, false},
+		// Reached neither the line nor the security: tickers are reused across
+		// venues, so a currency beside this names the line of no particular one.
+		{"a bare ticker", Identifier{Type: "MIC_TICKER", Value: "AAPL"}, false},
+		// Named no security at all, so it has no line for a currency to pick.
+		{"a broker description", Identifier{Type: "BROKER_DESCRIPTION", Domain: "SRC", Value: "APPLE INC"}, false},
+		{"a type outside the vocabulary", Identifier{Type: "CONID", Value: "265598"}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NamesTheSecurity(tt.id); got != tt.want {
+				t.Errorf("NamesTheSecurity(%v) = %v, want %v", tt.id, got, tt.want)
 			}
 		})
 	}

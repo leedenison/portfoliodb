@@ -254,3 +254,74 @@ func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
 		t.Errorf("got %d types, want 1 (STOCK only)", len(types))
 	}
 }
+
+// The Search API matches on the name as readily as on the code, so a search for
+// one symbol can answer with another company's listing. bestMatch takes it, and
+// nothing downstream asks whether the answer was about the symbol that was
+// asked for.
+func TestPlugin_Identify_ATickerQueryIsVerifiedAgainstTheResult(t *testing.T) {
+	searchResp := `[{"Code":"VODPF","Exchange":"US","Name":"Vodacom Group","Type":"Common Stock","Currency":"USD","ISIN":"ZAE000132577","isPrimary":true}]`
+
+	srv, httpClient := testServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(searchResp))
+	})
+	defer srv.Close()
+
+	p := NewPlugin(nil, httpClient, nil)
+	cfg := testConfig(t, srv.URL)
+
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "VOD"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}})
+
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Fatalf("err = %v, want ErrNotIdentified", err)
+	}
+	if res.Instrument != nil {
+		t.Errorf("Instrument = %+v, want nil: the search answered about another security", res.Instrument)
+	}
+}
+
+// The two sides spell the class separator differently -- the query carries
+// EODHD's dash and the provider wrote a dot -- and that is one symbol rather
+// than two.
+func TestPlugin_Identify_ATickerVerifiesAcrossSeparatorSpellings(t *testing.T) {
+	searchResp := `[{"Code":"BRK.B","Exchange":"US","Name":"Berkshire Hathaway","Type":"Common Stock","Currency":"USD","ISIN":"US0846707026","isPrimary":true}]`
+
+	srv, httpClient := testServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(searchResp))
+	})
+	defer srv.Close()
+
+	p := NewPlugin(nil, httpClient, nil)
+	cfg := testConfig(t, srv.URL)
+
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK-B"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Instrument == nil {
+		t.Fatal("expected an instrument: BRK-B and BRK.B are one symbol")
+	}
+}
+
+// The ISIN branch is what the ticker branch was modelled on, and it still holds.
+func TestPlugin_Identify_AnISINQueryIsVerifiedAgainstTheResult(t *testing.T) {
+	searchResp := `[{"Code":"AAPL","Exchange":"US","Name":"Apple Inc","Type":"Common Stock","Currency":"USD","ISIN":"US0378331005","isPrimary":true}]`
+
+	srv, httpClient := testServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(searchResp))
+	})
+	defer srv.Close()
+
+	p := NewPlugin(nil, httpClient, nil)
+	cfg := testConfig(t, srv.URL)
+
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "ISIN", Value: "GB00BH4HKS39"}}, Hints: identifier.Hints{}})
+
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Fatalf("err = %v, want ErrNotIdentified", err)
+	}
+	if res.Instrument != nil {
+		t.Errorf("Instrument = %+v, want nil", res.Instrument)
+	}
+}

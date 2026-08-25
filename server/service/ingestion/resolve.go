@@ -103,45 +103,22 @@ func cacheKeyWithHints(source, instrumentDescription string, hints []identifier.
 	return k
 }
 
-// identityComplete reports whether what a source stated already picks out one
-// listing, so that a candidate plugin has nothing left to offer.
+// statedIdentityComplete reports whether what a source stated already picks out
+// one listing, so that a candidate plugin has nothing left to offer.
 //
-// Completeness is about which listing, and about nothing else. A source that
-// named one has said the last thing that changes which instrument resolution
-// lands on: the currency, the ISIN and the rest all follow from the listing, and
-// an identifier plugin fills them in from its own data at no cost. A source that
-// did not has left a choice open that no amount of provider lookup closes --
-// a bare ticker maps to every listing of that symbol in the world, and an ISIN
-// maps to every line the security trades in -- and choosing among them is what
-// this stage is for.
+// identifier.ReachesOneLine asked of a set: one identifier that names a line has
+// named it, whatever else was stated alongside. Which types do, and why an OCC
+// does where an ISIN does not, is the Lines property of the type and is not
+// restated here -- a type added to the vocabulary is answered by this the day it
+// is added.
 //
-// So a MIC_TICKER carrying its MIC is complete and a bare one is not, and an
-// ISIN or CUSIP alone is not. Every listing-grain type that carries no domain is
-// complete on its own, which is what a SEDOL and a composite FIGI are: each is
-// issued per market and so names the line outright. The rest of the exceptions
-// name the instrument rather than a listing of it:
+// A question about the identity, which is what separates it from
+// mayPayForCompletion beside it at the call site: that one reads nothing but
+// RunKind. A batch can fail either and the two are recorded apart.
 //
-//   - A currency or an FX pair is the cash or FX instrument, entire.
-//   - A contract symbol -- OCC, OPRA, FUT_OPT -- carries its own underlying,
-//     expiry, right and strike, and names its market by construction.
-//   - A share class FIGI is a provider's key into the provider's own data, which
-//     a model asked to improve on could only invent.
-//
-// A BROKER_DESCRIPTION states no security at all, so it leaves the identity as
-// incomplete as it found it.
-func identityComplete(stated []identifier.Identifier) bool {
-	for _, id := range stated {
-		switch id.Type {
-		case "CURRENCY", "FX_PAIR", "OCC", "OPRA", "FUT_OPT",
-			"OPENFIGI_SHARE_CLASS", "OPENFIGI_COMPOSITE", "SEDOL":
-			return true
-		case "MIC_TICKER", "OPENFIGI_TICKER":
-			if strings.TrimSpace(id.Domain) != "" {
-				return true
-			}
-		}
-	}
-	return false
+// See docs/adr/0058-candidate-plugins-complete-a-partial-identity.md.
+func statedIdentityComplete(stated []identifier.Identifier) bool {
+	return slices.ContainsFunc(stated, identifier.ReachesOneLine)
 }
 
 // shortHashForBatch returns a short stable id (first 8 hex chars of SHA256) for batch description extraction response matching.

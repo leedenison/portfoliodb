@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
@@ -84,10 +85,25 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 
-	// For ISIN lookups where the search matched, verify the ISIN is present
-	// on the result (the Search API is fuzzy and may match by name).
-	if queryType == "ISIN" && match.ISIN != query {
-		return result(nil, nil, identifier.ErrNotIdentified)
+	// Whatever was asked is verified against the result. The Search API is fuzzy
+	// and matches on the name as readily as on the code, so a search for one
+	// symbol answers with another company's listing and bestMatch takes it. That
+	// result is a whole answer -- a name, a currency, a venue and an ISIN -- and
+	// merge admission compares it against the winner's, so an unverified one
+	// reaches the security a resolution landed on.
+	//
+	// The ticker is compared on one spelling: pickQuery renders the query with
+	// EODHD's hyphen and a provider writes a class separator however it likes,
+	// so both sides are normalized before they meet.
+	switch queryType {
+	case "ISIN":
+		if match.ISIN != query {
+			return result(nil, nil, identifier.ErrNotIdentified)
+		}
+	default:
+		if !strings.EqualFold(identifier.NormalizeSplitTicker(match.Code, "-"), query) {
+			return result(nil, nil, identifier.ErrNotIdentified)
+		}
 	}
 
 	inst, ids := stockFromSearch(match, p.exchMap)

@@ -93,6 +93,7 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 		Id:                  row.ID,
 		Identifiers:         identifiersToProto(row.Identifiers),
 		UnplacedIdentifiers: identifiersToProto(row.UnplacedIdentifiers),
+		Identified:          db.Identified(row),
 	}
 	if row.AssetClass != nil {
 		out.AssetClass = db.StrToAssetClass(*row.AssetClass)

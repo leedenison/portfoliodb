@@ -45,18 +45,6 @@ function isCurrent(id: InstrumentIdentifier): boolean {
   return !id.validBefore;
 }
 
-// A canonical name at either grain identifies the security. A SEDOL and a
-// composite FIGI name one currency line and live on it, so reading the
-// security's own list alone would report a security known only by those as
-// unidentified.
-function isIdentified(inst: Instrument): boolean {
-  return (
-    inst.identifiers.some((id) => id.canonical) ||
-    inst.listings.some((l) => l.identifiers.some((id) => id.canonical)) ||
-    inst.unplacedIdentifiers.some((id) => id.canonical)
-  );
-}
-
 /** The currency of the line a derivative delivers, empty where it names none. */
 function underlyingCurrency(inst: Instrument): string {
   return (
@@ -230,7 +218,7 @@ function InstrumentList({
                   </tr>
                 ) : (
                   instruments.map((inst) => {
-                    const identified = isIdentified(inst);
+                    const identified = inst.identified;
                     const expanded = expandedId === inst.id;
                     return (
                       <tr
@@ -332,7 +320,7 @@ function ListingChips({ inst }: { inst: Instrument }) {
 }
 
 function ExpandedDetail({ inst }: { inst: Instrument }) {
-  const identified = isIdentified(inst);
+  const identified = inst.identified;
   const brokerDescs = inst.identifiers.filter(
     (id) => id.type === IdentifierType.BROKER_DESCRIPTION
   );

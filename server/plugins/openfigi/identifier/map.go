@@ -259,8 +259,9 @@ func resolveVenue(exchCode string, exchMap *exchangemap.ExchangeMap) identifier.
 	return identifier.Venue{Country: exchMap.CompositeCountry(exchCode)}
 }
 
-// isDerivative returns true if the result is an option or future.
+// isDerivative reports whether the result classifies as a derivative. The
+// provider's own vocabulary is mapped to an asset class first, so which classes
+// those are is asked of db.IsDerivative rather than restated here.
 func isDerivative(r *OpenFIGIResult) bool {
-	ac := classify(r.SecurityType, r.SecurityType2, r.MarketSector)
-	return ac == db.AssetClassOption || ac == db.AssetClassFuture
+	return db.IsDerivative(classify(r.SecurityType, r.SecurityType2, r.MarketSector))
 }

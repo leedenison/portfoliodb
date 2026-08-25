@@ -353,8 +353,10 @@ func refKey(t typev1.IdentifierType, value, domain string) identifier.Identifier
 	return identifier.Identifier{Type: typev1.IdentifierType_name[int32(t)], Domain: domain, Value: value}
 }
 
+// isDerivative is db.IsDerivative over the proto enum: the archive speaks the
+// enum and the rule is declared on the stored spelling, so the name crosses here.
 func isDerivative(ac typev1.AssetClass) bool {
-	return ac == typev1.AssetClass_OPTION || ac == typev1.AssetClass_FUTURE
+	return db.IsDerivative(typev1.AssetClass_name[int32(ac)])
 }
 
 // archiveClaim is the archive's instrument block read as one identity claim.

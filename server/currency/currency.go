@@ -12,6 +12,8 @@
 // See docs/adr/0068-a-listing-is-a-currency-of-a-security.md.
 package currency
 
+import "strings"
+
 // MinorUnit is one currency that is another under a different unit prefix.
 type MinorUnit struct {
 	Code     string // ISO code of the minor unit, e.g. "GBX"
@@ -47,4 +49,20 @@ func Family(code string) string {
 		}
 	}
 	return code
+}
+
+// Same reports whether two codes name one line's currency, and is the only
+// currency comparison in the Go code.
+//
+// On family and not on the code: GBX is GBP under a different unit prefix, so a
+// line quoted in one is the line the other names and a security never holds
+// both (adr/0068). A rule about what makes two lines cannot hold in one place
+// and not another -- a source stating GBX would then contradict on the plugin
+// path what it corroborates on the database path -- so every comparison goes
+// through here rather than restating it.
+//
+// Case is folded first, because the codes reaching this come from providers and
+// broker files as readily as from the store.
+func Same(a, b string) bool {
+	return Family(strings.ToUpper(a)) == Family(strings.ToUpper(b))
 }

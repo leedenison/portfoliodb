@@ -1,10 +1,7 @@
 package ingestion
 
 import (
-	"strings"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
 )
 
@@ -40,44 +37,13 @@ func resolveListings(txs []*apiv1.Tx, resolved []db.Resolution, instByID map[str
 	}
 }
 
-// listingFor is the rungs, in order: the currency the source stated the security
-// trades in, then the security's sole line, then none.
+// listingFor is the line the posting names: the currency the source stated the
+// security trades in, and where it stated none, the security's sole line.
 //
-// The first rung is quotedIn, so settlement_currency is not a rung and the reason
-// it is not is stated once, where that choice is made.
+// The rule itself is [db.LineFor], which is where what each rung refuses is
+// written down. What is here is which field feeds it. That field is quotedIn, so
+// settlement_currency is not a rung and the reason it is not is stated once,
+// where that choice is made.
 func listingFor(tx *apiv1.Tx, inst *db.InstrumentRow) string {
-	if code := quotedIn(tx); code != "" {
-		if id := listingInFamily(inst, code); id != "" {
-			return id
-		}
-	}
-	return soleListing(inst)
-}
-
-// listingInFamily is the security's line in a currency's family, or none.
-//
-// The family rather than the code, so a posting stating GBP names a line stored in
-// GBX: the two are one currency under a different unit prefix, and the uniqueness
-// index makes at most one of them possible.
-func listingInFamily(inst *db.InstrumentRow, code string) string {
-	want := currency.Family(code)
-	for _, l := range inst.Listings {
-		if currency.Family(strings.ToUpper(l.Currency)) == want {
-			return l.ID
-		}
-	}
-	return ""
-}
-
-// soleListing is the security's only line, when it has exactly one.
-//
-// A security with several lines and nothing naming one is the case this whole
-// change exists for: picking one would value the holding at an FX rate nobody
-// stated. A security with no line at all has nothing to name either -- nobody has
-// said what it is quoted in, and the posting says so by naming none.
-func soleListing(inst *db.InstrumentRow) string {
-	if len(inst.Listings) != 1 {
-		return ""
-	}
-	return inst.Listings[0].ID
+	return db.LineFor(inst.Listings, quotedIn(tx))
 }

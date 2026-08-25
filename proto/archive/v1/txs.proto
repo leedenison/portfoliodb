@@ -157,11 +157,16 @@ message Posting {
   // reductions. Exact, because a holding is a sum of these and a group's balance
   // is a sum of their weights.
   string quantity = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // Unit price as the source reported it, in trading_currency. Explicitly
-  // optional because a declared price of zero is not the same as no price: an
-  // option expiring worthless converts at zero and its group balances, while a
-  // posting with no price cannot be converted at all and leaves a residual in
-  // the security itself.
+  // Unit price as the source reported it, in the currency the record's own
+  // figures are in: trading_currency where the source stated one, and
+  // settlement_currency otherwise. The two coincide wherever the source names
+  // the security's own currency, and a source that names only the account's
+  // leaves the first unset rather than borrowing it.
+  //
+  // Explicitly optional because a declared price of zero is not the same as no
+  // price: an option expiring worthless converts at zero and its group balances,
+  // while a posting with no price cannot be converted at all and leaves a
+  // residual in the security itself.
   optional string unit_price = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional string trading_currency = 10;     // ISO 4217; the instrument's own currency
   optional string settlement_currency = 11; // ISO 4217; what actually paid

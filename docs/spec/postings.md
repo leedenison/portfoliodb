@@ -376,12 +376,18 @@ members would weigh differently is rejected at ingest, so declared ambiguity
 never moves a weight (see
 adr/0046-declared-ambiguity-is-bounded-by-weight-neutrality.md).
 
-"Across currencies" means `trading_currency != settlement_currency` -- a EUR
-dividend settling into a USD account, where `unit_price` is the FX rate. Two guards
-complete it: a leg already denominated in the settlement currency never converts,
-being already in the units the group balances in; and a posting with no price
-cannot convert at all, so an exchange event whose source omitted a price leaves its
-residual in the security itself. See
+"Across currencies" compares the commodity a posting is actually in against the
+one its group settles in -- a EUR dividend settling into a USD account, where
+`unit_price` is the FX rate. The first is the resolved instrument's currency,
+because a money posting's instrument *is* its currency; the second is
+`settlement_currency`, falling back to `trading_currency` where the source stated
+no settlement. Neither side is read from `trading_currency` alone, which is a
+claim about which line a security is quoted on and is unstated wherever the
+source named only the account's currency. Two guards complete it: a leg already
+denominated in the settlement currency never converts, being already in the units
+the group balances in; and a posting with no price cannot convert at all, so an
+exchange event whose source omitted a price leaves its residual in the security
+itself. See
 adr/0024-group-balance-is-checked-on-weight.md.
 
 A price is per underlying unit, so converting also multiplies by the instrument's

@@ -15,23 +15,71 @@ import (
 // This is the security-grain test, for the corporate event fetcher: a corporate
 // event is an action on the security. The price fetcher uses PluginAcceptsListing
 // below, its unit of work being one currency line.
+//
+// The asset class is the security's own. The currency and the venues are not --
+// a security carries neither -- so both are read over its lines and pass on any
+// one of them. A plugin covering the GBP line of a dual-listed security can
+// answer about the split that security declared, splits being actions on the
+// security and applying to every line of it, so refusing the fetch because
+// another line is in a currency the plugin does not carry would lose the events
+// for a line it does.
+//
+// Permissive in the venue, by the same rule PluginAcceptsListing is: the set is
+// what we have been told about rather than what exists, so a security no line of
+// which records a venue has nothing to fail on. See
+// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
 func PluginAccepts(ac, ex, cu map[string]bool, inst *db.InstrumentRow) bool {
 	if len(ac) > 0 && inst.AssetClass != nil && *inst.AssetClass != "" {
 		if !ac[*inst.AssetClass] {
 			return false
 		}
 	}
-	if len(ex) > 0 && inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
-		if !ex[*inst.ExchangeMIC] {
+	if len(ex) > 0 && anyLineHasVenue(inst) {
+		matched := false
+		for _, l := range inst.Listings {
+			for _, v := range l.Venues {
+				if ex[v.MIC] {
+					matched = true
+				}
+			}
+		}
+		if !matched {
 			return false
 		}
 	}
-	if len(cu) > 0 && inst.Currency != nil && *inst.Currency != "" {
-		if !cu[strings.ToUpper(*inst.Currency)] {
+	if len(cu) > 0 && anyLineHasCurrency(inst) {
+		matched := false
+		for _, l := range inst.Listings {
+			if l.Currency != "" && cu[strings.ToUpper(l.Currency)] {
+				matched = true
+			}
+		}
+		if !matched {
 			return false
 		}
 	}
 	return true
+}
+
+// anyLineHasVenue reports whether any line of the security records a venue,
+// which is what makes the exchange filter applicable at all.
+func anyLineHasVenue(inst *db.InstrumentRow) bool {
+	for _, l := range inst.Listings {
+		if len(l.Venues) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// anyLineHasCurrency reports whether any line of the security carries a currency.
+func anyLineHasCurrency(inst *db.InstrumentRow) bool {
+	for _, l := range inst.Listings {
+		if l.Currency != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // PluginAcceptsListing is the same test at the grain a price is quoted at: the

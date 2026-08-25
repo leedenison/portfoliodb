@@ -20,11 +20,11 @@ func listingsOf(insts []*dbpkg.InstrumentRow) map[string]*dbpkg.Listing {
 	out := make(map[string]*dbpkg.Listing, len(insts))
 	for _, inst := range insts {
 		l := &dbpkg.Listing{ID: lstIDOf(inst.ID), InstrumentID: inst.ID}
-		if inst.Currency != nil {
-			l.Currency = *inst.Currency
-		}
-		if inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
-			l.Venues = []dbpkg.Venue{{MIC: *inst.ExchangeMIC}}
+		// The currency and the venues are the line's own, so a fixture wanting
+		// either states it on the row's Listings and this carries it across.
+		if len(inst.Listings) == 1 {
+			l.Currency = inst.Listings[0].Currency
+			l.Venues = inst.Listings[0].Venues
 		}
 		out[lstIDOf(inst.ID)] = l
 	}
@@ -91,7 +91,8 @@ func TestListPriceGaps_Success(t *testing.T) {
 	fxName := "GBPUSD"
 	instruments := []*dbpkg.InstrumentRow{
 		{
-			ID: "inst-1", AssetClass: &stockAC, ExchangeMIC: &mic, Currency: &currency, Name: &name,
+			ID: "inst-1", AssetClass: &stockAC, Name: &name,
+			Listings: []*dbpkg.Listing{{Currency: currency, Venues: []dbpkg.Venue{{MIC: mic}}}},
 			Identifiers: []dbpkg.IdentifierInput{
 				{
 					Ref:       dbpkg.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "src"},
@@ -107,7 +108,8 @@ func TestListPriceGaps_Success(t *testing.T) {
 				}},
 		},
 		{
-			ID: "inst-fx", AssetClass: &fxAC, Currency: &currency, Name: &fxName,
+			ID: "inst-fx", AssetClass: &fxAC, Name: &fxName,
+			Listings: []*dbpkg.Listing{{Currency: currency}},
 			Identifiers: []dbpkg.IdentifierInput{
 				{
 					Ref:       dbpkg.InstrumentRef{Type: "FX_PAIR", Value: "GBPUSD"},

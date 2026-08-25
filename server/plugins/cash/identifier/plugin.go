@@ -77,11 +77,10 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if row.AssetClass != nil {
 		inst.AssetClass = *row.AssetClass
 	}
-	if row.ExchangeMIC != nil {
-		inst.Listing.Venue = identifier.Venue{MIC: *row.ExchangeMIC}
-	}
-	if row.Currency != nil {
-		inst.Listing.Currency = *row.Currency
+	// A cash instrument has a listing degenerately, so it has exactly one line and
+	// that line's currency is the money it is. No venue: cash trades at none.
+	if len(row.Listings) == 1 {
+		inst.Listing.Currency = row.Listings[0].Currency
 	}
 	if row.Name != nil {
 		inst.Name = *row.Name

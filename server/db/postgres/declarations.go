@@ -512,8 +512,19 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, h db.Holding, init db
 				       -- sibling line would leave both of them wrong.
 				       $7,
 				       'INITIALIZE', $8, $5,
-				       CASE WHEN i.asset_class = 'CASH' AND i.currency IS NOT NULL
-				            THEN 'cur:' || upper(i.currency)
+				       -- Cash weighs as money so that a trade's cash leg cancels
+				       -- against its security leg. Which money is the currency of
+				       -- the security's line: a cash instrument has a listing
+				       -- degenerately and so has exactly one. Keyed on the
+				       -- security's sole line rather than on the declared one,
+				       -- which is nullable -- a declaration naming no line would
+				       -- otherwise weigh the pad in its own instrument and stop it
+				       -- offsetting the holding it exists to offset.
+				       CASE WHEN i.asset_class = 'CASH'
+				                 AND (SELECT count(*) FROM instrument_listings l
+				                      WHERE l.instrument_id = i.id) = 1
+				            THEN 'cur:' || upper((SELECT l.currency FROM instrument_listings l
+				                                  WHERE l.instrument_id = i.id))
 				            ELSE 'inst:' || i.id::text END,
 				       $9, $10
 				FROM instruments i WHERE i.id = $6

@@ -9,6 +9,20 @@ import (
 
 func strPtr(s string) *string { return &s }
 
+// lines builds a security's listings from (currency, mics...) pairs, the venues
+// being MICs alone because the reference data on them is nothing this reads.
+func lines(spec ...[]string) []*db.Listing {
+	out := make([]*db.Listing, len(spec))
+	for i, s := range spec {
+		l := &db.Listing{Currency: s[0]}
+		for _, m := range s[1:] {
+			l.Venues = append(l.Venues, db.Venue{MIC: m})
+		}
+		out[i] = l
+	}
+	return out
+}
+
 func TestPluginAccepts(t *testing.T) {
 	tests := []struct {
 		name string
@@ -20,7 +34,7 @@ func TestPluginAccepts(t *testing.T) {
 	}{
 		{
 			name: "nil filters accept anything",
-			inst: &db.InstrumentRow{AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD")},
+			inst: &db.InstrumentRow{AssetClass: strPtr("STOCK"), Listings: lines([]string{"USD", "XNAS"})},
 			want: true,
 		},
 		{
@@ -50,17 +64,28 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name: "currency case insensitive",
 			cu:   map[string]bool{"USD": true},
-			inst: &db.InstrumentRow{Currency: strPtr("usd")},
+			inst: &db.InstrumentRow{Listings: lines([]string{"usd"})},
 			want: true,
 		},
 		{
 			name: "currency mismatch",
 			cu:   map[string]bool{"USD": true},
-			inst: &db.InstrumentRow{Currency: strPtr("EUR")},
+			inst: &db.InstrumentRow{Listings: lines([]string{"EUR"})},
 			want: false,
 		},
 		{
-			name: "nil currency passes filter",
+			// A split is an action on the security and applies to every line of
+			// it, so a plugin carrying one of the currencies the security trades
+			// in can answer about it. Refusing because a sibling line is in a
+			// currency the plugin does not carry would lose the events for the
+			// line it does.
+			name: "any line's currency in the plugin's set is enough",
+			cu:   map[string]bool{"USD": true},
+			inst: &db.InstrumentRow{Listings: lines([]string{"GBP"}, []string{"USD"})},
+			want: true,
+		},
+		{
+			name: "no line passes the currency filter",
 			cu:   map[string]bool{"USD": true},
 			inst: &db.InstrumentRow{},
 			want: true,
@@ -68,11 +93,26 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name: "exchange mismatch",
 			ex:   map[string]bool{"XNAS": true},
-			inst: &db.InstrumentRow{ExchangeMIC: strPtr("XNYS")},
+			inst: &db.InstrumentRow{Listings: lines([]string{"USD", "XNYS"})},
 			want: false,
 		},
 		{
-			name: "nil exchange passes filter",
+			name: "any line's venue in the plugin's set is enough",
+			ex:   map[string]bool{"XNAS": true},
+			inst: &db.InstrumentRow{Listings: lines([]string{"GBP", "XLON"}, []string{"USD", "XNAS"})},
+			want: true,
+		},
+		{
+			// The venue set is what we have been told about rather than what
+			// exists, so a security no line of which records a venue has nothing
+			// to fail on. See adr/0077.
+			name: "a security with no venue anywhere passes the filter",
+			ex:   map[string]bool{"XNAS": true},
+			inst: &db.InstrumentRow{Listings: lines([]string{"USD"})},
+			want: true,
+		},
+		{
+			name: "no listings at all passes the filter",
 			ex:   map[string]bool{"XNAS": true},
 			inst: &db.InstrumentRow{},
 			want: true,

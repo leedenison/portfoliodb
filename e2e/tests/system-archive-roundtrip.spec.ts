@@ -82,7 +82,7 @@ test.describe("system archive page", () => {
     // An instrument identification has not classified yet. Created directly
     // because no ingest path reaches this state without calling a plugin.
     await rawQuery(
-      `WITH i AS (INSERT INTO instruments (currency) VALUES ('USD') RETURNING id),
+      `WITH i AS (INSERT INTO instruments DEFAULT VALUES RETURNING id),
             l AS (INSERT INTO instrument_listings (instrument_id, currency)
                   SELECT id, 'USD' FROM i RETURNING instrument_id, id)
        INSERT INTO instrument_listing_identifiers (instrument_id, listing_id, identifier_type, domain, value, canonical)
@@ -325,7 +325,9 @@ test.describe("system archive page", () => {
     // A match must leave the reference data alone and still carry what the file
     // added -- here the recorded lookup result.
     const fxRow = (await rawQuery(
-      `SELECT i.asset_class, i.currency, i.name,
+      `SELECT i.asset_class, i.name,
+              (SELECT string_agg(l.currency, ',' ORDER BY l.currency)
+                 FROM instrument_listings l WHERE l.instrument_id = i.id) AS currencies,
               (SELECT count(*)::int FROM ${PROVIDER_INSTRUMENT_NAMES} p
                 WHERE p.instrument_id = i.id AND p.identifier_type = 'EODHD_EXCH_CODE') AS provider_ids,
               (SELECT count(*)::int FROM instrument_identifiers x
@@ -334,10 +336,13 @@ test.describe("system archive page", () => {
          JOIN instrument_identifiers ii ON ii.instrument_id = i.id
         WHERE ii.identifier_type = 'FX_PAIR' AND ii.value = $1`,
       [FX_PAIR],
-    )) as { asset_class: string; currency: string; name: string; provider_ids: number; fx_ids: number }[];
+    )) as { asset_class: string; currencies: string; name: string; provider_ids: number; fx_ids: number }[];
     expect(fxRow).toHaveLength(1);
     expect(fxRow[0].asset_class).toBe("FX");
-    expect(fxRow[0].currency).toBe("USD");
+    // The line the pair is quoted on, which is where a currency lives. An FX
+    // instrument's is degenerately the USD pivot, and the import must not have
+    // forked or rewritten it.
+    expect(fxRow[0].currencies).toBe("USD");
     expect(fxRow[0].provider_ids).toBe(1);
     expect(fxRow[0].fx_ids).toBe(1);
 

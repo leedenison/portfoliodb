@@ -24,8 +24,10 @@ func balanceFixtures() map[string]balanceInstrument {
 	return balanceInstruments(map[string]*db.InstrumentRow{
 		aaplID: {ID: aaplID, AssetClass: strPtr(db.AssetClassStock)},
 		optID:  {ID: optID, AssetClass: strPtr(db.AssetClassOption)},
-		usdID:  {ID: usdID, AssetClass: strPtr(db.AssetClassCash), Currency: strPtr("USD")},
-		eurID:  {ID: eurID, AssetClass: strPtr(db.AssetClassCash), Currency: strPtr("EUR")},
+		// The money a cash instrument is comes off its sole line, a cash
+		// instrument having a listing degenerately.
+		usdID: {ID: usdID, AssetClass: strPtr(db.AssetClassCash), Listings: []*db.Listing{{Currency: "USD"}}},
+		eurID: {ID: eurID, AssetClass: strPtr(db.AssetClassCash), Listings: []*db.Listing{{Currency: "EUR"}}},
 	})
 }
 
@@ -95,7 +97,7 @@ func TestBalanceInstruments_ContractSize(t *testing.T) {
 		want: "1",
 	}, {
 		name: "so is a currency",
-		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassCash), Currency: strPtr("USD")},
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassCash), Listings: []*db.Listing{{Currency: "USD"}}},
 		want: "1",
 	}, {
 		// A future's size varies per contract and nothing stores it, so one
@@ -122,7 +124,7 @@ func TestWeights_NonStandardDeliverable(t *testing.T) {
 	price := func(v string) *string { return &v }
 	instruments := balanceInstruments(map[string]*db.InstrumentRow{
 		optID: {ID: optID, AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: decimal.RequireFromString("1.5")},
-		usdID: {ID: usdID, AssetClass: strPtr(db.AssetClassCash), Currency: strPtr("USD")},
+		usdID: {ID: usdID, AssetClass: strPtr(db.AssetClassCash), Listings: []*db.Listing{{Currency: "USD"}}},
 	})
 
 	// 2 contracts of 150 shares at 3.00 is 900, not the 600 a standard one costs.
@@ -238,6 +240,38 @@ func TestWeights(t *testing.T) {
 				t.Errorf("commodity = %q, want %q", got[0].Commodity, tc.commodity)
 			}
 		})
+	}
+}
+
+// TestBalanceInstruments_CashWeighsInItsLinesCurrency pins where the money a cash
+// posting is denominated in comes from.
+//
+// It is the currency of the instrument's sole line -- a cash instrument has a
+// listing degenerately, the currency it holds being the currency it trades in --
+// and nothing above the line carries one. Getting this wrong is quiet: a cash leg
+// weighed as "inst:<uuid>" rather than "cur:USD" stops cancelling against the
+// security leg it settles, and every group in every upload grows a residual
+// nobody asked for.
+func TestBalanceInstruments_CashWeighsInItsLinesCurrency(t *testing.T) {
+	got := balanceInstruments(map[string]*db.InstrumentRow{
+		usdID: {ID: usdID, AssetClass: strPtr(db.AssetClassCash), Listings: []*db.Listing{{Currency: "usd"}}},
+		aaplID: {ID: aaplID, AssetClass: strPtr(db.AssetClassStock),
+			Listings: []*db.Listing{{Currency: "USD"}}},
+		// A cash row on no line at all. It weighs in itself rather than guessing,
+		// which is what a null currency column did before.
+		optID: {ID: optID, AssetClass: strPtr(db.AssetClassCash)},
+	})
+	if !got[usdID].isCurrency || got[usdID].currency != "USD" {
+		t.Errorf("cash instrument = %+v, want USD read off the line and upper-cased", got[usdID])
+	}
+	// A security is not money however its line is quoted.
+	if got[aaplID].isCurrency {
+		t.Errorf("security weighed as money: %+v", got[aaplID])
+	}
+	// A cash row on no line names no currency, so weighPosting falls back to
+	// weighing it in its own instrument.
+	if !got[optID].isCurrency || got[optID].currency != "" {
+		t.Errorf("lineless cash = %+v, want no currency rather than a guess", got[optID])
 	}
 }
 

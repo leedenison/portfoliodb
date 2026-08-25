@@ -130,17 +130,16 @@ type gapCycle struct {
 }
 
 func (c gapCycle) expect(m *mock.MockDB) {
-	// One line per security, carrying the currency and venue the row states. In
-	// the database those are the listing's own columns and the security's are on
-	// their way out; here the fixture states them once and the line takes them.
+	// One line per security. A currency and a venue are the line's own, so a
+	// fixture wanting either states it on the row's Listings and this takes it
+	// from there; a row that states none gets a bare line, which is the ordinary
+	// case for a gap keyed on nothing but an identifier.
 	listings := make(map[string]*db.Listing, len(c.insts))
 	for _, inst := range c.insts {
 		l := &db.Listing{ID: lstIDOf(inst.ID), InstrumentID: inst.ID}
-		if inst.Currency != nil {
-			l.Currency = *inst.Currency
-		}
-		if inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
-			l.Venues = []db.Venue{{MIC: *inst.ExchangeMIC}}
+		if len(inst.Listings) == 1 {
+			l.Currency = inst.Listings[0].Currency
+			l.Venues = inst.Listings[0].Venues
 		}
 		listings[l.ID] = l
 	}
@@ -178,9 +177,10 @@ func TestCycleRecordsWhatItWasAskedFor(t *testing.T) {
 		},
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 10, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{
-			{ID: "inst-1", AssetClass: strPtr("STOCK"), Currency: strPtr("USD"),
-				ExchangeMIC: strPtr("XNAS")},
-			{ID: "fx-1", AssetClass: strPtr("FX"), Currency: strPtr("USD")},
+			{ID: "inst-1", AssetClass: strPtr("STOCK"),
+				Listings: []*db.Listing{{Currency: "USD", Venues: []db.Venue{{MIC: "XNAS"}}}}},
+			{ID: "fx-1", AssetClass: strPtr("FX"),
+				Listings: []*db.Listing{{Currency: "USD"}}},
 		},
 	}.expect(mockDB)
 

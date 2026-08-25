@@ -243,8 +243,17 @@ func balanceInstruments(byID map[string]*db.InstrumentRow) map[string]balanceIns
 		inst := balanceInstrument{contractSize: decimal.NewFromInt(1)}
 		if r.AssetClass != nil && *r.AssetClass == db.AssetClassCash {
 			inst.isCurrency = true
-			if r.Currency != nil {
-				inst.currency = strings.ToUpper(*r.Currency)
+			// A cash instrument has a listing degenerately -- the currency it
+			// holds is the currency it trades in -- so it has exactly one line
+			// and that line's currency is the money this is. Read off the line
+			// because that is where a currency lives; a security carries none.
+			//
+			// Anything else leaves the currency empty, which weighs the posting
+			// in its own instrument rather than in money. A cash row with no line
+			// is not one migration 002 can produce, and guessing between several
+			// would weigh two currencies as one.
+			if len(r.Listings) == 1 {
+				inst.currency = strings.ToUpper(r.Listings[0].Currency)
 			}
 		}
 		if r.AssetClass != nil && *r.AssetClass == db.AssetClassOption {

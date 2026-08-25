@@ -416,7 +416,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
 		// No claim: one description associates nothing with anything, and
 		// nobody asserted an identity for it.
-		instID, _, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{
+		instID, _, ensureErr := database.EnsureInstrument(ctx, "", "", instrumentDescription, "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 			Canonical: false,
 		}}, nil, "", nil)
@@ -510,7 +510,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		// The listing is dropped rather than returned: a broker description is
 		// security-grain, so this instrument's line is its unknown one and
 		// nothing here has learned a currency to name it with.
-		id, _, err := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
+		id, _, err := database.EnsureInstrument(ctx, "", "", instrumentDescription, "", "",
 			[]db.IdentifierInput{{
 				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 				Canonical: false,

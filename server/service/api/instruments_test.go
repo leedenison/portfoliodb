@@ -28,7 +28,7 @@ func TestListInstruments_Unauthenticated(t *testing.T) {
 func TestListInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
-		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD"),
+		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"),
 			Identifiers: []dbpkg.IdentifierInput{
 				{
 					Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
@@ -288,7 +288,7 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 func TestExportSystemArchive_Instruments_CarriesProviderIdentifiers(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
-		{ID: "id-1", AssetClass: strPtr("STOCK"), Currency: strPtr("USD"),
+		{ID: "id-1", AssetClass: strPtr("STOCK"),
 			ContractMultiplier: decimal.NewFromInt(1),
 			Identifiers: []dbpkg.IdentifierInput{{
 				Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},

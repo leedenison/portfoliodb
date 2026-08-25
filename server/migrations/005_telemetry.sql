@@ -901,13 +901,17 @@ JOIN telemetry.run r ON r.id = g.run_id;
 -- instruments.name is already the readable form: a trigger keeps it at the
 -- preferred identifier, ticker first, falling back through OCC and the broker
 -- description to the id itself. See 001_initial.sql.
+--
+-- The asset class and nothing else beside the label. A currency and a venue are
+-- facts about one of the security's lines rather than about the security, so
+-- there is nothing here to join them from; a panel wanting either reads the
+-- recorded columns on the row it is explaining, which is where the grain is
+-- right.
 CREATE VIEW telemetry.v_instrument_label AS
 SELECT
   i.id,
-  i.name        AS label,
-  i.exchange,
-  i.asset_class,
-  i.currency
+  i.name AS label,
+  i.asset_class
 FROM instruments i;
 
 -- The reading role.

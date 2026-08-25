@@ -9,6 +9,7 @@ import (
 	"time"
 
 	backoff "github.com/cenkalti/backoff/v4"
+	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -72,11 +73,20 @@ type ProposalOutcome struct {
 
 // ResolvedInstrument holds an instrument ID plus the metadata needed for
 // hint comparison, as returned by ResolveByHintsDBOnly.
+//
+// Currencies rather than a currency, because how many lines the identifier
+// reached is what the grain decides: a ticker names one, an ISIN names every line
+// of the security it identifies. A stated currency is checked for membership in
+// the set, so a security quoted in two currencies contradicts a file naming
+// either of them and contradicts a file naming a third.
+//
+// No exchange. A venue we do not hold is one nobody has told us about rather than
+// a disagreement, so there is nothing here to check one against. See
+// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
 type ResolvedInstrument struct {
 	ID         string
 	AssetClass string
-	Exchange   string // ISO 10383 MIC code (e.g. "XNAS")
-	Currency   string
+	Currencies []string
 }
 
 // isDerivativeClass reports whether an asset class is one the schema requires an
@@ -192,7 +202,7 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 				value = compact
 			}
 		}
-		id, ac, exch, cur, err := database.FindInstrumentWithMetaByIdentifier(ctx, h.Type, h.Domain, value)
+		id, ac, curs, err := database.FindInstrumentWithMetaByIdentifier(ctx, h.Type, h.Domain, value)
 		if err != nil {
 			return nil, err
 		}
@@ -213,14 +223,14 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 				}
 			}
 			// TypeAndValue fallback doesn't return metadata. Empty fields
-			// cause CompareHints to skip currency/exchange/assetClass
-			// checks, so hint validation is not performed for instruments
-			// matched by type+value without an exact domain match.
-			ac, exch, cur = "", "", ""
+			// cause CompareHints to skip the currency and assetClass checks,
+			// so hint validation is not performed for instruments matched by
+			// type+value without an exact domain match.
+			ac, curs = "", nil
 		}
 		if id != "" && !seen[id] {
 			seen[id] = true
-			resolved = append(resolved, ResolvedInstrument{ID: id, AssetClass: ac, Exchange: exch, Currency: cur})
+			resolved = append(resolved, ResolvedInstrument{ID: id, AssetClass: ac, Currencies: curs})
 		}
 	}
 	return resolved, nil
@@ -677,8 +687,13 @@ func contradicts(ctx context.Context, normalizeMIC MICNormalizer, a, b identifie
 // CompareHints compares supplied hints and identifier hints against the
 // resolved instrument and its identifiers, returning any differences.
 // Fields are skipped when either side is empty or UNKNOWN. normalizeMIC
-// (if non-nil) maps both sides of the exchange comparison to operating MICs
-// so that segment-vs-operating differences are not flagged.
+// (if non-nil) maps a MIC_TICKER's domain to its operating MIC while deciding
+// whether two identifiers name the same subject, so that segment-vs-operating
+// differences do not read as different names.
+//
+// This is the shape for a resolution that named one line -- a plugin result. What
+// the database answers directly reaches lines at whichever grain the identifier
+// had, and is compared by CompareDBMeta below.
 func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints []identifier.Identifier, inst *identifier.Instrument, resolvedIDs []identifier.Identifier, normalizeMIC MICNormalizer) []identifier.HintDiff {
 	if inst == nil {
 		return nil
@@ -698,32 +713,14 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 		diffs = append(diffs, identifier.HintDiff{Field: "SecurityType", HintValue: hints.SecurityTypeHint, ResolvedValue: inst.AssetClass})
 	}
 
-	// Exchange: compare MIC_TICKER hint domain (the MIC code) against inst.Listing.Venue.MIC.
-	// Both sides are normalized to operating MICs before comparison.
-	//
-	// Every stated MIC_TICKER is consulted, not just the first. A source naming
-	// two listings has said the security trades on both, and the resolution
-	// landing on either one agrees with it; judging it on whichever hint came
-	// first would report a difference the source did not state.
-	if inst.Listing.Venue.MIC != "" {
-		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Listing.Venue.MIC)
-		var stated *identifier.Identifier
-		for i, h := range identifierHints {
-			if h.Type != "MIC_TICKER" || h.Domain == "" {
-				continue
-			}
-			if strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, h.Domain), instExch) {
-				stated = nil
-				break
-			}
-			if stated == nil {
-				stated = &identifierHints[i]
-			}
-		}
-		if stated != nil {
-			diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: stated.Domain, ResolvedValue: inst.Listing.Venue.MIC})
-		}
-	}
+	// No Exchange difference is reported, and none can be. A venue set is what we
+	// have been told about rather than what exists, so a source naming a venue we
+	// do not hold has told us something new; and a source naming one we do hold
+	// has agreed. Neither is a contradiction, which leaves nothing for the test to
+	// find -- and a test that can only pass is not a test. Currency carries the
+	// weight instead: a line is a currency, so a source stating the wrong one has
+	// named the wrong line, which is what a difference here means. See
+	// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
 
 	// Identifier values: compare client-supplied hints against resolved
 	// identifiers, on the subject they share rather than on the type alone.
@@ -762,6 +759,16 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 	if len(diffs) != 0 {
 		return false
 	}
+	// The venue is tested here although CompareHints reports no difference for
+	// one, and the two are not in conflict. This ranks one answer against another
+	// -- what a source named against what a plugin answered -- which is the strict
+	// side of adr/0077, while a hint difference is a claim about our own partial
+	// record and is the permissive side. A result naming a venue no stated
+	// MIC_TICKER names has answered about a different line, and a guess must not
+	// promote it.
+	if r.inst.Listing.Venue.MIC != "" && venueStated(identifierHints) {
+		return venueAgrees(ctx, normalizeMIC, r.inst.Listing.Venue.MIC, identifierHints)
+	}
 	// At least one hint field must have been compared (both sides non-empty).
 	if hints.Currency != "" && r.inst.Listing.Currency != "" {
 		return true
@@ -769,13 +776,6 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
 		r.inst.AssetClass != "" && r.inst.AssetClass != identifier.SecurityTypeHintUnknown {
 		return true
-	}
-	if r.inst.Listing.Venue.MIC != "" {
-		for _, h := range identifierHints {
-			if h.Type == "MIC_TICKER" && h.Domain != "" {
-				return true
-			}
-		}
 	}
 	// Same subject test CompareHints used, because this asks whether that
 	// comparison happened at all. Read on the type alone it would answer yes for
@@ -790,6 +790,98 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 			if id.Value != "" && sameSubject(ctx, normalizeMIC, h, id) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// CompareDBMeta is CompareHints for the answer the database gives on its own,
+// where no plugin ran and the metadata came off the row the identifier matched.
+//
+// It differs from CompareHints in the one way the grain forces. A plugin answers
+// about one line and so has one currency to be compared against; the database
+// answers about whatever lines the identifier reached, which is one line for a
+// ticker and every line of the security for an ISIN. So the currency test is
+// membership rather than equality, on currency family: a security quoted in GBP
+// and USD contradicts a source stating CHF and contradicts neither of the two it
+// holds, and GBX is GBP under a different unit prefix.
+//
+// A security holding no line says nothing about a currency, which is not the same
+// as saying the stated one is wrong, so it reports nothing.
+//
+// No exchange, for the reason CompareHints gives: the database returns no venue
+// because there is no venue claim it could contradict.
+func CompareDBMeta(hints identifier.Hints, r ResolvedInstrument) []identifier.HintDiff {
+	var diffs []identifier.HintDiff
+	if hints.Currency != "" && len(r.Currencies) > 0 && !holdsCurrency(r.Currencies, hints.Currency) {
+		diffs = append(diffs, identifier.HintDiff{
+			Field:         "Currency",
+			HintValue:     hints.Currency,
+			ResolvedValue: strings.Join(r.Currencies, ", "),
+		})
+	}
+	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
+		r.AssetClass != "" && r.AssetClass != identifier.SecurityTypeHintUnknown &&
+		!strings.EqualFold(hints.SecurityTypeHint, r.AssetClass) {
+		diffs = append(diffs, identifier.HintDiff{Field: "SecurityType", HintValue: hints.SecurityTypeHint, ResolvedValue: r.AssetClass})
+	}
+	return diffs
+}
+
+// ConfirmedDBFields is confirmedFields for that same answer: what the database
+// corroborated rather than what it contradicted. A stated currency naming one of
+// the lines the identifier reached was checked and held.
+func ConfirmedDBFields(hints identifier.Hints, r ResolvedInstrument) []string {
+	var out []string
+	if hints.Currency != "" && holdsCurrency(r.Currencies, hints.Currency) {
+		out = append(out, "Currency")
+	}
+	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
+		r.AssetClass != "" && r.AssetClass != identifier.SecurityTypeHintUnknown &&
+		strings.EqualFold(hints.SecurityTypeHint, r.AssetClass) {
+		out = append(out, "SecurityType")
+	}
+	return out
+}
+
+// holdsCurrency reports whether one of these lines is quoted in the currency
+// stated, comparing on family because GBX and GBP are one line's currency under
+// two unit prefixes and a security never holds both.
+func holdsCurrency(currencies []string, stated string) bool {
+	want := currency.Family(strings.ToUpper(stated))
+	for _, c := range currencies {
+		if currency.Family(strings.ToUpper(c)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// venueStated reports whether any of these identifiers named a venue.
+func venueStated(idns []identifier.Identifier) bool {
+	for _, h := range idns {
+		if h.Type == "MIC_TICKER" && h.Domain != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// venueAgrees reports whether mic is one of the venues these identifiers named.
+//
+// Every one of them is consulted, not just the first: a source that named two
+// listings has said the security trades on both, and an answer landing on either
+// agrees with it. Stopping at the first would turn the order they arrived in into
+// a verdict. Both sides are normalised to operating MICs, so a segment MIC and
+// the operating MIC it belongs to are the same venue.
+func venueAgrees(ctx context.Context, normalizeMIC MICNormalizer, mic string, idns []identifier.Identifier) bool {
+	want := normalizeMICValue(ctx, normalizeMIC, mic)
+	for _, h := range idns {
+		if h.Type != "MIC_TICKER" || h.Domain == "" {
+			continue
+		}
+		if strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, h.Domain), want) {
+			return true
 		}
 	}
 	return false
@@ -834,19 +926,19 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 		strings.EqualFold(hints.SecurityTypeHint, inst.AssetClass) {
 		out = append(out, "SecurityType")
 	}
-	// Every stated MIC_TICKER, for the reason CompareHints gives: a source that
-	// named two listings corroborates the resolution by either of them, and
-	// stopping at the first would turn the order the hints arrived in into a
-	// verdict.
-	if inst.Listing.Venue.MIC != "" {
-		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Listing.Venue.MIC)
-		for _, h := range stated {
-			if h.Type == "MIC_TICKER" && h.Domain != "" &&
-				strings.EqualFold(normalizeMICValue(ctx, normalizeMIC, h.Domain), instExch) {
-				out = append(out, "Exchange")
-				break
-			}
-		}
+	// Every stated MIC_TICKER: a source that named two listings corroborates the
+	// resolution by either of them, and stopping at the first would turn the order
+	// the hints arrived in into a verdict.
+	//
+	// Corroboration survives the open-world reading of a venue where contradiction
+	// does not, which is why this arm stands and CompareHints' does not. A stated
+	// venue appearing among the ones the result named is a thing that was checked
+	// and held; a stated venue absent from them is a thing nobody has told us,
+	// which is not a finding. Empty where the database answered on its own: it
+	// returns no venue, so there was nothing to check. See
+	// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
+	if inst.Listing.Venue.MIC != "" && venueAgrees(ctx, normalizeMIC, inst.Listing.Venue.MIC, stated) {
+		out = append(out, "Exchange")
 	}
 	// Corroboration is on the whole triple. A stated ticker is confirmed by a
 	// result naming that ticker on that venue, and not by one naming the symbol
@@ -1007,15 +1099,8 @@ func ResolveWithPlugins(
 		return ResolveResult{}, err
 	}
 	if len(resolved) == 1 {
-		inst := &identifier.Instrument{
-			AssetClass: resolved[0].AssetClass,
-			Listing: identifier.Listing{
-				Venue:    identifier.Venue{MIC: resolved[0].Exchange},
-				Currency: resolved[0].Currency,
-			},
-		}
-		diffs := CompareHints(ctx, hints, identifierHints, inst, nil, normMIC)
-		confirmed := confirmedFields(ctx, hints, identifierHints, inst, nil, normMIC)
+		diffs := CompareDBMeta(hints, resolved[0])
+		confirmed := ConfirmedDBFields(hints, resolved[0])
 		// No plugin was called, which is why this is its own outcome rather than
 		// an identification with no plugin-call rows under it. It is also why a
 		// failure rate over all attempts falls as the instrument table fills.
@@ -1227,15 +1312,17 @@ func ResolveWithPlugins(
 		// fields it filled and the winner did not is the same trust, applied to
 		// the same result.
 		//
-		// It matters most for the exchange. A provider that answers with a
-		// composite names no single venue, so the winner's exchange is empty
-		// while a lower-precedence result names the venue outright -- and
-		// without this the instrument is stored with a null exchange_mic beside
-		// a MIC_TICKER whose domain says exactly which exchange it is. Note
-		// consistentWith skips a comparison where either side is empty, so a
-		// field being filled here was never checked against the winner; it is
-		// adopted because that plugin agreed on everything it could be checked
-		// on, which is the same basis its identifiers are merged on.
+		// The venue is still worth filling although nothing stores one. A
+		// provider answering with a composite names no single venue, so the
+		// winner's is empty while a lower-precedence result names it outright,
+		// and the filled venue is what picks the line out of the security's
+		// listings below -- a security quoted at one venue in two currencies is
+		// the case where naming the venue settles which line the result is
+		// about. Note consistentWith skips a comparison where either side is
+		// empty, so a field being filled here was never checked against the
+		// winner; it is adopted because that plugin agreed on everything it
+		// could be checked on, which is the same basis its identifiers are
+		// merged on.
 		mergedIds := flattenClaims(claims)
 		merged := *winner.inst
 		for _, src := range fills {
@@ -1400,7 +1487,7 @@ func ResolveWithPlugins(
 		// identifiers follow the same routing, so it is passed on rather than
 		// discarded; carrying it out of Resolve to the caller is 0147's third
 		// step.
-		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Venue.MIC, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields)
+		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}

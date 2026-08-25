@@ -2,17 +2,17 @@
 -- Uses AMZN, NVDA, TSLA to avoid overlap with the ingestion test (AAPL, MSFT, GOOGL).
 
 -- Instruments.
-INSERT INTO instruments (id, asset_class, currency, name)
+INSERT INTO instruments (id, asset_class, name)
 VALUES
-  ('e2e00000-0000-0000-0000-000000000101'::uuid, 'STOCK', 'USD', 'Amazon.com Inc.'),
-  ('e2e00000-0000-0000-0000-000000000102'::uuid, 'STOCK', 'USD', 'NVIDIA Corp.'),
-  ('e2e00000-0000-0000-0000-000000000103'::uuid, 'STOCK', 'USD', 'Tesla Inc.')
+  ('e2e00000-0000-0000-0000-000000000101'::uuid, 'STOCK', 'Amazon.com Inc.'),
+  ('e2e00000-0000-0000-0000-000000000102'::uuid, 'STOCK', 'NVIDIA Corp.'),
+  ('e2e00000-0000-0000-0000-000000000103'::uuid, 'STOCK', 'Tesla Inc.')
 ON CONFLICT (id) DO NOTHING;
 
--- Listings. Every security has at least one currency line, and these are all
--- single-line US securities, so each gets one USD listing.
+-- Listings. A currency is a fact about a line, so it is stated here and nowhere
+-- above. These are all single-line US securities, so each gets one USD listing.
 INSERT INTO instrument_listings (instrument_id, currency)
-SELECT id, currency FROM instruments
+SELECT id, 'USD' FROM instruments
 WHERE id IN (
   'e2e00000-0000-0000-0000-000000000101',
   'e2e00000-0000-0000-0000-000000000102',

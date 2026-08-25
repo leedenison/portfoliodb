@@ -49,12 +49,11 @@ func (s *Server) ListInstruments(ctx context.Context, req *apiv1.ListInstruments
 // archiveInstrument converts one export row to its archive form.
 //
 // Not carried: the server UUID, which means nothing in another instance; a
-// listing's venues, derived from its own identifiers by trigger; the
-// denormalized exchange column, derived from the MIC and the identifiers; and
-// the joined exchange reference data, which exists so the SPA need not fetch it
-// separately. Nor is there an instrument-level currency or validity interval:
-// both are facts about a line, and the security's lifetime is the hull of its
-// lines'.
+// listing's venues, derived from its own identifiers by trigger; and the
+// exchange reference data joined onto those venues, which exists so the SPA need
+// not fetch it separately and which the importing instance already holds. Nor is
+// there an instrument-level currency or validity interval: both are facts about a
+// line, and the security's lifetime is the hull of its lines'.
 func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
 	// Each identifier at its own grain, which is where it is stored and what it
 	// names. AllIdentifiers flattened the two together while a file could state

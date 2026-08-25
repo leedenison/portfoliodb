@@ -13,8 +13,9 @@ and read by a server that does not exist yet, so it cannot be. Binding the file
 to the API schema couples a long-lived artefact to one that is free to break,
 and turns every future proto change into a question about old exports.
 
-**Structure.** The API `Instrument` nests `underlying` and joins `exchange_info`
-so the SPA need not fetch them separately. A file wants neither: shared
+**Structure.** The API `Instrument` nests `underlying`, and each of its listings
+carries the exchange reference data for its venues, so the SPA need not fetch
+either separately. A file wants neither: shared
 underlyings become references rather than duplicated subtrees, and join results
 do not belong in an archive at all. One message cannot serve both without making
 one of them worse, which is why the current instrument JSON is hand-written

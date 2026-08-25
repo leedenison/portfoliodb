@@ -260,13 +260,64 @@ func TestColumnsToGrid_Empty(t *testing.T) {
 	}
 }
 
+func TestGenerateFormulas_PicksAVenueGoogleFinanceKnows(t *testing.T) {
+	// A line admitted to several venues is one line, so any of them names it and
+	// the one that can be asked is as good an answer as any other. XCNQ has no
+	// Google Finance mapping and XNAS does, so the unmapped venue coming first
+	// must not decide it.
+	gaps := []*apiv1.PriceGap{
+		{
+			InstrumentId: "inst-1",
+			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
+			AssetClass:   typev1.AssetClass_STOCK,
+			Venues:       []string{"XBOG", "XNAS"},
+			Name:         "Microsoft",
+			Gaps:         []*apiv1.DateRange{{From: "2024-01-01", Before: "2024-04-01"}},
+		},
+	}
+
+	res := generateFormulas(gaps, nil)
+	if len(res.Skipped) != 0 {
+		t.Fatalf("unexpected skips: %v", res.Skipped)
+	}
+	if len(res.Columns) != 1 {
+		t.Fatalf("expected 1 column, got %d", len(res.Columns))
+	}
+	if !strings.Contains(res.Columns[0].Formula, "NASDAQ:MSFT") {
+		t.Fatalf("expected the mapped venue to be used, got %s", res.Columns[0].Formula)
+	}
+}
+
+func TestGenerateFormulas_NoVenueIsSkippedNotGuessed(t *testing.T) {
+	// A line nobody named a venue for is ordinary, and an OPENFIGI_TICKER cannot
+	// be turned into a Google Finance symbol without one. It is reported as a
+	// skip rather than quoted against a venue nobody stated.
+	gaps := []*apiv1.PriceGap{
+		{
+			InstrumentId: "inst-1",
+			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
+			AssetClass:   typev1.AssetClass_STOCK,
+			Name:         "Microsoft",
+			Gaps:         []*apiv1.DateRange{{From: "2024-01-01", Before: "2024-04-01"}},
+		},
+	}
+
+	res := generateFormulas(gaps, nil)
+	if len(res.Columns) != 0 {
+		t.Fatalf("expected no columns, got %d", len(res.Columns))
+	}
+	if len(res.Skipped) != 1 {
+		t.Fatalf("expected 1 skip, got %v", res.Skipped)
+	}
+}
+
 func TestGenerateFormulas_OpenfIGITickerWithExchange(t *testing.T) {
 	gaps := []*apiv1.PriceGap{
 		{
 			InstrumentId: "inst-1",
 			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
 			AssetClass:   typev1.AssetClass_STOCK,
-			Exchange:     "XNAS",
+			Venues:       []string{"XNAS"},
 			Name:         "Microsoft",
 			Gaps:         []*apiv1.DateRange{{From: "2024-01-01", Before: "2024-04-01"}},
 		},

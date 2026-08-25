@@ -97,18 +97,6 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row.AssetClass != nil {
 		out.AssetClass = db.StrToAssetClass(*row.AssetClass)
 	}
-	out.Exchange = derefStr(row.ExchangeMIC)
-	if row.ExchangeName != nil || row.ExchangeAcronym != nil || row.ExchangeCountryCode != nil {
-		out.ExchangeInfo = &apiv1.Exchange{
-			Mic:         derefStr(row.ExchangeMIC),
-			Name:        derefStr(row.ExchangeName),
-			Acronym:     derefStr(row.ExchangeAcronym),
-			CountryCode: derefStr(row.ExchangeCountryCode),
-		}
-	}
-	if row.Currency != nil {
-		out.Currency = *row.Currency
-	}
 	if row.Name != nil {
 		out.Name = *row.Name
 	}
@@ -161,7 +149,7 @@ func listingsToProto(listings []*db.Listing) []*apiv1.Listing {
 	}
 	out := make([]*apiv1.Listing, 0, len(listings))
 	for _, l := range listings {
-		pl := &apiv1.Listing{Id: l.ID, Currency: l.Currency, Venues: l.Venues}
+		pl := &apiv1.Listing{Id: l.ID, Currency: l.Currency, Venues: venuesToProto(l.Venues)}
 		if len(l.Identifiers) > 0 {
 			pl.Identifiers = identifiersToProto(l.Identifiers)
 		}
@@ -172,6 +160,28 @@ func listingsToProto(listings []*db.Listing) []*apiv1.Listing {
 			pl.ValidBefore = proto.String(l.ValidBefore.Format("2006-01-02"))
 		}
 		out = append(out, pl)
+	}
+	return out
+}
+
+// venuesToProto converts a line's venues, each with the reference data joined to
+// its MIC.
+//
+// It is where the exchange reference data reaches the wire, and it reaches it per
+// line: a security is admitted to no venue, its lines are, so there is nothing
+// above the line for this to hang off.
+func venuesToProto(venues []db.Venue) []*apiv1.Exchange {
+	if len(venues) == 0 {
+		return nil
+	}
+	out := make([]*apiv1.Exchange, 0, len(venues))
+	for _, v := range venues {
+		out = append(out, &apiv1.Exchange{
+			Mic:         v.MIC,
+			Name:        v.Name,
+			Acronym:     v.Acronym,
+			CountryCode: v.CountryCode,
+		})
 	}
 	return out
 }

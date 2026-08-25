@@ -23,6 +23,9 @@ func listingsOf(insts []*dbpkg.InstrumentRow) map[string]*dbpkg.Listing {
 		if inst.Currency != nil {
 			l.Currency = *inst.Currency
 		}
+		if inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
+			l.Venues = []dbpkg.Venue{{MIC: *inst.ExchangeMIC}}
+		}
 		out[lstIDOf(inst.ID)] = l
 	}
 	return out
@@ -89,7 +92,6 @@ func TestListPriceGaps_Success(t *testing.T) {
 	instruments := []*dbpkg.InstrumentRow{
 		{
 			ID: "inst-1", AssetClass: &stockAC, ExchangeMIC: &mic, Currency: &currency, Name: &name,
-			Exchange: "NASDAQ",
 			Identifiers: []dbpkg.IdentifierInput{
 				{
 					Ref:       dbpkg.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "src"},
@@ -146,6 +148,11 @@ func TestListPriceGaps_Success(t *testing.T) {
 	if pg.GetName() != "Apple Inc" {
 		t.Fatalf("expected name=Apple Inc, got %s", pg.GetName())
 	}
+	// The venues are the line's, not the security's: a security is admitted to
+	// no venue and a gap is a question about one line.
+	if len(pg.GetVenues()) != 1 || pg.GetVenues()[0] != "XNAS" {
+		t.Fatalf("expected venues=[XNAS], got %v", pg.GetVenues())
+	}
 	if len(pg.GetGaps()) != 1 {
 		t.Fatalf("expected 1 gap range, got %d", len(pg.GetGaps()))
 	}
@@ -172,14 +179,14 @@ func TestListPriceGaps_AssetClassFilter(t *testing.T) {
 	etfAC := "ETF"
 	instruments := []*dbpkg.InstrumentRow{
 		{
-			ID: "inst-stock", AssetClass: &stockAC, Exchange: "NASDAQ",
+			ID: "inst-stock", AssetClass: &stockAC,
 			Identifiers: []dbpkg.IdentifierInput{{
 				Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 				Canonical: true,
 			}},
 		},
 		{
-			ID: "inst-etf", AssetClass: &etfAC, Exchange: "NYSE Arca",
+			ID: "inst-etf", AssetClass: &etfAC,
 			Identifiers: []dbpkg.IdentifierInput{{
 				Ref:       dbpkg.InstrumentRef{Type: "MIC_TICKER", Value: "SPY", Domain: "ARCX"},
 				Canonical: true,

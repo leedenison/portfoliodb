@@ -34,7 +34,10 @@ A listing's venues are derived from its listing-grain identifiers into
 `recompute_instrument_name` already follows, which keeps a real foreign key to
 `exchanges` while making divergence unrepresentable. This is what issue
 [0099](../issues/0099-single-source-for-an-instruments-exchange.md) asked for,
-and it supersedes that issue's premise that a security has one exchange.
+and it supersedes that issue's premise that a security has one exchange. The
+security's own `exchange_mic` is gone rather than derived, there being no venue
+above the line to derive one from; how open the set it leaves behind is read is
+[0077](0077-a-venue-set-is-what-we-know-not-what-exists.md).
 
 A bare MIC does not always identify a listing, and the motivating case is where
 it does not: the LSE lists both lines of that ETC. The full `MIC_TICKER` triple

@@ -11,7 +11,7 @@ import { qk } from "@/lib/query-keys";
 import { getHoldings, listHoldingDeclarations } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { currentTicker, lineLabel } from "@/lib/identifiers";
-import { LINE_DETAIL, lineOf } from "@/lib/listing";
+import { LINE_DETAIL, lineOf, venueLabel, venuesOf, venueTitle } from "@/lib/listing";
 import { DeclarationKind } from "@/gen/api/v1/api_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { OpeningBalances } from "./opening-balances";
@@ -162,6 +162,10 @@ export default function UserHoldingsPage() {
                             // them.
                             const ticker = currentTicker(h.instrument, h.listingId);
                             const line = lineOf(h.listingId, h.instrument, h.currency);
+                            // Where the line is quoted, not where the security
+                            // is: a security is admitted to no venue, its lines
+                            // are. A holding on no line has no venue to show.
+                            const venues = venuesOf(h.listingId, h.instrument);
                             const label =
                               ticker || h.instrument?.name || h.instrumentDescription || "\u2014";
                             return (
@@ -177,9 +181,9 @@ export default function UserHoldingsPage() {
                                 </td>
                                 <td
                                   className="px-4 py-3 text-text-muted"
-                                  title={h.instrument?.exchangeInfo?.name || ""}
+                                  title={venueTitle(venues)}
                                 >
-                                  {h.instrument?.exchangeInfo?.acronym || h.instrument?.exchange || "\u2014"}
+                                  {venueLabel(venues) || "\u2014"}
                                 </td>
                                 {/* The line, disclosed by its currency. Where
                                     there is none the row says which question is

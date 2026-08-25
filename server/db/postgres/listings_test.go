@@ -1084,7 +1084,9 @@ func listingVenues(t *testing.T, p *Postgres, instrumentID string) []string {
 	}
 	var out []string
 	for _, l := range got[instrumentID] {
-		out = append(out, l.Venues...)
+		for _, v := range l.Venues {
+			out = append(out, v.MIC)
+		}
 	}
 	sort.Strings(out)
 	return out

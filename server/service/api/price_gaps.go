@@ -131,11 +131,24 @@ func toPriceGapProtos(gaps []db.ListingDateRanges, listingMap map[string]*db.Lis
 			InstrumentId: lst.InstrumentID,
 			Identifier:   ident,
 			AssetClass:   db.StrToAssetClass(ac),
-			Exchange:     derefStr(inst.ExchangeMIC),
+			Venues:       venueMICs(lst.Venues),
 			Name:         derefStr(inst.Name),
 			Gaps:         dateRanges,
 		}
 		out = append(out, pg)
+	}
+	return out
+}
+
+// venueMICs is the MICs of a line's venues, for a consumer that wants the venue
+// and not the reference data behind it.
+func venueMICs(venues []db.Venue) []string {
+	if len(venues) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(venues))
+	for _, v := range venues {
+		out = append(out, v.MIC)
 	}
 	return out
 }

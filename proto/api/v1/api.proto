@@ -41,57 +41,62 @@ message InstrumentIdentifier {
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
 // When asset_class is OPTION or FUTURE, underlying_listing_id must be set.
+//
+// It states no currency and no exchange. Both are facts about one currency line
+// of the security and are carried by the listings below, where they can vary by
+// the thing they vary by; a security quoted in two currencies has no one answer
+// to either, and a field here could only have named one of its lines.
 message Instrument {
   string id = 1;
   portfoliodb.type.v1.AssetClass asset_class = 2;
-  string exchange = 3;
-  string currency = 4;
-  string name = 5;
+  // Denormalized display name, derived by trigger from the preferred identifier
+  // in force at either grain. A label the security's lines share rather than a
+  // claim about which of them matters.
+  string name = 3;
   // The names that name the security itself, whichever line it is quoted on: an
   // ISIN, a CUSIP, an OCC symbol. A name that names one currency line -- a ticker
   // under its venue, a SEDOL, a composite FIGI -- is on that line below, and a
   // reader wanting every name a security answers to reads both.
-  repeated InstrumentIdentifier identifiers = 6;
+  repeated InstrumentIdentifier identifiers = 4;
   // Listing-grain names nobody could place: a ticker or a SEDOL from a result
   // that stated no currency. They name this security and no line of it, which is
   // neither the claim the list above makes nor the one a line below does, so
   // grain alone does not say where a name belongs and this says it.
   // See docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
-  repeated InstrumentIdentifier unplaced_identifiers = 7;
+  repeated InstrumentIdentifier unplaced_identifiers = 5;
   // The currency lines this security trades in. Empty where nobody has named one:
   // a line carries a currency or does not exist, so a security nothing has stated
   // a currency for holds none.
-  repeated Listing listings = 8;
+  repeated Listing listings = 6;
   // The line an OPTION or FUTURE delivers. A contract's strike is a price and a
   // price is in a currency, so the deliverable is one currency line of the
   // underlying security. Set for every derivative; empty otherwise. See
   // docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
-  string underlying_listing_id = 9;
+  string underlying_listing_id = 7;
   // The security that line belongs to, derived rather than stored. It is what
   // `underlying` below carries, and what a caller naming an underlying without
   // caring which of its lines is asking for.
-  string underlying_id = 10;
+  string underlying_id = 8;
   // The underlying security, populated in ListTxs/GetHoldings so clients need
   // not fetch separately. The security rather than the line: which line the
   // contract delivers is underlying_listing_id above, and a surface showing the
   // deliverable names that line among the listings this message carries.
-  Instrument underlying = 11;
-  Exchange exchange_info = 12; // Rich exchange data from exchanges table JOIN; populated when exchange_mic is set.
-  string cik = 13;            // SEC Central Index Key (optional).
-  string sic_code = 14;       // SIC industry classification code (optional).
+  Instrument underlying = 9;
+  string cik = 10;  // SEC Central Index Key (optional).
+  string sic_code = 11; // SIC industry classification code (optional).
   // Option fields (denormalized from OCC identifier).
   // strike is a component of option identity, decoded from the OCC symbol's
   // eight digits of thousandths, so it is an exact decimal string rather than a
   // double: comparing identity components as floats is a latent bug. Optional
   // rather than sentinel-zero, because a non-option has no strike and
   // an instrument import would otherwise have to send one.
-  optional string strike = 15 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  string expiry = 16;             // YYYY-MM-DD expiry date; empty for non-options.
-  string put_call = 17;           // "C" or "P"; empty for non-options.
+  optional string strike = 12 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string expiry = 13;   // YYYY-MM-DD expiry date; empty for non-options.
+  string put_call = 14; // "C" or "P"; empty for non-options.
   // Deliverable multiplier as a decimal string; unset means the column default
   // of 1. A non-standard split leaves a fraction here (3:2 gives 1.5), and it
   // multiplies a posting's weight, so it stays exact.
-  optional string contract_multiplier = 18 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string contract_multiplier = 15 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
 }
 
 // Listing is one currency a security trades in. Currency and exchange are facts
@@ -117,14 +122,23 @@ message Listing {
   // identifier type belongs to is declared rather than inferred from whether it
   // carries a domain.
   repeated InstrumentIdentifier identifiers = 5;
-  // The operating MICs this line is admitted to, derived from its MIC_TICKER
-  // identifiers. A set rather than one venue: two venues quoting one line differ
-  // by a spread, which does not make two listings. Empty is ordinary and means
-  // no provider named a venue -- a composite names a market and stores no MIC.
-  repeated string venues = 6;
+  // The venues this line is admitted to, derived from its MIC_TICKER identifiers,
+  // each carrying the ISO 10383 reference data for its MIC. A set rather than one
+  // venue: two venues quoting one line differ by a spread, which does not make
+  // two listings. Empty is ordinary and means no provider named a venue -- a
+  // composite names a market and stores no MIC.
+  //
+  // The reference data travels with the MIC rather than in a field beside it, so
+  // a reader has no pairing to get wrong and the two cannot disagree about how
+  // many venues there are.
+  //
+  // Open rather than complete: these are the venues we have been told about, not
+  // the venues that exist. See
+  // docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
+  repeated Exchange venues = 6;
 }
 
-// Exchange is ISO 10383 MIC reference data for an instrument's exchange.
+// Exchange is ISO 10383 MIC reference data for one venue.
 message Exchange {
   string mic = 1;
   string name = 2;
@@ -1165,7 +1179,11 @@ message PriceGap {
   string instrument_id = 3;
   InstrumentIdentifier identifier = 4;
   portfoliodb.type.v1.AssetClass asset_class = 5;
-  string exchange = 6;
+  // The operating MICs the line is admitted to. A set, because the gap is a
+  // question about the line and a line may be quoted at several venues; open
+  // rather than complete, so a consumer picking one of them is picking among the
+  // venues we know of rather than among all that exist.
+  repeated string venues = 6;
   string name = 7;
   repeated DateRange gaps = 8;
 }

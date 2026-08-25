@@ -12,6 +12,7 @@ import { AssetClass, IdentifierType } from "@/gen/type/v1/type_pb";
 import type { Instrument, InstrumentIdentifier, Listing } from "@/gen/api/v1/api_pb";
 import { ALL_ASSET_CLASSES, DEFAULT_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 import { lineLabel } from "@/lib/identifiers";
+import { venueLabel } from "@/lib/listing";
 
 const IDENTIFIER_LABELS: Record<number, string> = {
   [IdentifierType.ISIN]: "ISIN",
@@ -70,7 +71,7 @@ function listingTitle(l: Listing): string {
   const window = [l.validFrom ?? "", l.validBefore ?? ""].some(Boolean)
     ? `${l.validFrom ?? "always"} to ${l.validBefore ?? "now"}`
     : "";
-  return [l.venues.join(", "), window].filter(Boolean).join(" - ");
+  return [venueLabel(l.venues), window].filter(Boolean).join(" - ");
 }
 
 export default function AdminInstrumentsPage() {

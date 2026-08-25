@@ -14,6 +14,16 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// venues builds a venue set from MICs alone, the reference data on each being
+// nothing these tests read.
+func venues(mics ...string) []db.Venue {
+	out := make([]db.Venue, len(mics))
+	for i, m := range mics {
+		out[i] = db.Venue{MIC: m}
+	}
+	return out
+}
+
 func strPtr(s string) *string { return &s }
 
 // The price fetcher's eligibility test runs at the grain a price is quoted at:
@@ -30,7 +40,7 @@ func TestPluginAcceptsListing(t *testing.T) {
 			name:       "all nil filters accept anything",
 			plugin:     &filterStub{},
 			assetClass: strPtr("STOCK"),
-			listing:    &db.Listing{Currency: "USD", Venues: []string{"XNAS"}},
+			listing:    &db.Listing{Currency: "USD", Venues: venues("XNAS")},
 			want:       true,
 		},
 		{
@@ -64,13 +74,13 @@ func TestPluginAcceptsListing(t *testing.T) {
 			// security. This is the case the grain exists for.
 			name:    "one line of a security is refused while the other is not",
 			plugin:  &filterStub{currencies: map[string]bool{"USD": true}},
-			listing: &db.Listing{Currency: "GBP", Venues: []string{"XLON"}},
+			listing: &db.Listing{Currency: "GBP", Venues: venues("XLON")},
 			want:    false,
 		},
 		{
 			name:    "no venue in the plugin's set",
 			plugin:  &filterStub{exchanges: map[string]bool{"XNAS": true}},
-			listing: &db.Listing{Venues: []string{"XNYS", "ARCX"}},
+			listing: &db.Listing{Venues: venues("XNYS", "ARCX")},
 			want:    false,
 		},
 		{
@@ -78,7 +88,7 @@ func TestPluginAcceptsListing(t *testing.T) {
 			// is carrying the line.
 			name:    "any venue in the plugin's set is enough",
 			plugin:  &filterStub{exchanges: map[string]bool{"XNAS": true}},
-			listing: &db.Listing{Venues: []string{"XNYS", "XNAS"}},
+			listing: &db.Listing{Venues: venues("XNYS", "XNAS")},
 			want:    true,
 		},
 		{

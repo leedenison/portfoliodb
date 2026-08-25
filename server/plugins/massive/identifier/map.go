@@ -8,14 +8,49 @@ import (
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 )
 
+// tickerTypes maps the provider's ticker type to an asset class, for the types
+// this says something about. The market having been "stocks" is what rules out
+// a contract -- the provider files those under a market of their own -- and the
+// type is what says which kind of security it is.
+var tickerTypes = map[string]string{
+	// Shares in a company, however the holding is wrapped: a depositary receipt
+	// and a registered share are claims on the company's stock.
+	"CS": db.AssetClassStock, "PFD": db.AssetClassStock, "OS": db.AssetClassStock,
+	"ADRC": db.AssetClassStock, "ADRP": db.AssetClassStock, "ADRR": db.AssetClassStock,
+	"GDR": db.AssetClassStock, "NYRS": db.AssetClassStock,
+
+	// Exchange-traded vehicles. Notes and trusts are told apart from funds by
+	// how they are structured rather than by how they are held, and nothing
+	// here turns on that.
+	"ETF": db.AssetClassETF, "ETN": db.AssetClassETF,
+	"ETV": db.AssetClassETF, "ETS": db.AssetClassETF,
+
+	"FUND": db.AssetClassMutualFund, "BASKET": db.AssetClassMutualFund,
+
+	// A warrant, a right and a unit are deliberately absent, along with every
+	// type not listed. They are securities in the stocks market and they are not
+	// shareholdings, and there is no value here that means "one of those", so
+	// they take the answer below rather than being filed as shares.
+}
+
 // stockFromTicker maps a Massive ticker overview to an Instrument and identifiers.
 // Returns nil if the ticker is not a stock (market != "stocks").
+//
+// The class comes from the ticker type where the table above knows it, and is
+// SECURITY otherwise: a type this does not recognise leaves the market as the
+// only evidence, and "stocks" says the security is not a contract rather than
+// that it is a share. Answering STOCK there is what filed every ETF the
+// provider has a type for and we did not as a share in a company.
 func stockFromTicker(r *client.TickerOverviewResult) (*identifier.Instrument, []identifier.Identifier) {
 	if strings.ToLower(r.Market) != "stocks" {
 		return nil, nil
 	}
+	assetClass, ok := tickerTypes[strings.ToUpper(strings.TrimSpace(r.Type))]
+	if !ok {
+		assetClass = db.AssetClassSecurity
+	}
 	inst := &identifier.Instrument{
-		AssetClass: db.AssetClassStock,
+		AssetClass: assetClass,
 		Listing: identifier.Listing{
 			Venue:    identifier.Venue{MIC: r.PrimaryExchange},
 			Currency: strings.ToUpper(r.CurrencyName),

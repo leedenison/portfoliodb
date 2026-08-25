@@ -48,13 +48,13 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
-func (p *Plugin) AcceptableInstrumentKinds() map[string]bool {
-	return map[string]bool{identifier.InstrumentKindSecurity: true}
-}
-
+// AcceptableSecurityTypes returns the classes this plugin can attempt
+// identification for. EQUITY rather than STOCK: the ticker overview carries the
+// provider's own ticker type, so a fund and a share are both looked up here and
+// told apart from the answer.
 func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{
-		identifier.SecurityTypeHintStock:  true,
+		identifier.SecurityTypeHintEquity: true,
 		identifier.SecurityTypeHintOption: true,
 	}
 }

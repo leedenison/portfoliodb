@@ -25,6 +25,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 				Ticker:          "AAPL",
 				Name:            "Apple Inc.",
 				Market:          "stocks",
+				Type:            "CS",
 				PrimaryExchange: "XNAS",
 				CurrencyName:    "usd",
 				CompositeFIGI:   "BBG000B9XRY4",
@@ -73,6 +74,7 @@ func TestPlugin_Identify_Stock_SplitTickerNormalized(t *testing.T) {
 				Ticker:          "BRK.B",
 				Name:            "Berkshire Hathaway Inc Class B",
 				Market:          "stocks",
+				Type:            "CS",
 				PrimaryExchange: "XNYS",
 				CurrencyName:    "usd",
 			},
@@ -336,25 +338,27 @@ func TestPlugin_DefaultConfig(t *testing.T) {
 	}
 }
 
-func TestPlugin_AcceptableInstrumentKinds(t *testing.T) {
-	p := NewPlugin(nil, http.DefaultClient, nil)
-	kinds := p.AcceptableInstrumentKinds()
-	if len(kinds) != 1 || !kinds[identifier.InstrumentKindSecurity] {
-		t.Errorf("AcceptableInstrumentKinds = %v, want {SECURITY}", kinds)
-	}
-}
-
 func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
 	p := NewPlugin(nil, http.DefaultClient, nil)
 	types := p.AcceptableSecurityTypes()
-	if !types[identifier.SecurityTypeHintStock] {
-		t.Error("expected STOCK to be acceptable")
+	for _, c := range []string{
+		identifier.SecurityTypeHintStock,
+		identifier.SecurityTypeHintETF,
+		identifier.SecurityTypeHintEquity,
+		identifier.SecurityTypeHintOption,
+	} {
+		if !identifier.ShouldAttemptPlugin(types, c) {
+			t.Errorf("a row stating %s does not reach the plugin", c)
+		}
 	}
-	if !types[identifier.SecurityTypeHintOption] {
-		t.Error("expected OPTION to be acceptable")
-	}
-	if types[identifier.SecurityTypeHintFuture] {
-		t.Error("FUTURE should not be acceptable")
+	for _, c := range []string{
+		identifier.SecurityTypeHintFuture,
+		identifier.SecurityTypeHintCash,
+		identifier.SecurityTypeHintFixedIncome,
+	} {
+		if identifier.ShouldAttemptPlugin(types, c) {
+			t.Errorf("a row stating %s reached the plugin", c)
+		}
 	}
 }
 

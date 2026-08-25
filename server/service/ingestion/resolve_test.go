@@ -30,10 +30,9 @@ func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source
 	return identifier.Result{Instrument: p.inst, Identifiers: p.ids}, p.err
 }
 
-func (p *fakePlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
-func (p *fakePlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
-func (p *fakePlugin) DefaultConfig() []byte                      { return nil }
-func (p *fakePlugin) DisplayName() string                        { return "Fake" }
+func (p *fakePlugin) AcceptableSecurityTypes() map[string]bool { return nil }
+func (p *fakePlugin) DefaultConfig() []byte                    { return nil }
+func (p *fakePlugin) DisplayName() string                      { return "Fake" }
 
 // stockHints is what a real posting carries alongside its description: the asset
 // class its source stated. A Path B resolution needs it, because the ticker it
@@ -719,9 +718,8 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 
 // fakeDescPlugin is a test double for candidate.Plugin.
 type fakeDescPlugin struct {
-	acceptableKinds map[string]bool
-	acceptable      map[string]bool
-	results         map[string][]identifier.Identifier
+	acceptable map[string]bool
+	results    map[string][]identifier.Identifier
 	// resultsByDesc answers by instrument description rather than by batch id,
 	// for a caller that reaches the plugin through proposeCandidates and so does
 	// not know the id it hashed the key to.
@@ -734,10 +732,9 @@ type fakeDescPlugin struct {
 	tokens *candpkg.Usage
 }
 
-func (p *fakeDescPlugin) DisplayName() string                        { return "FakeDesc" }
-func (p *fakeDescPlugin) DefaultConfig() []byte                      { return nil }
-func (p *fakeDescPlugin) AcceptableInstrumentKinds() map[string]bool { return p.acceptableKinds }
-func (p *fakeDescPlugin) AcceptableSecurityTypes() map[string]bool   { return p.acceptable }
+func (p *fakeDescPlugin) DisplayName() string                      { return "FakeDesc" }
+func (p *fakeDescPlugin) DefaultConfig() []byte                    { return nil }
+func (p *fakeDescPlugin) AcceptableSecurityTypes() map[string]bool { return p.acceptable }
 func (p *fakeDescPlugin) ProposeBatch(_ context.Context, _ []byte, _, _ string, items []candpkg.BatchItem) (candpkg.Result, error) {
 	if p.err != nil {
 		return candpkg.Result{Telemetry: candpkg.Telemetry{Outcome: candpkg.OutcomeError, Tokens: p.tokens}}, p.err
@@ -774,15 +771,13 @@ func TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes(t *te
 	database := mock.NewMockDB(ctrl)
 
 	cashPlugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindCash: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintCash: true},
+		acceptable: map[string]bool{identifier.SecurityTypeHintCash: true},
 		results: map[string][]identifier.Identifier{
 			"cash-1": {{Type: "CURRENCY", Value: "USD"}},
 		},
 	}
 	stockPlugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
+		acceptable: map[string]bool{identifier.SecurityTypeHintStock: true},
 		results: map[string][]identifier.Identifier{
 			"stock-1": {{Type: "MIC_TICKER", Value: "AAPL"}},
 		},
@@ -801,8 +796,8 @@ func TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes(t *te
 		}, nil)
 
 	items := []candpkg.BatchItem{
-		{ID: "cash-1", InstrumentDescription: "USD", Hints: identifier.Hints{InstrumentKind: identifier.InstrumentKindCash, SecurityTypeHint: identifier.SecurityTypeHintCash}},
-		{ID: "stock-1", InstrumentDescription: "AAPL APPLE INC", Hints: identifier.Hints{InstrumentKind: identifier.InstrumentKindSecurity, SecurityTypeHint: identifier.SecurityTypeHintStock}},
+		{ID: "cash-1", InstrumentDescription: "USD", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintCash}},
+		{ID: "stock-1", InstrumentDescription: "AAPL APPLE INC", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 	}
 
 	got, _, err := runCandidatePluginsBatch(context.Background(), ingestDeps{DB: database, CandidateRegistry: candRegistry}, "broker", "source", items)
@@ -822,23 +817,21 @@ func TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes(t *te
 }
 
 // TestRunDescriptionPluginsBatch_TransferSkipsCash verifies that a TRANSFER
-// transaction (kind=SECURITY, type=UNKNOWN) is routed to security plugins
-// but not to cash plugins.
+// transaction, whose source named no class, is routed to security plugins but
+// not to cash plugins.
 func TestRunDescriptionPluginsBatch_TransferSkipsCash(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 
 	cashPlugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindCash: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintCash: true},
+		acceptable: map[string]bool{identifier.SecurityTypeHintCash: true},
 		results: map[string][]identifier.Identifier{
 			"t-1": {{Type: "CURRENCY", Value: "USD"}},
 		},
 	}
 	stockPlugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
+		acceptable: map[string]bool{identifier.SecurityTypeHintStock: true},
 		results: map[string][]identifier.Identifier{
 			"t-1": {{Type: "MIC_TICKER", Value: "ABNB"}},
 		},
@@ -855,11 +848,11 @@ func TestRunDescriptionPluginsBatch_TransferSkipsCash(t *testing.T) {
 			{PluginID: "stock", Precedence: 1, Config: nil},
 		}, nil)
 
-	// TRANSFER: kind=SECURITY, type=UNKNOWN
+	// A TRANSFER row: its source named no class, so HintsFromTx floors it at
+	// SECURITY, which is what keeps it away from the cash plugin.
 	items := []candpkg.BatchItem{
 		{ID: "t-1", InstrumentDescription: "ABNB", Hints: identifier.Hints{
-			InstrumentKind:   identifier.InstrumentKindSecurity,
-			SecurityTypeHint: identifier.SecurityTypeHintUnknown,
+			SecurityTypeHint: identifier.SecurityTypeHintSecurity,
 			Currency:         "USD",
 		}},
 	}
@@ -1037,10 +1030,9 @@ func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, sourc
 	return identifier.Result{Instrument: p.inst, Identifiers: p.ids}, nil
 }
 
-func (p *retryPlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
-func (p *retryPlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
-func (p *retryPlugin) DefaultConfig() []byte                      { return nil }
-func (p *retryPlugin) DisplayName() string                        { return "Retry" }
+func (p *retryPlugin) AcceptableSecurityTypes() map[string]bool { return nil }
+func (p *retryPlugin) DefaultConfig() []byte                    { return nil }
+func (p *retryPlugin) DisplayName() string                      { return "Retry" }
 
 func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 	saved := identification.PluginRetryBackoff

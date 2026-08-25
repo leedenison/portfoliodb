@@ -89,8 +89,11 @@ CREATE INDEX idx_telemetry_run_kind_started_at ON telemetry.run (kind, started_a
 -- the key resolves. That is why they are nullable, and a null in them means the same
 -- thing a null run outcome does.
 --
--- had_identifier_hints, security_type_hint and instrument_kind are here so a spike
--- can be attributed rather than merely noticed.
+-- had_identifier_hints and security_type_hint are here so a spike can be
+-- attributed rather than merely noticed. The class the source stated is the
+-- whole of what routing turned on: cash and securities are told apart by where
+-- that value sits in the asset class tree rather than by a second column
+-- restating the coarse half of it.
 CREATE TABLE telemetry.resolution_key (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   run_id      UUID NOT NULL REFERENCES telemetry.run (id) ON DELETE CASCADE,
@@ -100,7 +103,6 @@ CREATE TABLE telemetry.resolution_key (
   tx_count    INT NOT NULL,
   had_identifier_hints BOOLEAN NOT NULL,
   security_type_hint   TEXT,
-  instrument_kind      TEXT,
   -- Stage 1: what the candidate stage did for this key.
   --
   -- The not_attempted_* members are the skips, and each names a different thing to
@@ -548,7 +550,6 @@ SELECT
   k.tx_count,
   k.had_identifier_hints,
   k.security_type_hint,
-  k.instrument_kind,
   k.candidate_outcome,
   k.outcome,
   k.mismatch_detected,

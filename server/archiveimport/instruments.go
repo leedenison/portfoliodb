@@ -9,6 +9,7 @@ import (
 
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/assetclass"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
@@ -353,10 +354,11 @@ func refKey(t typev1.IdentifierType, value, domain string) identifier.Identifier
 	return identifier.Identifier{Type: typev1.IdentifierType_name[int32(t)], Domain: domain, Value: value}
 }
 
-// isDerivative is db.IsDerivative over the proto enum: the archive speaks the
-// enum and the rule is declared on the stored spelling, so the name crosses here.
+// isDerivative is db.IsDerivative over the proto enum, which is what an archive
+// speaks. The rule is asked of the tree directly rather than routed through the
+// stored spelling and back.
 func isDerivative(ac typev1.AssetClass) bool {
-	return db.IsDerivative(typev1.AssetClass_name[int32(ac)])
+	return assetclass.Below(ac, typev1.AssetClass_DERIVATIVE)
 }
 
 // archiveClaim is the archive's instrument block read as one identity claim.

@@ -224,14 +224,13 @@ func runCandidatePluginsBatch(ctx context.Context, deps ingestDeps, broker, sour
 			continue
 		}
 		anyPlugin = true
-		acceptableKinds := p.AcceptableInstrumentKinds()
 		acceptableTypes := p.AcceptableSecurityTypes()
 		var filtered []candidate.BatchItem
 		for _, item := range items {
 			if resolved[item.ID] {
 				continue
 			}
-			if identifier.ShouldAttemptPlugin(acceptableKinds, acceptableTypes, item.Hints.InstrumentKind, item.Hints.SecurityTypeHint) {
+			if identifier.ShouldAttemptPlugin(acceptableTypes, item.Hints.SecurityTypeHint) {
 				filtered = append(filtered, item)
 				attempted[item.ID] = true
 			}

@@ -1,4 +1,5 @@
 import { AssetClass } from "@/gen/type/v1/type_pb";
+import { mustBe } from "./asset-class";
 import type { ResidualBalance } from "./portfolio-api";
 import { Big } from "@/lib/decimal";
 
@@ -40,9 +41,13 @@ export function ageInDays(oldest: Date | undefined, now: Date): number | null {
  * The two are never summed and never formatted the same way. An unidentified
  * instrument counts as a quantity: rendering an unknown commodity as money would
  * assert something the data does not say.
+ *
+ * The strict question, for that reason. A class that merely could be cash --
+ * the root of the vocabulary, which is every instrument there is -- has not
+ * said this balance is money.
  */
 export function isMoney(b: { assetClass: AssetClass }): boolean {
-  return b.assetClass === AssetClass.CASH;
+  return mustBe(b.assetClass, AssetClass.CASH);
 }
 
 export interface CommoditySubtotal {

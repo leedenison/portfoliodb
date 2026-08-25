@@ -107,6 +107,27 @@ func TestUnder(t *testing.T) {
 	}
 }
 
+func TestBelow(t *testing.T) {
+	tests := []struct {
+		name string
+		c, x typev1.AssetClass
+		want bool
+	}{
+		{"a leaf is below its branch", typev1.AssetClass_OPTION, typev1.AssetClass_DERIVATIVE, true},
+		{"a node is not below itself", typev1.AssetClass_DERIVATIVE, typev1.AssetClass_DERIVATIVE, false},
+		{"a leaf is below a grandparent", typev1.AssetClass_ETF, typev1.AssetClass_SECURITY, true},
+		{"siblings", typev1.AssetClass_OPTION, typev1.AssetClass_FUTURE, false},
+		{"a branch is not below its leaf", typev1.AssetClass_DERIVATIVE, typev1.AssetClass_OPTION, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Below(tt.c, tt.x); got != tt.want {
+				t.Errorf("Below(%v, %v) = %v, want %v", tt.c, tt.x, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMustBe(t *testing.T) {
 	tests := []struct {
 		name string
@@ -157,6 +178,68 @@ func TestMayBe(t *testing.T) {
 				t.Errorf("MayBe(%v, %v) = %v, want %v", tt.c, tt.xs, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestContradicts(t *testing.T) {
+	tests := []struct {
+		name             string
+		stated, resolved typev1.AssetClass
+		want             bool
+	}{
+		{"siblings", typev1.AssetClass_STOCK, typev1.AssetClass_ETF, true},
+		{"a coarse claim admits its leaf", typev1.AssetClass_EQUITY, typev1.AssetClass_ETF, false},
+		{"and the leaf admits the coarse claim", typev1.AssetClass_ETF, typev1.AssetClass_EQUITY, false},
+		{"money against a security", typev1.AssetClass_CASH, typev1.AssetClass_STOCK, true},
+		{"a security of unstated class against money", typev1.AssetClass_SECURITY, typev1.AssetClass_CASH, true},
+		{"the root rules nothing out", typev1.AssetClass_UNKNOWN, typev1.AssetClass_CASH, false},
+		{"silence on the left", typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, typev1.AssetClass_CASH, false},
+		{"silence on the right", typev1.AssetClass_CASH, typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Contradicts(tt.stated, tt.resolved); got != tt.want {
+				t.Errorf("Contradicts(%v, %v) = %v, want %v", tt.stated, tt.resolved, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCorroborates(t *testing.T) {
+	tests := []struct {
+		name             string
+		stated, resolved typev1.AssetClass
+		want             bool
+	}{
+		{"exact", typev1.AssetClass_STOCK, typev1.AssetClass_STOCK, true},
+		{"an answer inside the claim", typev1.AssetClass_EQUITY, typev1.AssetClass_ETF, true},
+		{"an answer coarser than the claim never reached the question",
+			typev1.AssetClass_STOCK, typev1.AssetClass_EQUITY, false},
+		{"siblings", typev1.AssetClass_STOCK, typev1.AssetClass_ETF, false},
+		{"a claim of the root rules nothing out", typev1.AssetClass_UNKNOWN, typev1.AssetClass_STOCK, false},
+		{"silence claims nothing", typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, typev1.AssetClass_STOCK, false},
+		{"silence confirms nothing", typev1.AssetClass_STOCK, typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Corroborates(tt.stated, tt.resolved); got != tt.want {
+				t.Errorf("Corroborates(%v, %v) = %v, want %v", tt.stated, tt.resolved, got, tt.want)
+			}
+		})
+	}
+}
+
+// Corroboration is the stronger claim: whatever it holds for, a contradiction
+// cannot also hold for. The reverse does not follow, and that gap is the point
+// -- an answer that says almost nothing contradicts almost nothing.
+func TestCorroboratesImpliesNoContradiction(t *testing.T) {
+	for i := range typev1.AssetClass_name {
+		for j := range typev1.AssetClass_name {
+			a, b := typev1.AssetClass(i), typev1.AssetClass(j)
+			if Corroborates(a, b) && Contradicts(a, b) {
+				t.Errorf("%v/%v both corroborates and contradicts", a, b)
+			}
+		}
 	}
 }
 

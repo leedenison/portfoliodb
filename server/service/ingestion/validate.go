@@ -178,10 +178,12 @@ func instrumentsByID(ctx context.Context, database db.InstrumentDB, instrumentID
 	return out, nil
 }
 
-// validateAssetClasses checks that each tx's resolved instrument has an
-// asset class compatible with the asset class the source stated. A row with no
-// stated hint makes no claim and is skipped -- "no claim" is weaker than
-// UNKNOWN, which asserts a security of unstated class and still rejects CASH.
+// validateAssetClasses checks that no tx's resolved instrument has an asset
+// class its source contradicted. A row with no stated hint makes no claim and
+// is skipped, and so is one that stated only the root of the vocabulary, which
+// rules nothing out; what is refused is a claim and a resolution that cannot
+// both be true of one security -- a stated EQUITY against a resolved ETF has
+// not contradicted anything.
 // txs and instrumentIDs are parallel slices; originalIndices maps each
 // position back to the row index in the user-supplied request (for
 // ValidationError.RowIndex). Returns one ValidationError per contradicting row.
@@ -198,15 +200,12 @@ func validateAssetClasses(txs []*apiv1.Tx, originalIndices []int, instrumentIDs 
 		if instID == "" {
 			continue
 		}
-		if tx.GetAssetClassHint() == typev1.AssetClass_ASSET_CLASS_UNSPECIFIED {
-			continue
-		}
 		// Missing IDs (e.g. instrument deleted between resolution and
-		// validation) default to "" here, which IsAssetClassCompatible
-		// treats as compatible -- no signal to contradict.
+		// validation) default to "" here, which contradicts nothing -- there
+		// is no resolved class to disagree with.
 		resolved := classByID[instID]
 		implied := db.AssetClassToStr(tx.GetAssetClassHint())
-		if db.IsAssetClassCompatible(implied, resolved) {
+		if !db.AssetClassContradicts(implied, resolved) {
 			continue
 		}
 		errs = append(errs, &apiv1.ValidationError{

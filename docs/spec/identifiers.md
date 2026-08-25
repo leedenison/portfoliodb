@@ -1,6 +1,6 @@
 # Instruments
 
-An **instrument** is a security: what an identifier denotes, independent of how it was identified. It holds `id`, asset class, name, CIK and SIC code. **Asset class** is a controlled vocabulary: one of `STOCK`, `ETF`, `FIXED_INCOME`, `MUTUAL_FUND`, `OPTION`, `FUTURE`, `CASH`, or `UNKNOWN` (or null if unknown). Instruments with asset class `OPTION` or `FUTURE` must reference an underlying listing.
+An **instrument** is a security: what an identifier denotes, independent of how it was identified. It holds `id`, asset class, name, CIK and SIC code. **Asset class** is a controlled vocabulary and a tree; its values and what each means are in [The asset class vocabulary](#the-asset-class-vocabulary) below, and null where nothing has said. Instruments with asset class `OPTION` or `FUTURE` must reference an underlying listing.
 
 ## Listings
 
@@ -185,10 +185,17 @@ A user may believe the system has mis-identified an instrument. It should be pos
 
 The **security type hint** is the asset class the source stated on the posting
 (`asset_class_hint`; see tx-types.md). It is passed to description and identifier
-plugins for routing only: a stated CASH routes to the cash plugins, any other
-stated class to the security plugins, and a posting with no stated hint routes as
-a security with no class constraint -- cash plugins run only for a stated CASH,
-so an unidentifiable security cannot silently resolve to its trading currency.
+plugins for routing only: a plugin is offered a row when the class the source
+stated and a class the plugin declares could describe one security. A plugin
+covering shares declares STOCK and is offered the EQUITY a statement line says;
+a cash plugin declares CASH, which no security class lies under or over, so only
+a row whose source stated cash can reach one.
+
+For routing the stated class is floored at SECURITY: a posting that stated
+nothing, or stated only the root, routes as a security of unstated class, so an
+unidentifiable security cannot silently resolve to its trading currency. The
+floor is a routing decision and not a claim -- what the source actually stated is
+what is stored and what a contradiction is measured against.
 
 #### Type layers
 
@@ -199,6 +206,25 @@ so an unidentifiable security cannot silently resolve to its trading currency.
   is weaker than any value in it.
 - **Asset class** (canonical): the same vocabulary, set by identifier plugins
   and stored on instruments.
+
+#### Comparing two classes
+
+Nothing compares two asset classes for equality. Every comparison is one of two
+questions, and which one it is depends on what turns on the answer.
+
+**Does this contradict?** Permissive, and symmetric. Two claims contradict when
+no reading admits them both -- a stated EQUITY and a resolved ETF have not
+disagreed, and a stated STOCK and a resolved ETF have. Silence contradicts
+nothing, and neither does a claim of the root, which rules nothing out. This is
+what refuses a transaction at ingest and what a reported hint difference means.
+
+**Does this corroborate?** Strict, and asymmetric. A resolution corroborates a
+stated class when the claim ruled something out and the answer falls inside it:
+EQUITY is corroborated by ETF, which had to land in one of three and did, while
+STOCK is not corroborated by EQUITY, which never reached the question.
+Corroboration is a stronger thing than the absence of a contradiction, because a
+result that says almost nothing contradicts almost nothing; it is what decides
+whether a guessed identifier was actually tested.
 
 #### The asset class vocabulary
 

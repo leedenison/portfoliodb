@@ -246,7 +246,13 @@ interface TxTypeDef {
   /**
    * The asset class the OFX tag states. OFX names the class in the tag itself
    * (BUYSTOCK, BUYMF), which is exactly what the hint field carries now that
-   * the type does not. UNKNOWN for the tags that transact an unstated security.
+   * the type does not.
+   *
+   * At the specificity the tag can defend and no further. OFX has no ETF tag,
+   * so an ETF trade arrives as BUYSTOCK and the honest reading of that tag is
+   * EQUITY -- a share or a fund -- rather than STOCK. BUYMF says fund and is
+   * taken at its word. The tags that transact an unstated security say
+   * SECURITY: not money, and nothing beyond that.
    */
   hint: AssetClass;
   /** Path from the wrapper element to the INVBUY/INVSELL/INVTRAN container. */
@@ -256,23 +262,23 @@ interface TxTypeDef {
 // Direction is not read from the tag: OFX signs UNITS itself, so a SELLSTOCK's
 // quantity arrives negative and the sign is the direction.
 const TX_TYPES: Record<string, TxTypeDef> = {
-  BUYSTOCK:  { types: [TxType.TRADE_ASSET], hint: AssetClass.STOCK,        invTag: "INVBUY" },
-  SELLSTOCK: { types: [TxType.TRADE_ASSET], hint: AssetClass.STOCK,        invTag: "INVSELL" },
+  BUYSTOCK:  { types: [TxType.TRADE_ASSET], hint: AssetClass.EQUITY,       invTag: "INVBUY" },
+  SELLSTOCK: { types: [TxType.TRADE_ASSET], hint: AssetClass.EQUITY,       invTag: "INVSELL" },
   BUYOPT:    { types: [TxType.TRADE_ASSET], hint: AssetClass.OPTION,       invTag: "INVBUY" },
   SELLOPT:   { types: [TxType.TRADE_ASSET], hint: AssetClass.OPTION,       invTag: "INVSELL" },
   BUYMF:     { types: [TxType.TRADE_ASSET], hint: AssetClass.MUTUAL_FUND,  invTag: "INVBUY" },
   SELLMF:    { types: [TxType.TRADE_ASSET], hint: AssetClass.MUTUAL_FUND,  invTag: "INVSELL" },
   BUYDEBT:   { types: [TxType.TRADE_ASSET], hint: AssetClass.FIXED_INCOME, invTag: "INVBUY" },
   SELLDEBT:  { types: [TxType.TRADE_ASSET], hint: AssetClass.FIXED_INCOME, invTag: "INVSELL" },
-  BUYOTHER:  { types: [TxType.TRADE_ASSET], hint: AssetClass.UNKNOWN,      invTag: "INVBUY" },
-  SELLOTHER: { types: [TxType.TRADE_ASSET], hint: AssetClass.UNKNOWN,      invTag: "INVSELL" },
+  BUYOTHER:  { types: [TxType.TRADE_ASSET], hint: AssetClass.SECURITY,     invTag: "INVBUY" },
+  SELLOTHER: { types: [TxType.TRADE_ASSET], hint: AssetClass.SECURITY,     invTag: "INVSELL" },
   // Bare INCOME is honestly income of an unstated kind: the internal node is
   // the claim, and grouping may narrow it later.
   INCOME:    { types: [TxType.INCOME],      hint: AssetClass.CASH,         invTag: null },
   // A compressed two-event group: the row is the trade's asset leg, and the
   // dividend it consumed is emitted beside it below.
-  REINVEST:  { types: [TxType.TRADE_ASSET], hint: AssetClass.UNKNOWN,      invTag: null },
-  TRANSFER:  { types: [TxType.TRANSFER],    hint: AssetClass.UNKNOWN,      invTag: null },
+  REINVEST:  { types: [TxType.TRADE_ASSET], hint: AssetClass.SECURITY,     invTag: null },
+  TRANSFER:  { types: [TxType.TRANSFER],    hint: AssetClass.SECURITY,     invTag: null },
 };
 
 // ── Main parser ──────────────────────────────────────────────────────

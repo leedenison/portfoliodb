@@ -12,6 +12,7 @@ func TestStockFromTicker(t *testing.T) {
 		Ticker:          "AAPL",
 		Name:            "Apple Inc.",
 		Market:          "stocks",
+		Type:            "CS",
 		PrimaryExchange: "XNAS",
 		CurrencyName:    "usd",
 		CompositeFIGI:   "BBG000B9XRY4",
@@ -47,6 +48,41 @@ func TestStockFromTicker(t *testing.T) {
 	assertID(t, ids[0], "MIC_TICKER", "XNAS", "AAPL")
 	assertID(t, ids[1], "OPENFIGI_COMPOSITE", "", "BBG000B9XRY4")
 	assertID(t, ids[2], "OPENFIGI_SHARE_CLASS", "", "BBG001S5N8V8")
+}
+
+// The ticker type decides the class. Where the provider names one this does not
+// know, the market is the only evidence left and it says the security is not a
+// contract rather than that it is a share.
+func TestStockFromTicker_ClassFromTickerType(t *testing.T) {
+	tests := []struct {
+		typ  string
+		want string
+	}{
+		{"CS", db.AssetClassStock},
+		{"PFD", db.AssetClassStock},
+		{"ADRC", db.AssetClassStock},
+		{"ETF", db.AssetClassETF},
+		{"ETN", db.AssetClassETF},
+		{"FUND", db.AssetClassMutualFund},
+		{"etf", db.AssetClassETF},
+		{"", db.AssetClassSecurity},
+		{"OTHER", db.AssetClassSecurity},
+		// A warrant is a security in the stocks market and is not a share.
+		{"WARRANT", db.AssetClassSecurity},
+	}
+	for _, tt := range tests {
+		t.Run(tt.typ, func(t *testing.T) {
+			inst, _ := stockFromTicker(&client.TickerOverviewResult{
+				Ticker: "X", Market: "stocks", Type: tt.typ, PrimaryExchange: "XNAS", CurrencyName: "usd",
+			})
+			if inst == nil {
+				t.Fatal("expected instrument")
+			}
+			if inst.AssetClass != tt.want {
+				t.Errorf("AssetClass = %q, want %q", inst.AssetClass, tt.want)
+			}
+		})
+	}
 }
 
 func TestStockFromTicker_Index(t *testing.T) {

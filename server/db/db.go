@@ -13,6 +13,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/assetclass"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
@@ -1217,61 +1218,44 @@ func StrToAssetClass(s string) typev1.AssetClass {
 	return typev1.AssetClass(v)
 }
 
-// assetClassEquivalents lists unordered pairs of asset classes that brokers
-// commonly conflate. The relation is intentionally non-transitive: STOCK and
-// MUTUAL_FUND are not equivalent even though both are paired with ETF.
-var assetClassEquivalents = map[[2]string]bool{
-	{AssetClassStock, AssetClassETF}:      true,
-	{AssetClassETF, AssetClassStock}:      true,
-	{AssetClassMutualFund, AssetClassETF}: true,
-	{AssetClassETF, AssetClassMutualFund}: true,
+// The asset class comparisons, over the stored spelling. Each is
+// [github.com/leedenison/portfoliodb/server/assetclass]'s rule with the strings
+// the column holds converted first; the rules themselves live there and are not
+// restated here, a value being a value however it is spelled.
+
+// AssetClassContradicts reports whether a class a source stated and a class we
+// resolved cannot both be true of one security. It is what gates ingest
+// validation and what a reported hint difference means.
+func AssetClassContradicts(stated, resolved string) bool {
+	return assetclass.Contradicts(StrToAssetClass(stated), StrToAssetClass(resolved))
 }
 
-// IsAssetClassCompatible reports whether a transaction whose stated
-// asset_class_hint is `implied` may legitimately be linked to an instrument
-// with asset class `resolved`.
-//
-// Rules:
-//   - When `resolved` is empty or UNKNOWN (the instrument's class is unset
-//     or the identifier plugin could not classify it) there is no signal to
-//     contradict, so the tx is accepted.
-//   - When `implied` is UNKNOWN (the source claims a security of unstated
-//     class) any concrete class is accepted but CASH is rejected.
-//   - STOCK <-> ETF and MUTUAL_FUND <-> ETF are treated as equivalent
-//     (non-transitive: STOCK and MUTUAL_FUND remain incompatible).
-//   - Otherwise, compatible iff the two strings are equal.
-func IsAssetClassCompatible(implied, resolved string) bool {
-	if resolved == "" || resolved == AssetClassUnknown {
-		return true
-	}
-	if implied == AssetClassUnknown {
-		return resolved != AssetClassCash
-	}
-	if implied == resolved {
-		return true
-	}
-	return assetClassEquivalents[[2]string{implied, resolved}]
+// AssetClassCorroborates reports whether a resolution confirms the class a
+// source stated: a test the claim could have failed, which it passed. Stricter
+// than the absence of a contradiction, and deliberately so.
+func AssetClassCorroborates(stated, resolved string) bool {
+	return assetclass.Corroborates(StrToAssetClass(stated), StrToAssetClass(resolved))
+}
+
+// AssetClassClaims reports whether a stated class is a claim a resolution could
+// contradict or confirm, which is what makes it worth comparing at all.
+func AssetClassClaims(stated string) bool {
+	return assetclass.Claims(StrToAssetClass(stated))
 }
 
 // IsDerivative reports whether an asset class is one the schema requires an
-// underlying line for, and is the only statement of which classes those are.
+// underlying line for.
 //
 // A contract's strike is a price and a price is in a currency, so an OPTION or a
 // FUTURE delivers one currency line of its underlying rather than the security
-// above it. Callers holding the proto enum or a provider's own vocabulary
-// convert to the stored spelling first: the classes are what this is about, and
-// a second copy keyed on a second representation is how the two come to disagree.
+// above it. Strictly below DERIVATIVE and not DERIVATIVE itself: a security
+// classified only that far has not been resolved to the contract whose strike
+// the line would let us read, and the schema asks a line of the classes that
+// carry one.
 // See docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
 func IsDerivative(assetClass string) bool {
-	return assetClass == AssetClassOption || assetClass == AssetClassFuture
+	return assetclass.Below(StrToAssetClass(assetClass), typev1.AssetClass_DERIVATIVE)
 }
-
-// InstrumentKind constants. Coarser than asset class; used as a first-pass
-// filter to separate cash from securities during plugin routing.
-const (
-	InstrumentKindCash     = "CASH"
-	InstrumentKindSecurity = "SECURITY"
-)
 
 // currencyCodeRE is the shape users.display_currency holds: an ISO 4217 code.
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
@@ -2671,7 +2655,6 @@ type TelemetryResolutionKey struct {
 	TxCount            int
 	HadIdentifierHints bool
 	SecurityTypeHint   string
-	InstrumentKind     string
 }
 
 // TelemetryResolutionKeyOutcome is what became of a resolution key, stamped onto

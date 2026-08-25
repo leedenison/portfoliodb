@@ -56,7 +56,13 @@ func toSet(vals ...string) map[string]bool {
 
 // classificationRules is the ordered rule table for mapping OpenFIGI fields to
 // asset class. Priority order: OPTION -> FUTURE -> ETF -> FX -> FIXED_INCOME ->
-// MUTUAL_FUND -> STOCK -> CASH -> UNKNOWN.
+// MUTUAL_FUND -> STOCK -> SECURITY -> CASH -> UNKNOWN.
+//
+// The rules run from what the provider named to what it merely implied, and the
+// answer says which it was: a securityType of "Common Stock" is a share, while
+// the market sector on its own is the last thing left to read. OpenFIGI's own
+// guidance is to fall back to it when securityType2 is absent, which is what
+// the rule at the bottom does.
 var classificationRules = []classificationRule{
 	// ── OPTION (100) ──
 	{
@@ -163,8 +169,20 @@ var classificationRules = []classificationRule{
 		assetClass:     db.AssetClassStock,
 		securityType2s: toSet("Common Stock"),
 	},
+	// ── SECURITY (800) ──
+	//
+	// The market sector alone, with no securityType or securityType2 this table
+	// knows. SECURITY and not EQUITY: the Equity sector is not a statement that
+	// the security is a shareholding. Bloomberg files equity options, single
+	// stock futures, warrants and rights under it as readily as shares and
+	// funds -- an equity option's ticker ends in "Equity", and the recorded
+	// responses in testdata show securityType "Equity Option" carrying
+	// marketSector "Equity", two of them with a securityType2 no rule above
+	// matches. What the sector rules out is debt, currency and commodity, and
+	// the vocabulary has no node for exactly that, so the answer is the nearest
+	// one that is true.
 	{
-		assetClass:    db.AssetClassStock,
+		assetClass:    db.AssetClassSecurity,
 		marketSectors: toSet("Equity"),
 	},
 

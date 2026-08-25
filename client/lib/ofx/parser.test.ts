@@ -204,7 +204,9 @@ describe("parseOfxStatement", () => {
 
     const tx = result.postings[0]!;
     expect(tx.brokerTxType).toEqual([TxType.TRADE_ASSET]);
-    expect(tx.assetClassHint).toBe(AssetClass.STOCK);
+    // EQUITY and not STOCK: BUYSTOCK is the only tag OFX has for a share or an
+    // ETF, so the tag cannot say which.
+    expect(tx.assetClassHint).toBe(AssetClass.EQUITY);
     expect(tx.quantity).toBe("20");
     expect(tx.unitPrice).toBe("156.55");
     expect(tx.tradingCurrency).toBe("USD");
@@ -379,7 +381,7 @@ describe("parseOfxStatement", () => {
 
     // The stock's SECID is stated all the same, though this SECLIST does not
     // describe it: what the posting named is a fact about the posting.
-    const stock = result.postings.find((t) => t.assetClassHint === AssetClass.STOCK)!;
+    const stock = result.postings.find((t) => t.assetClassHint === AssetClass.EQUITY)!;
     const stockRef = result.securities.get(stock)!;
     expect(stockRef.uniqueId).toBe("023135106");
     expect(stockRef.uniqueIdType).toBe("CUSIP");

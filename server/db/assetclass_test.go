@@ -1,6 +1,11 @@
 package db
 
-import "testing"
+import (
+	"slices"
+	"testing"
+
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+)
 
 // The rule these three carry is tested in server/assetclass. What is tested
 // here is that the stored spelling reaches it: a class the column holds is a
@@ -100,5 +105,26 @@ func TestIsDerivative(t *testing.T) {
 		if IsDerivative(s) {
 			t.Errorf("IsDerivative(%q) = true, want false", s)
 		}
+	}
+}
+
+// The enumeration a query has to bind, which must be exactly what the predicate
+// beside it accepts. Written as a derivation rather than as a list, so this
+// checks that the derivation ran and not that someone typed the same two names
+// twice.
+func TestDerivativeClasses(t *testing.T) {
+	got := DerivativeClasses()
+	for _, c := range got {
+		if !IsDerivative(c) {
+			t.Errorf("DerivativeClasses returned %q, which IsDerivative rejects", c)
+		}
+	}
+	for _, name := range typev1.AssetClass_name {
+		if IsDerivative(name) && !slices.Contains(got, name) {
+			t.Errorf("IsDerivative accepts %q and DerivativeClasses omits it", name)
+		}
+	}
+	if !slices.IsSorted(got) {
+		t.Errorf("DerivativeClasses = %v, want sorted: a query plan must not depend on map order", got)
 	}
 }

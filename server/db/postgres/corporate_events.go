@@ -596,8 +596,13 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 
 // HeldEventBearingInstruments implements db.CorporateEventDB.
 // Returns one row per instrument that needs corporate event coverage:
-//   - Directly held STOCK/ETF instruments (existing behavior)
-//   - Underlyings of held OPTION/FUTURE instruments (new)
+//   - Directly held STOCK/ETF instruments
+//   - Underlyings of held derivative instruments
+//
+// The derivative classes are bound from db.DerivativeClasses rather than spelled
+// out, so this query is not a second definition of derivative-ness. STOCK and
+// ETF stay literal: "directly held and event-bearing" is a question of its own
+// with no Go definition to drift from.
 //
 // For underlyings discovered via derivatives, the earliest tx date is the
 // minimum across all derivatives on that underlying. This ensures the
@@ -616,14 +621,14 @@ func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldIn
 			FROM txs t
 			JOIN instruments i ON i.id = t.instrument_id
 			JOIN instrument_listings ul ON ul.id = i.underlying_listing_id
-			WHERE i.asset_class IN ('OPTION', 'FUTURE') AND t.account_type = 'USER'
+			WHERE i.asset_class = ANY($1) AND t.account_type = 'USER'
 			GROUP BY ul.instrument_id
 		)
 		SELECT instrument_id, MIN(earliest) AS earliest
 		FROM (SELECT * FROM direct UNION ALL SELECT * FROM via_derivative) combined
 		GROUP BY instrument_id
 		ORDER BY instrument_id
-	`)
+	`, pq.Array(db.DerivativeClasses()))
 	if err != nil {
 		return nil, fmt.Errorf("held event-bearing instruments: %w", err)
 	}

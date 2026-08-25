@@ -52,7 +52,12 @@ func Family(code string) string {
 }
 
 // Same reports whether two codes name one line's currency, and is the only
-// currency comparison in the Go code.
+// place in the Go code that answers it.
+//
+// The question is whether two codes are about one line, and not whether they
+// are the same unit. A posting quoted in pence and settled in pounds names one
+// line and still needs its decimal point moved, so the places asking about
+// units compare codes directly and are right to.
 //
 // On family and not on the code: GBX is GBP under a different unit prefix, so a
 // line quoted in one is the line the other names and a security never holds
@@ -65,4 +70,20 @@ func Family(code string) string {
 // broker files as readily as from the store.
 func Same(a, b string) bool {
 	return Family(strings.ToUpper(a)) == Family(strings.ToUpper(b))
+}
+
+// SameAny reports whether one of the codes in a set is the currency code names.
+//
+// The set is how a plugin declares what it carries, and the question is the one
+// [Same] asks, once per member: a plugin declaring GBP carries the London line
+// whether the line is quoted in pounds or in pence. The set is iterated rather
+// than indexed because family membership is not string equality, and it holds
+// one or two entries where it is not empty.
+func SameAny(codes map[string]bool, code string) bool {
+	for c := range codes {
+		if Same(c, code) {
+			return true
+		}
+	}
+	return false
 }

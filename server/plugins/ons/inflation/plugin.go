@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 )
 
@@ -51,8 +51,11 @@ func (p *Plugin) DefaultConfig() []byte {
 	return []byte(`{"series": "l522", "dataset": "mm23"}`)
 }
 
-func (p *Plugin) FetchInflation(ctx context.Context, config []byte, currency string, from, to time.Time) (*inflationfetcher.FetchResult, error) {
-	if !strings.EqualFold(currency, "GBP") {
+// FetchInflation returns the ONS index for sterling. The currency check is on
+// the family, as the orchestrator's is: a caller asking for the line quoted in
+// pence is asking about sterling.
+func (p *Plugin) FetchInflation(ctx context.Context, config []byte, code string, from, to time.Time) (*inflationfetcher.FetchResult, error) {
+	if !currency.Same(code, "GBP") {
 		return nil, inflationfetcher.ErrNoData
 	}
 

@@ -865,7 +865,7 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 	// record and is the permissive side. A result naming a venue no stated
 	// MIC_TICKER names has answered about a different line, and a guess must not
 	// promote it.
-	if r.inst.Listing.Venue.MIC != "" && venueStated(identifierHints) {
+	if r.inst.Listing.Venue.MIC != "" && micStated(identifierHints) {
 		return venueAgrees(ctx, normalizeMIC, r.inst.Listing.Venue.MIC, identifierHints)
 	}
 	// At least one hint field must have been compared (both sides non-empty).
@@ -949,8 +949,23 @@ func holdsCurrency(currencies []string, stated string) bool {
 	return false
 }
 
-// venueStated reports whether any of these identifiers named a venue.
-func venueStated(idns []identifier.Identifier) bool {
+// micStated reports whether any of these identifiers named a venue that can be
+// compared against a MIC, which is the only comparison venueAgrees below makes.
+//
+// So a MIC_TICKER carrying its domain and nothing else: an OPENFIGI_TICKER's
+// domain is a composite exchange code, which names a market rather than a
+// venue, and testing a MIC against it would be reading a country as a place to
+// trade. That exclusion is about the comparison and not about what a source
+// said, which is why this is not the same question as three others nearby:
+//
+//   - ingestion.identityComplete asks whether the stated identifiers already
+//     pick out one listing, and a composite exchange code does, so it counts one
+//     where this does not.
+//   - pluginutil.anyLineHasVenue asks it of a stored row, where a venue is a
+//     MIC on a line rather than the domain of a name.
+//   - identifier.Venue.Known asks it of a provider's answer, which may name a
+//     market instead and says so in a field of its own.
+func micStated(idns []identifier.Identifier) bool {
 	for _, h := range idns {
 		if h.Type == "MIC_TICKER" && h.Domain != "" {
 			return true

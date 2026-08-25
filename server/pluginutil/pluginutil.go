@@ -2,9 +2,9 @@ package pluginutil
 
 import (
 	"encoding/json"
-	"strings"
 	"time"
 
+	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
@@ -28,6 +28,11 @@ import (
 // what we have been told about rather than what exists, so a security no line of
 // which records a venue has nothing to fail on. See
 // docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
+//
+// The currency is compared on the family, as every currency comparison is: a
+// plugin declaring GBP carries the London line whether the line is quoted in
+// pounds or in pence, the two being one currency under a different unit prefix
+// (adr/0068).
 func PluginAccepts(ac, ex, cu map[string]bool, inst *db.InstrumentRow) bool {
 	if len(ac) > 0 && inst.AssetClass != nil && *inst.AssetClass != "" {
 		if !ac[*inst.AssetClass] {
@@ -50,7 +55,7 @@ func PluginAccepts(ac, ex, cu map[string]bool, inst *db.InstrumentRow) bool {
 	if len(cu) > 0 && anyLineHasCurrency(inst) {
 		matched := false
 		for _, l := range inst.Listings {
-			if l.Currency != "" && cu[strings.ToUpper(l.Currency)] {
+			if l.Currency != "" && currency.SameAny(cu, l.Currency) {
 				matched = true
 			}
 		}
@@ -97,7 +102,8 @@ func anyLineHasCurrency(inst *db.InstrumentRow) bool {
 // can.
 //
 // A listing with no currency does not reach here: it is not priceable, so it is
-// never in a gap.
+// never in a gap. One that has a currency is matched on the family, as
+// PluginAccepts matches it: the line is the family and not the code.
 func PluginAcceptsListing(ac, ex, cu map[string]bool, assetClass *string, lst *db.Listing) bool {
 	if len(ac) > 0 && assetClass != nil && *assetClass != "" {
 		if !ac[*assetClass] {
@@ -117,7 +123,7 @@ func PluginAcceptsListing(ac, ex, cu map[string]bool, assetClass *string, lst *d
 		}
 	}
 	if len(cu) > 0 && lst.Currency != "" {
-		if !cu[strings.ToUpper(lst.Currency)] {
+		if !currency.SameAny(cu, lst.Currency) {
 			return false
 		}
 	}

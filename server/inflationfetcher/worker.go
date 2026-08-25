@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
+	"github.com/leedenison/portfoliodb/server/currency"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/worker"
@@ -124,24 +124,24 @@ func processCurrencies(ctx context.Context, database db.DB, plugins []pluginEntr
 	now := time.Now().UTC()
 	endMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 
-	for _, currency := range currencies {
+	for _, code := range currencies {
 		if ctx.Err() != nil {
 			return
 		}
-		processCurrency(ctx, database, plugins, currency, endMonth, log)
+		processCurrency(ctx, database, plugins, code, endMonth, log)
 	}
 }
 
-func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry, currency string, endMonth time.Time, log *slog.Logger) {
+func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry, code string, endMonth time.Time, log *slog.Logger) {
 	for _, pe := range plugins {
-		if !pluginAcceptsCurrency(pe.plugin, currency) {
+		if !pluginAcceptsCurrency(pe.plugin, code) {
 			continue
 		}
 
-		coverage, err := database.InflationCoverage(ctx, currency)
+		coverage, err := database.InflationCoverage(ctx, code)
 		if err != nil {
 			if log != nil {
-				log.ErrorContext(ctx, "inflation fetch: coverage", "currency", currency, "err", err)
+				log.ErrorContext(ctx, "inflation fetch: coverage", "currency", code, "err", err)
 			}
 			return
 		}
@@ -152,7 +152,7 @@ func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry,
 		}
 
 		callCtx, callCancel := context.WithTimeout(ctx, pluginutil.TimeoutFromConfig(pe.config, DefaultInflationPluginTimeout))
-		result, err := pe.plugin.FetchInflation(callCtx, pe.config, currency, gapFrom, gapTo)
+		result, err := pe.plugin.FetchInflation(callCtx, pe.config, code, gapFrom, gapTo)
 		callCancel()
 
 		if err != nil {
@@ -161,7 +161,7 @@ func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry,
 			}
 			if log != nil {
 				log.WarnContext(ctx, "inflation fetch: plugin error",
-					"plugin", pe.id, "currency", currency, "err", err)
+					"plugin", pe.id, "currency", code, "err", err)
 			}
 			continue
 		}
@@ -170,29 +170,33 @@ func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry,
 			continue
 		}
 
-		indices := toDBIndices(currency, pe.id, result.Indices)
+		indices := toDBIndices(code, pe.id, result.Indices)
 		if err := database.UpsertInflationIndices(ctx, indices, nil); err != nil {
 			if log != nil {
 				log.ErrorContext(ctx, "inflation fetch: upsert",
-					"currency", currency, "err", err)
+					"currency", code, "err", err)
 			}
 			return
 		}
 		if log != nil {
 			log.InfoContext(ctx, "inflation fetch: stored indices",
-				"plugin", pe.id, "currency", currency, "count", len(indices))
+				"plugin", pe.id, "currency", code, "count", len(indices))
 		}
 		return // success, stop trying plugins for this currency
 	}
 	if log != nil {
-		log.InfoContext(ctx, "inflation fetch: no plugin supports currency", "currency", currency)
+		log.InfoContext(ctx, "inflation fetch: no plugin supports currency", "currency", code)
 	}
 }
 
 // pluginAcceptsCurrency checks if a plugin supports the given currency.
-func pluginAcceptsCurrency(p Plugin, currency string) bool {
+//
+// On the family, as every currency comparison is: a plugin publishing an index
+// for GBP publishes it for the line quoted in pence, the two being one currency
+// under a different unit prefix (adr/0068).
+func pluginAcceptsCurrency(p Plugin, code string) bool {
 	for _, c := range p.SupportedCurrencies() {
-		if strings.EqualFold(c, currency) {
+		if currency.Same(c, code) {
 			return true
 		}
 	}

@@ -1257,6 +1257,27 @@ func IsDerivative(assetClass string) bool {
 	return assetclass.Below(StrToAssetClass(assetClass), typev1.AssetClass_DERIVATIVE)
 }
 
+// DerivativeClasses is the classes IsDerivative accepts, enumerated for a query
+// that has to name them rather than call a predicate.
+//
+// Derived from the vocabulary and the predicate together, so a class added under
+// DERIVATIVE reaches the query without anyone remembering it. That is the whole
+// reason it exists: a WHERE clause spelling the classes out is a second
+// definition of derivative-ness, and the one place that cannot be given this --
+// the chk_underlying_required CHECK, which cannot call Go -- is held in step by
+// a test reading the constraint back out of the catalogue instead.
+func DerivativeClasses() []string {
+	var cs []string
+	for _, name := range typev1.AssetClass_name {
+		if IsDerivative(name) {
+			cs = append(cs, name)
+		}
+	}
+	// Map iteration order is not a query plan.
+	slices.Sort(cs)
+	return cs
+}
+
 // currencyCodeRE is the shape users.display_currency holds: an ISO 4217 code.
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
 

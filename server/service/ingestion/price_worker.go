@@ -389,15 +389,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		return identification.ResolveResult{}, fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
 	}
 	if len(resolved) == 1 {
-		inst := &identifier.Instrument{
-			AssetClass: resolved[0].AssetClass,
-			Listing: identifier.Listing{
-				Venue:    identifier.Venue{MIC: resolved[0].Exchange},
-				Currency: resolved[0].Currency,
-			},
-		}
-		normMIC := identification.NewDBMICNormalizer(database)
-		diffs := identification.CompareHints(ctx, hints, []identifier.Identifier{hint}, inst, nil, normMIC)
+		diffs := identification.CompareDBMeta(hints, resolved[0])
 		keys.end(ctx, key, db.TelemetryResolutionDBIdentifierHints, resolved[0].ID)
 		return identification.ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
@@ -463,7 +455,7 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 	}
 	// No claim: a price import states one identifier, so there is no
 	// association for it to have asserted.
-	id, _, err := database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
+	id, _, err := database.EnsureInstrument(ctx, assetClass, currency, "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: idType, Value: value, Domain: domain},
 			Canonical: true,

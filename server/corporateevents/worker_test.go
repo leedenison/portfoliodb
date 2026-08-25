@@ -80,7 +80,8 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name: "all nil filters accept anything",
 			p:    &stubPlugin{},
-			inst: &db.InstrumentRow{AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD")},
+			inst: &db.InstrumentRow{AssetClass: strPtr("STOCK"),
+				Listings: []*db.Listing{{Currency: "USD", Venues: []db.Venue{{MIC: "XNAS"}}}}},
 			want: true,
 		},
 		{
@@ -104,7 +105,7 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name: "currency case insensitive match",
 			p:    &stubPlugin{currencies: map[string]bool{"USD": true}},
-			inst: &db.InstrumentRow{Currency: strPtr("usd")},
+			inst: &db.InstrumentRow{Listings: []*db.Listing{{Currency: "usd"}}},
 			want: true,
 		},
 	}

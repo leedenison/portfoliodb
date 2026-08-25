@@ -97,7 +97,7 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 	// With no asset_class and no plugins, it does DB-only lookup.
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", "", "XNAS", "", nil)
+		Return("inst-aapl", "", nil, nil)
 	database.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
 		Return(nil)
@@ -136,7 +136,7 @@ func TestProcessPriceImport_CarriesShareCountBasis(t *testing.T) {
 
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "NVDA").
-		Return("inst-nvda", "", "XNAS", "", nil)
+		Return("inst-nvda", "", nil, nil)
 
 	var captured []db.EODPrice
 	database.EXPECT().
@@ -187,7 +187,7 @@ func TestProcessPriceImport_CoverageWithNoRows(t *testing.T) {
 
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "DELISTED").
-		Return("inst-delisted", "", "XNAS", "", nil)
+		Return("inst-delisted", "", nil, nil)
 	database.EXPECT().
 		UpsertPricesForRange(gomock.Any(), "inst-delisted:USD", "import", gomock.Len(0),
 			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -224,7 +224,7 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", "", "XNAS", "", nil)
+		Return("inst-aapl", "", nil, nil)
 	// Expect UpsertPricesForRange (not UpsertPrices) because coverage was provided.
 	database.EXPECT().
 		UpsertPricesForRange(gomock.Any(), "inst-aapl:USD", "import", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -260,7 +260,7 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", "", "XNAS", "", nil)
+		Return("inst-aapl", "", nil, nil)
 	// No coverage match for AAPL, so expect plain UpsertPrices.
 	database.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
@@ -275,10 +275,12 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 	}
 }
 
-// TestProcessPriceImport_RejectsHintDiff verifies that when the resolved
-// instrument's exchange differs from the import identifier domain, the row
-// is rejected with a validation error.
-func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
+// A file naming a venue we do not hold is accepted. The venues recorded against a
+// line are the ones we have been told about rather than the ones that exist, so a
+// source naming another has told us something new and has contradicted nothing.
+// The currency is what guards this import, and the test below is that guard. See
+// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
+func TestProcessPriceImport_AcceptsAVenueWeDoNotHold(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -290,32 +292,29 @@ func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
 		}).AnyTimes()
 	registry := identifier.NewRegistry()
 
+	// The file quotes the USD line and names XNAS as the venue.
 	part := pricePart(&archivev1.PriceGroup{
 		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Currency: "USD"},
 		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
 	})
 
-	// DB-only lookup succeeds, but the instrument has a different exchange.
+	// The line resolves and is quoted in the currency the file states. Nothing is
+	// answered about a venue at all, which is the point: there is no venue claim
+	// for the file to disagree with.
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", "", "XNYS", "", nil) // exchange mismatch: XNYS != XNAS
+		Return("inst-aapl", "", []string{"USD"}, nil)
+	database.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
 
 	persisted, capturedErrs, err := runPricePart(t, database, registry, part, nil)
 	if err != nil {
 		t.Fatalf("importPricePart: %v", err)
 	}
-	if persisted {
-		t.Error("expected persisted=false when row was rejected for hint diff")
+	if len(capturedErrs) != 0 {
+		t.Fatalf("expected no validation errors, got %+v", capturedErrs)
 	}
-
-	if len(capturedErrs) != 1 {
-		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
-	}
-	if capturedErrs[0].Field != "instrument" {
-		t.Errorf("expected field=instrument, got %s", capturedErrs[0].Field)
-	}
-	if !strings.Contains(capturedErrs[0].Message, "Exchange") {
-		t.Errorf("expected message to mention Exchange, got %s", capturedErrs[0].Message)
+	if !persisted {
+		t.Error("expected persisted=true: a venue nobody told us about is not a disagreement")
 	}
 }
 
@@ -341,7 +340,7 @@ func TestProcessPriceImport_RejectsCurrencyHintDiff(t *testing.T) {
 
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", "", "XNAS", "USD", nil) // currency mismatch: USD != GBP
+		Return("inst-aapl", "", []string{"USD"}, nil) // currency mismatch: USD != GBP
 
 	persisted, capturedErrs, err := runPricePart(t, database, registry, part, nil)
 	if err != nil {
@@ -389,14 +388,14 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 		Return(nil, nil)
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "FX_PAIR", "", "EURGBP").
-		Return("", "", "", "", nil) // not found
+		Return("", "", nil, nil) // not found
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "FX_PAIR", "EURGBP").
 		Return("", nil) // not found
 
 	// The key assertion: EnsureInstrument must receive "FX" and "EUR".
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "FX", "", "EUR", "", "", "",
+		EnsureInstrument(gomock.Any(), "FX", "EUR", "", "", "",
 			namesDated{want: []db.IdentifierInput{{
 				Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "EURGBP", Domain: ""},
 				Canonical: true,
@@ -484,7 +483,7 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	// OCC DB lookup finds nothing.
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", "NVDA240315P00510000").
-		Return("", "", "", "", nil)
+		Return("", "", nil, nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "OCC", "NVDA240315P00510000").
 		Return("", nil)
@@ -492,11 +491,11 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	// Fallback parses underlying "NVDA" from OCC and resolves via DB.
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "NVDA").
-		Return("inst-nvda", "STOCK", "XNAS", "USD", nil)
+		Return("inst-nvda", "STOCK", []string{"USD"}, nil)
 
 	// EnsureInstrument must receive the underlying ID and option fields.
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
+		EnsureInstrument(gomock.Any(), "OPTION", "USD", "", "", "",
 			namesDated{want: []db.IdentifierInput{{
 				Ref:       db.InstrumentRef{Type: "OCC", Value: "NVDA240315P00510000", Domain: ""},
 				Canonical: true,
@@ -552,15 +551,15 @@ func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), "identifier").Return(nil, nil)
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", "NVDA240315P00510000").
-		Return("", "", "", "", nil)
+		Return("", "", nil, nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "OCC", "NVDA240315P00510000").
 		Return("", nil)
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "NVDA").
-		Return("inst-nvda", "STOCK", "XNAS", "USD", nil)
+		Return("inst-nvda", "STOCK", []string{"USD"}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
+		EnsureInstrument(gomock.Any(), "OPTION", "USD", "", "", "",
 			namesDated{
 				want: []db.IdentifierInput{{
 					Ref:       db.InstrumentRef{Type: "OCC", Value: "NVDA240315P00510000", Domain: ""},

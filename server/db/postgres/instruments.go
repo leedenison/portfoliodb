@@ -631,68 +631,88 @@ func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierTyp
 // FindInstrumentWithMetaByIdentifier implements db.InstrumentDB. It orders by
 // validity, and dispatches on grain, for the same reasons
 // FindInstrumentByIdentifier does.
-func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (string, string, string, string, error) {
+//
+// The currencies it answers with are the lines the identifier reaches, and how
+// many that is follows from the grain. A listing-grain name is on one line and
+// answers with that line's currency, or with none where nobody could place it. A
+// security-grain name reaches every line of the security, and answers with all of
+// them: an ISIN is not quoted in a currency, the lines under it are, so the only
+// honest answer to "what is this in" is the set a caller can test membership
+// against.
+//
+// No venue, at either grain. A stated venue we do not hold is a venue we have not
+// been told about rather than a disagreement, so there is nothing for a caller to
+// check one against. See
+// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
+func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (string, string, []string, error) {
 	var id uuid.UUID
-	var ac, exch, cur string
+	var ac string
+	var currencies []string
 	var err error
 	if identifier.NamesAListing(identifierType) {
-		// The metadata still comes off the security. Currency and exchange are
-		// listing facts and instruments carries a column for each until 0155
-		// retires them; reading the listing's own is what 0154 does at the
-		// boundaries that display it.
+		var cur string
 		if domain == "" {
 			err = p.q.QueryRowContext(ctx, `
-				SELECT li.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
+				SELECT li.instrument_id, COALESCE(i.asset_class, ''), COALESCE(l.currency, '')
 				FROM instrument_listing_identifiers li
 				JOIN instruments i ON i.id = li.instrument_id
+				LEFT JOIN instrument_listings l ON l.id = li.listing_id
 				WHERE li.identifier_type = $1 AND li.domain IS NULL AND li.value = $2
 				ORDER BY li.valid_before IS NULL DESC, li.valid_before DESC
 				LIMIT 1
-			`, identifierType, value).Scan(&id, &ac, &exch, &cur)
+			`, identifierType, value).Scan(&id, &ac, &cur)
 		} else {
 			err = p.q.QueryRowContext(ctx, `
-				SELECT li.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
+				SELECT li.instrument_id, COALESCE(i.asset_class, ''), COALESCE(l.currency, '')
 				FROM instrument_listing_identifiers li
 				JOIN instruments i ON i.id = li.instrument_id
+				LEFT JOIN instrument_listings l ON l.id = li.listing_id
 				WHERE li.identifier_type = $1 AND li.domain = $2 AND li.value = $3
 				ORDER BY li.valid_before IS NULL DESC, li.valid_before DESC
 				LIMIT 1
-			`, identifierType, domain, value).Scan(&id, &ac, &exch, &cur)
+			`, identifierType, domain, value).Scan(&id, &ac, &cur)
 		}
 		if err == sql.ErrNoRows {
-			return "", "", "", "", nil
+			return "", "", nil, nil
 		}
 		if err != nil {
-			return "", "", "", "", fmt.Errorf("find instrument with meta by identifier: %w", err)
+			return "", "", nil, fmt.Errorf("find instrument with meta by identifier: %w", err)
 		}
-		return id.String(), ac, exch, cur, nil
+		if cur != "" {
+			currencies = []string{cur}
+		}
+		return id.String(), ac, currencies, nil
 	}
+	// ARRAY() of the security's lines, which is empty rather than null where it
+	// holds none -- a security nobody has named a line for says nothing about a
+	// currency, which is not the same as saying the currency is wrong.
+	const securityLines = `ARRAY(SELECT l.currency FROM instrument_listings l WHERE l.instrument_id = i.id ORDER BY l.currency)`
 	if domain == "" {
 		err = p.q.QueryRowContext(ctx, `
-			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
+			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), `+securityLines+`
 			FROM instrument_identifiers ii
 			JOIN instruments i ON i.id = ii.instrument_id
 			WHERE ii.identifier_type = $1 AND ii.domain IS NULL AND ii.value = $2
 			ORDER BY ii.valid_before IS NULL DESC, ii.valid_before DESC
 			LIMIT 1
-		`, identifierType, value).Scan(&id, &ac, &exch, &cur)
+		`, identifierType, value).Scan(&id, &ac, pq.Array(&currencies))
 	} else {
 		err = p.q.QueryRowContext(ctx, `
-			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
+			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), `+securityLines+`
 			FROM instrument_identifiers ii
 			JOIN instruments i ON i.id = ii.instrument_id
 			WHERE ii.identifier_type = $1 AND ii.domain = $2 AND ii.value = $3
 			ORDER BY ii.valid_before IS NULL DESC, ii.valid_before DESC
 			LIMIT 1
-		`, identifierType, domain, value).Scan(&id, &ac, &exch, &cur)
+		`, identifierType, domain, value).Scan(&id, &ac, pq.Array(&currencies))
 	}
 	if err == sql.ErrNoRows {
-		return "", "", "", "", nil
+		return "", "", nil, nil
 	}
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("find instrument with meta by identifier: %w", err)
+		return "", "", nil, fmt.Errorf("find instrument with meta by identifier: %w", err)
 	}
-	return id.String(), ac, exch, cur, nil
+	return id.String(), ac, currencies, nil
 }
 
 // FindInstrumentByTypeAndValue implements db.InstrumentDB.
@@ -837,7 +857,7 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	}
 	var r instrumentRow
 	err = p.q.GetContext(ctx, &r, `
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, `+underlyingSelect+`,
+		SELECT i.id, i.asset_class, i.name, `+underlyingSelect+`,
 		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier
 		FROM instruments i
@@ -902,8 +922,19 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		args = append(args, pq.Array(assetClasses))
 		argN++
 	}
+	// A security is admitted to no venue, its lines are, so the filter asks
+	// whether any line of the security is admitted to this one. Permissive by the
+	// same rule the venue set itself is read by: the set is what we have been told
+	// about, so a security whose venue nobody ever stated as a MIC_TICKER domain
+	// is not selected -- there is no venue recorded for it to be selected on. See
+	// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
 	if exchangeFilter != "" {
-		matched += fmt.Sprintf("\n\t\t\tAND i.exchange_mic = $%d", argN)
+		matched += fmt.Sprintf(`
+			AND EXISTS (
+			     SELECT 1 FROM instrument_listings l
+			     JOIN listing_venues v ON v.listing_id = l.id
+			     WHERE l.instrument_id = i.id AND v.mic = $%d
+			   )`, argN)
 		args = append(args, exchangeFilter)
 	}
 
@@ -916,7 +947,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 			JOIN matched m ON m.id = d.id
 			JOIN instrument_listings ul ON ul.id = d.underlying_listing_id
 		)
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, ` + underlyingSelect + `,
+		SELECT i.id, i.asset_class, i.name, ` + underlyingSelect + `,
 		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       u_id.identifier_type AS underlying_identifier_type,
@@ -979,7 +1010,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	inClause, args := inClauseUUIDs(uuids)
 	var irows []instrumentRow
 	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, `+underlyingSelect+`,
+		SELECT i.id, i.asset_class, i.name, `+underlyingSelect+`,
 		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier
 		FROM instruments i
@@ -1018,9 +1049,9 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // caller assembled from several results is not an association anybody stated,
 // and two results agreeing about a currency and a venue have not said they are
 // the same security. Carrying the partition is 0139; acting on it is 0140.
-func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
 	_ = claims
-	return p.ensureSecurity(ctx, assetClass, exchangeMIC, currency, name, cik, sicCode, identifiers, underlyingListingID, optionFields, nil)
+	return p.ensureSecurity(ctx, assetClass, currency, name, cik, sicCode, identifiers, underlyingListingID, optionFields, nil)
 }
 
 // EnsureArchiveInstrument implements db.InstrumentDB.
@@ -1029,7 +1060,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 // together, so the lookup sees the whole of what the file says the instrument is
 // called and a security known by one line's ticker alone is still matched. Where
 // each of those names is then stored is the placement, which files them per line.
-func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string,
+func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, name, cik, sicCode string,
 	identifiers []db.IdentifierInput, listings db.ListingSet, claims []db.IdentityClaim,
 	underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
 	_ = claims
@@ -1045,7 +1076,9 @@ func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, exch
 	place := func(ctx context.Context, exec queryable, instrumentID uuid.UUID) (uuid.UUID, error) {
 		return p.placeArchiveListings(ctx, exec, instrumentID, listings)
 	}
-	return p.ensureSecurity(ctx, assetClass, exchangeMIC, currency, name, cik, sicCode, all,
+	// No currency: the placement knows every line the file states, so there is no
+	// single one for the core to settle.
+	return p.ensureSecurity(ctx, assetClass, "", name, cik, sicCode, all,
 		underlyingListingID, optionFields, place)
 }
 
@@ -1119,7 +1152,7 @@ func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, ins
 // currency and its listing-grain names go on the line that currency names, which
 // is EnsureInstrument's whole listing rule; an archive hands in a placement that
 // knows the security's lines one by one.
-func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, underlyingListingID string, optionFields *db.OptionFields, place placeListings) (string, string, error) {
+func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, underlyingListingID string, optionFields *db.OptionFields, place placeListings) (string, string, error) {
 	if len(identifiers) == 0 {
 		return "", "", fmt.Errorf("at least one identifier required")
 	}
@@ -1134,8 +1167,9 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, 
 	if (assetClass == db.AssetClassOption || assetClass == db.AssetClassFuture) && underlyingListingID == "" {
 		return "", "", fmt.Errorf("underlying_listing_id required when asset_class is %s", assetClass)
 	}
-	// Normalize MIC_TICKER domains and exchangeMIC to operating MICs.
-	exchangeMIC = p.normalizeToOperatingMIC(ctx, exchangeMIC)
+	// Normalize MIC_TICKER domains to operating MICs. It is the identifier's
+	// domain and nothing else: a venue is recorded against a line, and a line
+	// records one by holding the ticker that names it there.
 	for i := range identifiers {
 		if identifiers[i].Ref.Type == "MIC_TICKER" && identifiers[i].Ref.Domain != "" {
 			identifiers[i].Ref.Domain = p.normalizeToOperatingMIC(ctx, identifiers[i].Ref.Domain)
@@ -1266,8 +1300,6 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, 
 		err = p.runInTx(ctx, func(exec queryable) error {
 			if mErr := mergeIntoInstrument(ctx, exec, id, db.InstrumentMerge{
 				AssetClass:  assetClass,
-				ExchangeMIC: exchangeMIC,
-				Currency:    currency,
 				CIK:         cik,
 				SICCode:     sicCode,
 				Identifiers: securityIDs,
@@ -1296,10 +1328,10 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, exchangeMIC, 
 			putCall = optionFields.PutCall
 		}
 		err := exec.QueryRowContext(ctx, `
-			INSERT INTO instruments (asset_class, exchange_mic, currency, name, cik, sic_code, underlying_listing_id, strike, expiry, put_call)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			INSERT INTO instruments (asset_class, name, cik, sic_code, underlying_listing_id, strike, expiry, put_call)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			RETURNING id
-		`, nullStr(assetClass), nullStr(exchangeMIC), nullStr(currency), nullStr(name), nullStr(cik), nullStr(sicCode), nullUUID(underlyingUUID), strike, expiry, putCall).Scan(&newID)
+		`, nullStr(assetClass), nullStr(name), nullStr(cik), nullStr(sicCode), nullUUID(underlyingUUID), strike, expiry, putCall).Scan(&newID)
 		if err != nil {
 			return err
 		}
@@ -1460,7 +1492,7 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	}
 
 	q, args, err := psql.Select(
-		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", underlyingSelect,
+		"i.id", "i.asset_class", "i.name", underlyingSelect,
 		"i.cik", "i.sic_code",
 		"i.strike", "i.expiry", "i.put_call", "i.contract_multiplier",
 	).
@@ -1576,7 +1608,6 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 	if err != nil {
 		return fmt.Errorf("merge instrument: invalid id: %w", err)
 	}
-	mic := p.normalizeToOperatingMIC(ctx, in.ExchangeMIC)
 	idns := make([]db.IdentifierInput, len(in.Identifiers))
 	copy(idns, in.Identifiers)
 	for i := range idns {
@@ -1584,13 +1615,15 @@ func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID 
 			idns[i].Ref.Domain = p.normalizeToOperatingMIC(ctx, idns[i].Ref.Domain)
 		}
 	}
-	in.ExchangeMIC = mic
 	in.Identifiers = idns
 	return p.runInTx(ctx, func(exec queryable) error {
 		if err := mergeIntoInstrument(ctx, exec, uid, in); err != nil {
 			return err
 		}
-		_, err := oneLine(in.Currency, listingGrain(in.Identifiers))(ctx, exec, uid)
+		// No currency, so this places the file's listing-grain names and mints
+		// nothing. EnsureArchiveInstrument has already ensured every line the
+		// file states, and a line this could mint is one the file did not.
+		_, err := oneLine("", listingGrain(in.Identifiers))(ctx, exec, uid)
 		return err
 	})
 }
@@ -1637,21 +1670,16 @@ func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in d
 			return fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
 		}
 	}
-	// The WHERE guard leaves a row that needs nothing unwritten, which keeps
-	// naming exchange_mic in the SET list from firing the name recompute on
-	// every instrument in the file.
+	// The WHERE guard leaves a row that needs nothing unwritten, so a file whose
+	// instruments are all already complete does no writes at all.
 	_, err := exec.ExecContext(ctx, `
 		UPDATE instruments SET
 			asset_class = COALESCE(asset_class, $2),
-			exchange_mic = COALESCE(exchange_mic, $3),
-			currency = COALESCE(currency, $4),
-			cik = COALESCE(cik, $5),
-			sic_code = COALESCE(sic_code, $6)
+			cik = COALESCE(cik, $3),
+			sic_code = COALESCE(sic_code, $4)
 		WHERE id = $1
-		  AND (asset_class IS NULL OR exchange_mic IS NULL OR currency IS NULL
-		       OR cik IS NULL OR sic_code IS NULL)
-	`, id, nullStr(in.AssetClass), nullStr(in.ExchangeMIC), nullStr(in.Currency),
-		nullStr(in.CIK), nullStr(in.SICCode))
+		  AND (asset_class IS NULL OR cik IS NULL OR sic_code IS NULL)
+	`, id, nullStr(in.AssetClass), nullStr(in.CIK), nullStr(in.SICCode))
 	if err != nil {
 		return fmt.Errorf("merge instrument columns: %w", err)
 	}

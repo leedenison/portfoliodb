@@ -203,19 +203,14 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	if err != nil {
 		return fail(err.Error())
 	}
-	// The security's own currency, which is what the sole line of a single-line
-	// security is quoted in and is nothing at all for a security quoted in
-	// several. The column is on its way out in issue 0155; until then filling it
-	// keeps a restored instrument reading the way a resolved one does.
-	currency := ""
-	if len(set.Listings) == 1 {
-		currency = set.Listings[0].Currency
-	}
 	// The instrument block names its identifiers together, so it is one claim
 	// rather than a set assembled from several answers. An archive carrying
 	// instrument data is admin-only and authoritative at every level, which is
 	// what makes that claim admissible (adr/0063).
-	id, listingID, err := database.EnsureArchiveInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), "", currency,
+	//
+	// No currency is passed: set carries every line the file names, each with its
+	// own, and there is nothing above them for one to be the currency of.
+	id, listingID, err := database.EnsureArchiveInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()),
 		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, set,
 		[]db.IdentityClaim{archiveClaim(claimed)}, underlyingListingID, opts)
 	if err != nil {
@@ -232,7 +227,6 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	// below.
 	if err := database.MergeInstrumentFromArchive(ctx, id, db.InstrumentMerge{
 		AssetClass:  db.AssetClassToStr(inst.GetAssetClass()),
-		Currency:    currency,
 		CIK:         inst.GetCik(),
 		SICCode:     inst.GetSicCode(),
 		Identifiers: idns,

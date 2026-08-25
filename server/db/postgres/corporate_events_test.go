@@ -804,7 +804,7 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 	ctx := context.Background()
 
 	// Create an instrument with three identifiers, MIC_TICKER should win.
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "Apple Inc.", Domain: "TEST"},
 			Canonical: false,
@@ -861,7 +861,7 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -999,7 +999,7 @@ func TestApplyOptionSplit(t *testing.T) {
 	// Create option instrument with OCC identifier and option fields.
 	expiry := d(2025, 1, 17)
 	optFields := &db.OptionFields{Strike: decf(150), Expiry: expiry, PutCall: "C"}
-	optID, _, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL 250117C00150000", "", "", []db.IdentifierInput{
+	optID, _, err := p.EnsureInstrument(ctx, "OPTION", "USD", "AAPL 250117C00150000", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00150000"},
 			Canonical: true,
@@ -1475,7 +1475,7 @@ func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike flo
 		t.Fatalf("setupOption: unparseable OCC %q", occ)
 	}
 	optFields := &db.OptionFields{Strike: decf(strike), Expiry: expiry, PutCall: "C"}
-	id, _, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", occ, "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, "OPTION", "USD", occ, "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: occ},
 			Canonical: true,
@@ -2215,7 +2215,7 @@ func TestRestoreUnhandledCorporateEvents_ResolvedDoesNotSuppressUnresolved(t *te
 func setupDualLineInstrument(t *testing.T, p *Postgres, isin string) (instID, usdLine, gbpLine string) {
 	t.Helper()
 	ctx := context.Background()
-	instID, usdLine, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "DUAL", "", "", []db.IdentifierInput{
+	instID, usdLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "DUAL", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: isin}, Canonical: true}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
@@ -2342,12 +2342,12 @@ func TestMergeInstruments_DividendMovesToTheSurvivorsLine(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "S", "", "", []db.IdentifierInput{
+	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "S", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DV1"}, Canonical: true}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
-	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "L", "", "", []db.IdentifierInput{
+	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "L", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DV2"}, Canonical: true}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)

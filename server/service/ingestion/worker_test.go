@@ -74,7 +74,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "UNKNOWN").
 		Return("", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", "", "", []db.IdentifierInput{{
+		EnsureInstrument(gomock.Any(), "", "", "UNKNOWN", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: "IBKR:test:statement"},
 			Canonical: false,
 		}}, gomock.Any(), "", nil).
@@ -155,7 +155,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "CACHED").
 		Return("", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "CACHED", "", "", []db.IdentifierInput{{
+		EnsureInstrument(gomock.Any(), "", "", "CACHED", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "CACHED", Domain: "IBKR:test:statement"},
 			Canonical: false,
 		}}, gomock.Any(), "", nil).
@@ -549,7 +549,7 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			// The underlying short-circuits out of the instrument table, and the
 			// contract's USD strike names the line of it the option delivers.
 			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
-				Return("underlying-id", "STOCK", "XNAS", "USD", nil).AnyTimes()
+				Return("underlying-id", "STOCK", []string{"USD"}, nil).AnyTimes()
 			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("underlying-id", nil).AnyTimes()
 			database.EXPECT().EnsureListing(gomock.Any(), "underlying-id", "USD").Return("underlying-line-id", nil).AnyTimes()
 
@@ -585,15 +585,15 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			// rewrites an OCC on its way to a provider or to the instrument table.
 			database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "OCC", "", occ).Return("", nil)
 			database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "IBKR:test:statement", "AAPL 250117C00760000").Return("", nil)
-			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", occ).Return("", "", "", "", nil)
+			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", occ).Return("", "", nil, nil)
 			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "OCC", occ).Return("", nil).AnyTimes()
 			database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 				Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10}}, nil)
 
 			// The assertion.
 			var validFrom []*time.Time
-			database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "", gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any()).
-				DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
+			database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "USD", "", "", "", gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
 					for _, idn := range idns {
 						validFrom = append(validFrom, idn.ValidFrom)
 					}

@@ -120,7 +120,7 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name:   "all nil filters accept anything",
 			plugin: &filterStub{},
-			inst:   &db.InstrumentRow{AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD")},
+			inst:   &db.InstrumentRow{AssetClass: strPtr("STOCK"), Listings: []*db.Listing{{Currency: "USD", Venues: venues("XNAS")}}},
 			want:   true,
 		},
 		{
@@ -144,13 +144,13 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name:   "currency mismatch",
 			plugin: &filterStub{currencies: map[string]bool{"USD": true}},
-			inst:   &db.InstrumentRow{Currency: strPtr("EUR")},
+			inst:   &db.InstrumentRow{Listings: []*db.Listing{{Currency: "EUR"}}},
 			want:   false,
 		},
 		{
 			name:   "currency match case insensitive",
 			plugin: &filterStub{currencies: map[string]bool{"USD": true}},
-			inst:   &db.InstrumentRow{Currency: strPtr("usd")},
+			inst:   &db.InstrumentRow{Listings: []*db.Listing{{Currency: "usd"}}},
 			want:   true,
 		},
 		{
@@ -162,7 +162,7 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name:   "exchange mismatch",
 			plugin: &filterStub{exchanges: map[string]bool{"XNAS": true}},
-			inst:   &db.InstrumentRow{ExchangeMIC: strPtr("XNYS")},
+			inst:   &db.InstrumentRow{Listings: []*db.Listing{{Venues: venues("XNYS")}}},
 			want:   false,
 		},
 		{
@@ -237,7 +237,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 		{
 			ID:         fxInstID,
 			AssetClass: strPtr("FX"),
-			Currency:   strPtr("USD"),
+			Listings:   []*db.Listing{{Currency: "USD"}},
 			Identifiers: []db.IdentifierInput{
 				{
 					Ref: db.InstrumentRef{Type: "FX_PAIR", Value: "EURUSD"},

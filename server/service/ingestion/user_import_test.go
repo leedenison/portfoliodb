@@ -343,7 +343,7 @@ func TestProcessUserImport_TxPartResolvesAgainstTheEnvelopeVintage(t *testing.T)
 	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
 	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", "", "", nil).AnyTimes()
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", nil, nil).AnyTimes()
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
 	database.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	database.EXPECT().AppendIdentificationErrors(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -366,7 +366,7 @@ func TestProcessUserImport_TxPartResolvesAgainstTheEnvelopeVintage(t *testing.T)
 	// The underlying short-circuits out of the instrument table, and the
 	// contract's USD strike names the line of it the option delivers.
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
-		Return("underlying-id", "STOCK", "XNAS", "USD", nil).AnyTimes()
+		Return("underlying-id", "STOCK", []string{"USD"}, nil).AnyTimes()
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("underlying-id", nil).AnyTimes()
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("underlying-id", nil).AnyTimes()
 	database.EXPECT().EnsureListing(gomock.Any(), "underlying-id", "USD").Return("underlying-line-id", nil).AnyTimes()
@@ -374,8 +374,8 @@ func TestProcessUserImport_TxPartResolvesAgainstTheEnvelopeVintage(t *testing.T)
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10}}, nil).AnyTimes()
 
 	var validFrom []*time.Time
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
 			for _, idn := range idns {
 				validFrom = append(validFrom, idn.ValidFrom)
 			}

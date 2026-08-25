@@ -516,7 +516,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  k.description,\n  k.source,\n  k.tx_count,\n  k.outcome,\n  i.label AS instrument,\n  i.exchange,\n  i.asset_class,\n  i.currency\nFROM telemetry.v_resolution_key k\nLEFT JOIN telemetry.v_instrument_label i ON i.id = k.instrument_id\nWHERE k.run_id = '${run}'::uuid\n  AND k.resolved\nORDER BY k.tx_count DESC, k.description",
+          "rawSql": "SELECT\n  k.description,\n  k.source,\n  k.tx_count,\n  k.outcome,\n  i.label AS instrument,\n  i.asset_class\nFROM telemetry.v_resolution_key k\nLEFT JOIN telemetry.v_instrument_label i ON i.id = k.instrument_id\nWHERE k.run_id = '${run}'::uuid\n  AND k.resolved\nORDER BY k.tx_count DESC, k.description",
           "refId": "A"
         }
       ],

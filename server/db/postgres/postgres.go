@@ -253,8 +253,6 @@ func inClauseUUIDs(ids []uuid.UUID) (string, []interface{}) {
 type instrumentRow struct {
 	ID                  uuid.UUID        `db:"id"`
 	AssetClass          *string          `db:"asset_class"`
-	ExchangeMIC         *string          `db:"exchange_mic"`
-	Currency            *string          `db:"currency"`
 	Name                *string          `db:"name"`
 	UnderlyingListingID *string          `db:"underlying_listing_id"`
 	UnderlyingID        *string          `db:"underlying_id"`
@@ -279,8 +277,6 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 	return &db.InstrumentRow{
 		ID:                  r.ID.String(),
 		AssetClass:          r.AssetClass,
-		ExchangeMIC:         r.ExchangeMIC,
-		Currency:            r.Currency,
 		Name:                r.Name,
 		UnderlyingListingID: r.UnderlyingListingID,
 		UnderlyingID:        r.UnderlyingID,

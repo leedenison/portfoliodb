@@ -420,9 +420,9 @@ func TestMismatchCheckProbesAreTheirOwnAttempts(t *testing.T) {
 	// Both hints already resolve to the same instrument, so every call short
 	// circuits in the database and no plugin is involved.
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
-		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
+		Return("inst-1", "STOCK", []string{"USD"}, nil).AnyTimes()
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OPENFIGI_SHARE_CLASS", "", "BBG000B9XRY4").
-		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
+		Return("inst-1", "STOCK", []string{"USD"}, nil).AnyTimes()
 
 	ctx := context.Background()
 	txs := []*apiv1.Tx{tx(desc)}

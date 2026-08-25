@@ -95,7 +95,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 		// USD is the FX pair's own quote currency under the pivot in
 		// docs/adr/0006-fx-as-synthetic-instruments.md, and its listing is what
 		// its bars hang off.
-		id, _, err := p.EnsureInstrument(ctx, "FX", "", "USD", "", "", "", []db.IdentifierInput{
+		id, _, err := p.EnsureInstrument(ctx, "FX", "USD", "", "", "", []db.IdentifierInput{
 			{
 				Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: cur + "USD", Domain: ""},
 				Canonical: true,
@@ -122,7 +122,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 		if load.foreignEvery > 0 && i%load.foreignEvery == 0 {
 			cur = foreignCurrencies[(i/load.foreignEvery)%len(foreignCurrencies)]
 		}
-		instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", cur, desc, "", "", []db.IdentifierInput{
+		instID, _, err := p.EnsureInstrument(ctx, "STOCK", cur, desc, "", "", []db.IdentifierInput{
 			{
 				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "BENCH"},
 				Canonical: false,

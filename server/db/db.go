@@ -766,8 +766,6 @@ type ListingSet struct {
 // merge never overwrites a value already stored.
 type InstrumentMerge struct {
 	AssetClass  string
-	ExchangeMIC string
-	Currency    string
 	CIK         string
 	SICCode     string
 	Identifiers []IdentifierInput
@@ -1267,11 +1265,9 @@ func ValidCurrencyCode(s string) bool {
 // InstrumentRow is a single instrument with its identifiers (for API responses).
 // Nullable DB columns use pointer types; nil means NULL.
 type InstrumentRow struct {
-	ID          string
-	AssetClass  *string
-	ExchangeMIC *string
-	Currency    *string
-	Name        *string
+	ID         string
+	AssetClass *string
+	Name       *string
 	// The line an OPTION or FUTURE delivers, and the security that line belongs
 	// to. The first is the stored column; the second is derived from it by the
 	// read, for the callers that want the underlying without caring which of its
@@ -1648,7 +1644,12 @@ type HoldingDeclarationDB interface {
 
 // InstrumentDB provides instrument resolution and plugin config.
 type InstrumentDB interface {
-	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. exchangeMIC is the ISO 10383 MIC code (nullable). optionFields is non-nil only for OPTION instruments and supplies denormalized OCC components.
+	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. optionFields is non-nil only for OPTION instruments and supplies denormalized OCC components.
+	//
+	// currency names the line, and is the only thing here that does. It is not
+	// stored against the security -- nothing is -- so a caller stating one is
+	// saying which of the security's lines its listing-grain identifiers belong
+	// on, not describing the security.
 	//
 	// It returns a security and the listing the stated currency names, because
 	// identifiers arrive at two grains and land in two places: every identifier
@@ -1664,7 +1665,7 @@ type InstrumentDB interface {
 	// answer. It is what separates an association somebody asserted from a set
 	// the caller assembled, and the merge below does not read it yet: the rule
 	// that does is 0140.
-	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
+	EnsureInstrument(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
 	// EnsureArchiveInstrument is EnsureInstrument for a caller that states a
 	// security's whole listing set rather than one currency of it: the archive.
 	//
@@ -1682,11 +1683,25 @@ type InstrumentDB interface {
 	// Every listing the file states is ensured. It returns the security and the
 	// first line the file named, which is what a caller with one line in mind --
 	// every caller today -- is asking for.
-	EnsureArchiveInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, listings ListingSet, claims []IdentityClaim, underlyingListingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
+	// It states no currency of its own: listings carries every line the file
+	// names, so there is no single one left for the caller to name.
+	EnsureArchiveInstrument(ctx context.Context, assetClass, name, cik, sicCode string, identifiers []IdentifierInput, listings ListingSet, claims []IdentityClaim, underlyingListingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
-	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but also returns asset_class, exchange_mic (ISO 10383 MIC code), and currency from the instruments table in one query.
-	FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (instrumentID, assetClass, exchangeMIC, currency string, err error)
+	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but
+	// also returns the security's asset class and the currencies of the lines the
+	// identifier reaches, in one query.
+	//
+	// How many currencies come back follows from the identifier's grain: a
+	// listing-grain name is on one line and yields that line's currency, or none
+	// where nobody could place it; a security-grain name reaches every line of the
+	// security and yields all of them. A caller comparing a stated currency tests
+	// membership rather than equality, an ISIN naming a security quoted in two
+	// currencies contradicting neither of them.
+	//
+	// No venue comes back at either grain. See
+	// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
+	FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (instrumentID, assetClass string, currencies []string, err error)
 	// FindInstrumentByTypeAndValue looks up instrument_id by (identifier_type, value) with any domain. Returns "" if not found or if multiple instruments match (ambiguous).
 	FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error)
 	// FindInstrumentByTickerIgnoringSeparators looks up instrument_id by a
@@ -1715,8 +1730,11 @@ type InstrumentDB interface {
 	// naming an underlying it does not carry is invalid. If assetClasses is
 	// non-empty, filter to those classes; otherwise return every class,
 	// including CASH, FX and the not-yet-classified, which is what a rebuild
-	// needs. If exchangeFilter != "", filter by instruments.exchange_mic. Rows
-	// carry every column a file needs, including the underlying's own identifier
+	// needs. If exchangeFilter != "", select the securities any of whose lines is
+	// admitted to that MIC. A security is admitted to no venue, its lines are, so
+	// this selects nothing for a security whose venue no MIC_TICKER domain ever
+	// stated -- there is no venue recorded for it to be selected on. Rows carry
+	// every column a file needs, including the underlying's own identifier
 	// triple. Order by instruments.id.
 	ListInstrumentsForExport(ctx context.Context, exchangeFilter string, assetClasses []string) ([]*InstrumentRow, error)
 	// ValidateMIC checks whether the given MIC code exists in the exchanges reference table.

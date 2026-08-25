@@ -377,15 +377,18 @@ CREATE TABLE exchanges (
 -- underlying_listing_id.
 -- name: denormalized display name, computed by trigger from identifier priority:
 --   MIC_TICKER > OPENFIGI_TICKER > OCC > BROKER_DESCRIPTION > CURRENCY > FX_PAIR > (existing name) > id::text.
--- exchange: denormalized short exchange label, computed by trigger:
---   exchanges.acronym (via exchange_mic) > OPENFIGI_TICKER domain > ''.
+--
+-- No currency and no exchange. Both are facts about one currency line of the
+-- security: instrument_listings.currency holds the first and listing_venues the
+-- second, derived there from the line's own MIC_TICKER identifiers. A security
+-- quoted in two currencies has no one answer to either, so a column here could
+-- only ever have named one of its lines -- and, being written independently of
+-- the identifiers, could disagree with them about which. The name above stays,
+-- being a label all of a security's lines share.
 CREATE TABLE instruments (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('STOCK','ETF','FIXED_INCOME','MUTUAL_FUND','OPTION','FUTURE','CASH','FX','UNKNOWN')),
-  exchange_mic TEXT REFERENCES exchanges(mic),
-  currency     TEXT,
   name         TEXT,
-  exchange     TEXT NOT NULL DEFAULT '',
   -- The line an OPTION or FUTURE delivers. A contract's strike is a price and a
   -- price is in a currency, so the deliverable is one currency line of the
   -- underlying security rather than the security itself: naming the security
@@ -702,8 +705,8 @@ CREATE UNIQUE INDEX idx_prov_listing_ident_unique_no_listing
   ON provider_listing_identifiers (instrument_id, provider, identifier_type, COALESCE(domain, ''), value)
   WHERE listing_id IS NULL;
 
--- Trigger: recompute instruments.name and instruments.exchange whenever an
--- identifier at either grain, a listing, or the instrument itself changes.
+-- Trigger: recompute instruments.name whenever an identifier at either grain or
+-- the instrument itself changes.
 -- Fires AFTER so that all rows are visible.
 --
 -- It sits below the listing tables because it reads them. MIC_TICKER ranks first
@@ -732,8 +735,6 @@ BEGIN
       -- placed it on one of that security's lines. Reaching the security through
       -- the listing would drop the unplaced ones, which name the security no less
       -- for naming no line.
-      instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
-    WHEN 'instrument_listings' THEN
       instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
     ELSE
       instr_id := NEW.id;
@@ -775,16 +776,6 @@ BEGIN
        END, n.currency IS NULL, n.currency, n.domain, n.value LIMIT 1),
       NULLIF(instruments.name, ''),
       instr_id::text
-    ),
-    exchange = COALESCE(
-      (SELECT e.acronym FROM exchanges e WHERE e.mic = instruments.exchange_mic),
-      (SELECT li.domain FROM instrument_listing_identifiers li
-       LEFT JOIN instrument_listings l ON l.id = li.listing_id
-       WHERE li.instrument_id = instr_id AND li.identifier_type = 'OPENFIGI_TICKER'
-         AND li.valid_before IS NULL
-         AND li.domain IS NOT NULL AND li.domain <> ''
-       ORDER BY l.currency IS NULL, l.currency, li.domain LIMIT 1),
-      ''
     )
   WHERE id = instr_id;
 
@@ -801,10 +792,13 @@ CREATE TRIGGER trg_recompute_instrument_name_on_listing_ident
   AFTER INSERT OR UPDATE OR DELETE ON instrument_listing_identifiers
   FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
 
--- Recompute on instrument creation or exchange_mic change.
--- Column-specific UPDATE OF avoids infinite loop (trigger only writes name/exchange).
+-- Recompute on instrument creation, which is what gives a row inserted with no
+-- identifiers at all the id::text fallback rather than a null name. Nothing about
+-- an existing instruments row can change which name it takes -- the priority reads
+-- the identifier tables and nothing else -- so there is no UPDATE to fire on, and
+-- with none the trigger's own UPDATE cannot re-enter it.
 CREATE TRIGGER trg_recompute_instrument_name_on_inst
-  AFTER INSERT OR UPDATE OF exchange_mic ON instruments
+  AFTER INSERT ON instruments
   FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
 
 -- A listing is minted with no identifiers and its currency never changes
@@ -830,7 +824,10 @@ CREATE TRIGGER trg_recompute_instrument_name_on_inst
 -- The join to exchanges is both the foreign key and the filter. A MIC the
 -- reference table does not carry is dropped rather than failing the identifier
 -- write, which is the same judgement the resolver makes when a candidate
--- proposes an unknown exchange: keep the ticker, lose the venue.
+-- proposes an unknown exchange: keep the ticker, lose the venue. Permissive, and
+-- affordable because the set this builds is what we have been told about rather
+-- than what exists, so losing a venue we cannot describe breaks no promise. See
+-- docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
 --
 -- Recomputed whole rather than patched, in the pattern recompute_instrument_name
 -- follows: a closed interval or a deleted row removes a venue as surely as an

@@ -1156,7 +1156,7 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, nam
 	if len(identifiers) == 0 {
 		return "", "", fmt.Errorf("at least one identifier required")
 	}
-	if assetClass != "" && !db.ValidAssetClasses[assetClass] {
+	if assetClass != "" && !db.ValidAssetClass(assetClass) {
 		return "", "", fmt.Errorf("invalid asset_class %q", assetClass)
 	}
 	// A derivative that could not be told which line it delivers is not a

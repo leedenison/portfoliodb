@@ -194,11 +194,61 @@ so an unidentifiable security cannot silently resolve to its trading currency.
 
 - **Transaction type** (declared/resolved): what kind of event the posting is a
   leg of; says nothing about asset class. See tx-types.md.
-- **Security type hint** (routing): the stated `asset_class_hint`; vocabulary is
-  the same as asset class: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE,
-  CASH, UNKNOWN. Empty when the source made no claim.
-- **Asset class** (canonical): STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION,
-  FUTURE, CASH, UNKNOWN. Set by identifier plugins and stored on instruments.
+- **Security type hint** (routing): the stated `asset_class_hint`, one value of
+  the asset class vocabulary below. Empty when the source made no claim, which
+  is weaker than any value in it.
+- **Asset class** (canonical): the same vocabulary, set by identifier plugins
+  and stored on instruments.
+
+#### The asset class vocabulary
+
+The values form a tree, as the transaction types do. A leaf is the specificity
+the system acts on; an internal node is what a less specific source says, and
+both are legal values -- stated on a posting and stored on an instrument alike.
+The node exists so that a source is not made to pick: an OFX file has no ETF
+type, so an ETF trade arrives as a stock trade, and EQUITY is how that file says
+what it knows rather than asserting something it does not. A plugin that
+classified a security only as far as a derivative says DERIVATIVE for the same
+reason.
+
+| Value | Parent | Means |
+|---|---|---|
+| `UNKNOWN` | -- | money or a security, nothing narrower |
+| `CASH` | `UNKNOWN` | money, in one currency |
+| `SECURITY` | `UNKNOWN` | a security of unstated class |
+| `EQUITY` | `SECURITY` | a shareholding, direct or pooled |
+| `STOCK` | `EQUITY` | a direct holding in a company |
+| `ETF` | `EQUITY` | an exchange-traded fund |
+| `MUTUAL_FUND` | `EQUITY` | a fund not traded on an exchange |
+| `FIXED_INCOME` | `SECURITY` | a debt instrument |
+| `DERIVATIVE` | `SECURITY` | a contract whose strike is quoted in a line of something else |
+| `OPTION` | `DERIVATIVE` | requires an underlying listing, a strike, an expiry and a right |
+| `FUTURE` | `DERIVATIVE` | requires an underlying listing |
+| `FX` | `SECURITY` | a synthetic currency pair; see adr/0006-fx-as-synthetic-instruments.md |
+
+`EQUITY` here is a value of this vocabulary and is unrelated to the
+`ACCOUNT_TYPE_EQUITY` of [postings.md](postings.md#account-types), which names
+the non-asset side of a posting.
+
+`UNKNOWN` is the root and is distinct from the field being unset: a source
+stating it says it does not know, where a source stating nothing has not been
+asked. It is never a routing hint -- a posting that made no claim routes as a
+security, so that an unidentifiable security cannot resolve to its trading
+currency.
+
+The requirements the leaves carry do not travel up: an instrument classed
+`DERIVATIVE` has not been resolved to an `OPTION` or a `FUTURE` and so carries
+no strike and needs no underlying line. `FX` sits under `SECURITY` rather than
+beside `CASH` because a pair is an instrument that holds a price, where a `CASH`
+instrument is the money itself.
+
+The hierarchy is written twice, in `server/assetclass` (Go) and
+`client/lib/asset-class.ts` (TypeScript). Both are checked against the golden
+fixture `server/assetclass/testdata/tree.json`, and each language asserts every
+value in its generated enum appears exactly once in its parent map, so the two
+spellings cannot drift. The `chk_asset_class_vocabulary` CHECK in the schema is
+a third statement of the values, held to the proto by a test that reads it back
+out of the catalogue.
 
 ### Candidate Plugins
 

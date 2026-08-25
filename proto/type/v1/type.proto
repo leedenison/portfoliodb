@@ -184,20 +184,65 @@ enum IdentifierType {
 }
 
 // AssetClass is the controlled vocabulary for instrument asset classes.
-// Stored in instruments.asset_class. Values are unprefixed so that the name
-// in the proto, the name in the column and the name in an archive file are
-// the same string, with no prefix stripping between them.
+// Stored in instruments.asset_class and, as the class a source stated, in
+// postings.asset_class_hint. Values are unprefixed so that the name in the
+// proto, the name in the column and the name in an archive file are the same
+// string, with no prefix stripping between them.
+//
+// The values form a tree, as TxType's do. A leaf is the specificity the system
+// acts on; an internal node is what a less specific source says, and both are
+// legal values -- an OFX file reporting BUYSTOCK cannot tell a share from an
+// ETF, and EQUITY is how it says so rather than picking one. A plugin that
+// classified a security only as far as "a derivative" says DERIVATIVE for the
+// same reason.
+//
+//   UNKNOWN
+//   |-- CASH
+//   `-- SECURITY
+//       |-- EQUITY
+//       |   |-- STOCK
+//       |   |-- ETF
+//       |   `-- MUTUAL_FUND
+//       |-- FIXED_INCOME
+//       |-- DERIVATIVE
+//       |   |-- OPTION
+//       |   `-- FUTURE
+//       `-- FX
+//
+// The tree is written in server/assetclass and client/lib/asset-class.ts, and
+// both are checked against server/assetclass/testdata/tree.json so the two
+// spellings cannot drift. Nothing compares two of these values for equality:
+// the two subtree expansions differ and either default is silently wrong, so
+// every call site says whether it is asking the strict question or the
+// permissive one. See docs/adr/0013-security-type-hint-vs-asset-class.md.
 enum AssetClass {
+  // The field was not set. Distinct from UNKNOWN, which is a source saying it
+  // does not know, and never a node of the tree.
   ASSET_CLASS_UNSPECIFIED = 0;
-  STOCK = 1;
-  ETF = 2;
-  FIXED_INCOME = 3;
-  MUTUAL_FUND = 4;
-  OPTION = 5;
-  FUTURE = 6;
-  CASH = 7;
-  FX = 8;
-  UNKNOWN = 9;
+  // The root: money or a security, nothing narrower. Never a routing hint --
+  // a posting that made no claim routes as SECURITY, so that an unidentifiable
+  // security cannot resolve to its trading currency.
+  UNKNOWN  = 1;
+  CASH     = 2;  // Money, in one currency.
+  SECURITY = 3;  // A security of unstated class.
+  // A shareholding, direct or pooled. The three below are told apart by how the
+  // holding is structured rather than by anything a statement line shows, which
+  // is why a source lands here.
+  EQUITY       = 4;
+  STOCK        = 5;
+  ETF          = 6;
+  MUTUAL_FUND  = 7;
+  FIXED_INCOME = 8;
+  // A contract whose strike is quoted in a line of something else, which is
+  // what makes an underlying listing a requirement of the leaves below.
+  // See docs/adr/0074-an-options-underlying-is-the-line-its-strike-is-quoted-in.md.
+  DERIVATIVE = 9;
+  OPTION     = 10;
+  FUTURE     = 11;
+  // A synthetic currency pair, under SECURITY rather than CASH: a pair is an
+  // instrument that holds a price, where a CASH instrument is the money itself.
+  // See docs/adr/0006-fx-as-synthetic-instruments.md.
+  FX = 12;
 }
 
 // PluginCategory is the controlled vocabulary for the kind of work a plugin

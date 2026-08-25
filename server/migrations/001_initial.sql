@@ -373,8 +373,13 @@ CREATE TABLE exchanges (
 );
 
 -- Canonical instruments (security master).
--- asset_class: controlled vocabulary. OPTION and FUTURE require
--- underlying_listing_id.
+-- asset_class: controlled vocabulary, and a tree -- see server/assetclass. The
+-- internal nodes are legal stored values: a plugin that could classify a
+-- security only as far as EQUITY says so rather than picking one of the three
+-- below it. The constraints below name leaves, and that is the whole of what
+-- they say: OPTION and FUTURE require underlying_listing_id, while a security
+-- classed DERIVATIVE has not been resolved to one of them and carries no strike
+-- to need a line for.
 -- name: denormalized display name, computed by trigger from identifier priority:
 --   MIC_TICKER > OPENFIGI_TICKER > OCC > BROKER_DESCRIPTION > CURRENCY > FX_PAIR > (existing name) > id::text.
 --
@@ -387,7 +392,9 @@ CREATE TABLE exchanges (
 -- being a label all of a security's lines share.
 CREATE TABLE instruments (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('STOCK','ETF','FIXED_INCOME','MUTUAL_FUND','OPTION','FUTURE','CASH','FX','UNKNOWN')),
+  asset_class  TEXT CONSTRAINT chk_asset_class_vocabulary CHECK (asset_class IS NULL OR asset_class IN (
+    'UNKNOWN','CASH','SECURITY','EQUITY','STOCK','ETF','MUTUAL_FUND',
+    'FIXED_INCOME','DERIVATIVE','OPTION','FUTURE','FX')),
   name         TEXT,
   -- The line an OPTION or FUTURE delivers. A contract's strike is a price and a
   -- price is in a currency, so the deliverable is one currency line of the

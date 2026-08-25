@@ -999,8 +999,13 @@ func TestEnsureInstrument_NormalizesSegmentMIC(t *testing.T) {
 	}
 	// Normalised before the venue set is derived from it, so the listing is
 	// admitted to the operating MIC and not to the segment.
-	if len(lst.Venues) != 1 || lst.Venues[0] != "XNAS" {
+	if len(lst.Venues) != 1 || lst.Venues[0].MIC != "XNAS" {
 		t.Fatalf("listing venues = %v, want [XNAS]", lst.Venues)
+	}
+	// The reference data is joined onto the venue rather than fetched beside it,
+	// so a venue that reached the caller carries it.
+	if lst.Venues[0].Name == "" || lst.Venues[0].CountryCode == "" {
+		t.Fatalf("venue reference data not joined: %+v", lst.Venues[0])
 	}
 
 	// Ensure same instrument is found when looking up with segment MIC.

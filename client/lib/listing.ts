@@ -14,7 +14,7 @@
  * site so the holdings row and the admin count that totals them read the same.
  */
 
-import type { Listing } from "@/gen/api/v1/api_pb";
+import type { Exchange, Listing } from "@/gen/api/v1/api_pb";
 
 /** The security is quoted in more than one currency and no posting said which. */
 export const NO_LINE_NAMED = "No line named";
@@ -68,4 +68,36 @@ export function lineOf(
     currency: "",
     missing: inst.listings?.length ? NO_LINE_NAMED : NO_CURRENCY_KNOWN,
   };
+}
+
+/**
+ * The venues a line is admitted to, with the reference data for each.
+ *
+ * Empty is ordinary rather than an error: a line nobody named a venue for is
+ * still a line, and a composite identifier names a market and stores no MIC.
+ */
+export function venuesOf(
+  listingId: string,
+  inst: { listings?: Listing[] } | undefined,
+): Exchange[] {
+  if (!listingId) return [];
+  return inst?.listings?.find((l) => l.id === listingId)?.venues ?? [];
+}
+
+/**
+ * How a set of venues reads in a cell: the shortest name each one answers to,
+ * comma-joined.
+ *
+ * Permissive, and says so by showing all of them rather than choosing. A venue
+ * set is the venues we have been told about and not the venues that exist, so
+ * there is no primary one to pick and no claim of completeness to make -- see
+ * docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
+ */
+export function venueLabel(venues: Exchange[]): string {
+  return venues.map((v) => v.acronym || v.mic).join(", ");
+}
+
+/** The full names of a set of venues, for a title attribute. */
+export function venueTitle(venues: Exchange[]): string {
+  return venues.map((v) => v.name || v.mic).join(", ");
 }

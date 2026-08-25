@@ -1272,7 +1272,6 @@ type InstrumentRow struct {
 	ExchangeMIC *string
 	Currency    *string
 	Name        *string
-	Exchange    string // denormalized; trigger-computed from acronym/identifier
 	// The line an OPTION or FUTURE delivers, and the security that line belongs
 	// to. The first is the stored column; the second is derived from it by the
 	// read, for the callers that want the underlying without caring which of its
@@ -1299,9 +1298,6 @@ type InstrumentRow struct {
 	// docs/adr/0075-a-name-that-could-not-be-placed-names-no-line.md.
 	UnplacedIdentifiers         []IdentifierInput
 	UnplacedProviderIdentifiers []ProviderIdentifierInput
-	ExchangeName                *string // read-only; from exchanges JOIN
-	ExchangeAcronym             *string // read-only; from exchanges JOIN
-	ExchangeCountryCode         *string // read-only; from exchanges JOIN
 	// The underlying named by its highest-priority identifier rather than by
 	// UUID, which is how a file has to name it. Populated by
 	// ListInstrumentsForExport and nil everywhere else; use UnderlyingListingID
@@ -1338,12 +1334,31 @@ type Listing struct {
 	Identifiers []IdentifierInput
 	// Provider-specific identifiers at the same grain.
 	ProviderIdentifiers []ProviderIdentifierInput
-	// The operating MICs this line is admitted to, derived from its MIC_TICKER
-	// identifiers by trigger. A set rather than one venue: two venues quoting
-	// one line differ by a spread, which does not make two listings. Empty is
+	// The venues this line is admitted to, derived from its MIC_TICKER
+	// identifiers by trigger, each carrying the reference data the exchanges
+	// table holds for it. A set rather than one venue: two venues quoting one
+	// line differ by a spread, which does not make two listings. Empty is
 	// ordinary and means no provider named a venue -- a composite names a market
 	// and stores no MIC.
-	Venues []string
+	//
+	// Open rather than complete. It is the venues we have been told about, not
+	// the venues that exist, so a source naming one we do not hold has told us
+	// something new rather than contradicted us. See
+	// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
+	Venues []Venue
+}
+
+// Venue is one venue a listing is admitted to, with the ISO 10383 reference
+// data for it.
+//
+// The reference data travels with the MIC rather than beside it, so there is no
+// pairing for a reader to get wrong and no way for the two to disagree about how
+// many venues there are.
+type Venue struct {
+	MIC         string
+	Name        string
+	Acronym     string
+	CountryCode string
 }
 
 // AllIdentifiers is the security's identifiers followed by those of each of its

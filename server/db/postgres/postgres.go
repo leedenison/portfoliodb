@@ -249,14 +249,13 @@ func inClauseUUIDs(ids []uuid.UUID) (string, []interface{}) {
 	return strings.Join(placeholders, ","), args
 }
 
-// instrumentRow is the sqlx-scannable shape of an instruments row with optional exchange JOIN fields.
+// instrumentRow is the sqlx-scannable shape of an instruments row.
 type instrumentRow struct {
 	ID                  uuid.UUID        `db:"id"`
 	AssetClass          *string          `db:"asset_class"`
 	ExchangeMIC         *string          `db:"exchange_mic"`
 	Currency            *string          `db:"currency"`
 	Name                *string          `db:"name"`
-	Exchange            string           `db:"exchange"`
 	UnderlyingListingID *string          `db:"underlying_listing_id"`
 	UnderlyingID        *string          `db:"underlying_id"`
 	CIK                 *string          `db:"cik"`
@@ -265,9 +264,6 @@ type instrumentRow struct {
 	Expiry              *time.Time       `db:"expiry"`
 	PutCall             *string          `db:"put_call"`
 	ContractMultiplier  decimal.Decimal  `db:"contract_multiplier"`
-	ExchangeName        *string          `db:"exchange_name"`
-	ExchangeAcronym     *string          `db:"exchange_acronym"`
-	ExchangeCountryCode *string          `db:"exchange_country_code"`
 	// The underlying named the way a file names it, populated by the export
 	// query alone. Everything else identifies an underlying by its listing, and
 	// by the security that listing belongs to.
@@ -286,7 +282,6 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 		ExchangeMIC:         r.ExchangeMIC,
 		Currency:            r.Currency,
 		Name:                r.Name,
-		Exchange:            r.Exchange,
 		UnderlyingListingID: r.UnderlyingListingID,
 		UnderlyingID:        r.UnderlyingID,
 		CIK:                 r.CIK,
@@ -295,9 +290,6 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 		Expiry:              r.Expiry,
 		PutCall:             r.PutCall,
 		ContractMultiplier:  r.ContractMultiplier,
-		ExchangeName:        r.ExchangeName,
-		ExchangeAcronym:     r.ExchangeAcronym,
-		ExchangeCountryCode: r.ExchangeCountryCode,
 
 		Underlying:         r.underlyingRef(),
 		UnderlyingCurrency: derefStr(r.UnderlyingCurrency),

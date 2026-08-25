@@ -168,10 +168,15 @@ describe("portfolio-api", () => {
                 id: "inst-1",
                 name: "Apple Inc.",
                 assetClass: AssetClass.STOCK,
-                exchange: "XNAS",
-                currency: "USD",
-                identifiers: [
-                  { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS", canonical: true },
+                listings: [
+                  {
+                    id: "listing-1",
+                    currency: "USD",
+                    identifiers: [
+                      { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS", canonical: true },
+                    ],
+                    venues: [{ mic: "XNAS", name: "Nasdaq", acronym: "NASDAQ", countryCode: "US" }],
+                  },
                 ],
               },
             ],

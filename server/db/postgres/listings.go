@@ -556,10 +556,16 @@ func loadListingDetail(ctx context.Context, q queryable, listings []*db.Listing)
 		return err
 	}
 
+	// An inner join, because listing_venues.mic is a foreign key to exchanges and
+	// the trigger that fills it drops a MIC the reference table does not carry.
+	// So there is no venue here without reference data to go with it, and the
+	// join cannot lose a row.
 	vRows, err := q.QueryContext(ctx, fmt.Sprintf(`
-		SELECT listing_id, mic FROM listing_venues
-		WHERE listing_id IN (%s)
-		ORDER BY listing_id, mic
+		SELECT v.listing_id, v.mic, e.name, e.acronym, e.country_code
+		FROM listing_venues v
+		JOIN exchanges e ON e.mic = v.mic
+		WHERE v.listing_id IN (%s)
+		ORDER BY v.listing_id, v.mic
 	`, inClause), args...)
 	if err != nil {
 		return fmt.Errorf("query listing venues: %w", err)
@@ -567,12 +573,14 @@ func loadListingDetail(ctx context.Context, q queryable, listings []*db.Listing)
 	defer vRows.Close()
 	for vRows.Next() {
 		var lid uuid.UUID
-		var mic string
-		if err := vRows.Scan(&lid, &mic); err != nil {
+		var v db.Venue
+		var acronym sql.NullString
+		if err := vRows.Scan(&lid, &v.MIC, &v.Name, &acronym, &v.CountryCode); err != nil {
 			return fmt.Errorf("scan listing venue: %w", err)
 		}
+		v.Acronym = acronym.String
 		if l := byID[lid.String()]; l != nil {
-			l.Venues = append(l.Venues, mic)
+			l.Venues = append(l.Venues, v)
 		}
 	}
 	return vRows.Err()

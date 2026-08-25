@@ -837,12 +837,10 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	}
 	var r instrumentRow
 	err = p.q.GetContext(ctx, &r, `
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, `+underlyingSelect+`,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, `+underlyingSelect+`,
 		       i.cik, i.sic_code,
-		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
-		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
+		       i.strike, i.expiry, i.put_call, i.contract_multiplier
 		FROM instruments i
-		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 		`+underlyingJoin+`
 		WHERE i.id = $1
 	`, instUUID)
@@ -918,17 +916,15 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 			JOIN matched m ON m.id = d.id
 			JOIN instrument_listings ul ON ul.id = d.underlying_listing_id
 		)
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, ` + underlyingSelect + `,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, ` + underlyingSelect + `,
 		       i.cik, i.sic_code,
 		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
-		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code,
 		       u_id.identifier_type AS underlying_identifier_type,
 		       u_id.value AS underlying_identifier_value,
 		       COALESCE(u_id.domain, '') AS underlying_identifier_domain,
 		       u_l.currency AS underlying_currency
 		FROM instruments i
 		JOIN selected s ON s.id = i.id
-		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 		` + underlyingJoin +
 		// The listing join, because what a contract delivers is one currency
 		// line of the underlying and the file names that line: this identifier
@@ -983,12 +979,10 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	inClause, args := inClauseUUIDs(uuids)
 	var irows []instrumentRow
 	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, `+underlyingSelect+`,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, `+underlyingSelect+`,
 		       i.cik, i.sic_code,
-		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
-		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
+		       i.strike, i.expiry, i.put_call, i.contract_multiplier
 		FROM instruments i
-		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 		`+underlyingJoin+`
 		WHERE i.id IN (%s)
 	`, inClause), args...)
@@ -1466,13 +1460,11 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	}
 
 	q, args, err := psql.Select(
-		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", "i.exchange", underlyingSelect,
+		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", underlyingSelect,
 		"i.cik", "i.sic_code",
 		"i.strike", "i.expiry", "i.put_call", "i.contract_multiplier",
-		"e.name AS exchange_name", "e.acronym AS exchange_acronym", "e.country_code AS exchange_country_code",
 	).
 		From("instruments i").
-		LeftJoin("exchanges e ON e.mic = i.exchange_mic").
 		LeftJoin("instrument_listings u_l ON u_l.id = i.underlying_listing_id").
 		Where(where).
 		OrderBy("lower(i.name)").

@@ -41,9 +41,29 @@ func generateFormulas(priceGaps, fxGaps []*apiv1.PriceGap) formulaResult {
 	return res
 }
 
+// venueForGF picks the venue to quote a line at, which is the first of its venues
+// Google Finance has a mapping for.
+//
+// Permissive, because a venue set is what we know about a line rather than what
+// exists (adr/0077) and the venues of one line differ by a spread rather than by
+// anything a quote source holds separately. Any of them names the same line, so
+// the one that can be asked is as good an answer as any other, and a line whose
+// venues are all unmapped falls through to gfTicker's own error.
+func venueForGF(venues []string) string {
+	for _, mic := range venues {
+		if _, ok := MICToGF(mic); ok {
+			return mic
+		}
+	}
+	if len(venues) > 0 {
+		return venues[0]
+	}
+	return ""
+}
+
 func gapToColumns(pg *apiv1.PriceGap) ([]sheetColumn, error) {
 	ident := pg.GetIdentifier()
-	exchangeMIC := pg.GetExchange()
+	exchangeMIC := venueForGF(pg.GetVenues())
 	if ident.GetType() == typev1.IdentifierType_MIC_TICKER && ident.GetDomain() != "" {
 		exchangeMIC = ident.GetDomain()
 	}

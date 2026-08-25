@@ -38,12 +38,15 @@ func PluginAccepts(ac, ex, cu map[string]bool, inst *db.InstrumentRow) bool {
 // asset class still comes from the security, while the currency and the venues
 // are the listing's own. Empty or nil maps accept all values.
 //
-// A listing with no venue passes the exchange filter, as a null exchange does
-// above: nothing named a venue, so there is nothing to fail on -- a composite
+// The venue test is permissive, because a venue set is what we know and not what
+// exists (adr/0077). A listing with no venue passes, as a null exchange did
+// before: nothing named a venue, so there is nothing to fail on -- a composite
 // identifier names a market and stores no MIC. Where a line is admitted to
 // several venues, carrying any one of them is enough, the venues of one listing
 // quoting one line differing by a spread rather than by anything a provider
-// would hold separate data for.
+// would hold separate data for. The question here is whether this plugin can
+// plausibly price this line, and a plugin that covers any venue we have heard of
+// can.
 //
 // A listing with no currency does not reach here: it is not priceable, so it is
 // never in a gap.
@@ -55,8 +58,8 @@ func PluginAcceptsListing(ac, ex, cu map[string]bool, assetClass *string, lst *d
 	}
 	if len(ex) > 0 && len(lst.Venues) > 0 {
 		matched := false
-		for _, mic := range lst.Venues {
-			if ex[mic] {
+		for _, v := range lst.Venues {
+			if ex[v.MIC] {
 				matched = true
 				break
 			}

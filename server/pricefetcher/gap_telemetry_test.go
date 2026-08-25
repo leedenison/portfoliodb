@@ -140,7 +140,7 @@ func (c gapCycle) expect(m *mock.MockDB) {
 			l.Currency = *inst.Currency
 		}
 		if inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
-			l.Venues = []string{*inst.ExchangeMIC}
+			l.Venues = []db.Venue{{MIC: *inst.ExchangeMIC}}
 		}
 		listings[l.ID] = l
 	}
@@ -179,7 +179,7 @@ func TestCycleRecordsWhatItWasAskedFor(t *testing.T) {
 		configs: []db.PluginConfigRow{{PluginID: "eodhd", Precedence: 10, Config: []byte("{}")}},
 		insts: []*db.InstrumentRow{
 			{ID: "inst-1", AssetClass: strPtr("STOCK"), Currency: strPtr("USD"),
-				ExchangeMIC: strPtr("XNAS"), Exchange: "NASDAQ"},
+				ExchangeMIC: strPtr("XNAS")},
 			{ID: "fx-1", AssetClass: strPtr("FX"), Currency: strPtr("USD")},
 		},
 	}.expect(mockDB)

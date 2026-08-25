@@ -71,7 +71,11 @@ func newPriceGaps(ctx context.Context, tel db.TelemetryDB, runID string,
 		if lst != nil {
 			row.InstrumentID = lst.InstrumentID
 			row.Currency = lst.Currency
-			row.Exchange = strings.Join(lst.Venues, ",")
+			mics := make([]string, len(lst.Venues))
+			for i, v := range lst.Venues {
+				mics[i] = v.MIC
+			}
+			row.Exchange = strings.Join(mics, ",")
 		}
 		if inst := instByID[row.InstrumentID]; inst != nil && inst.AssetClass != nil {
 			row.AssetClass = *inst.AssetClass

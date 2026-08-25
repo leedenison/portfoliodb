@@ -2550,14 +2550,17 @@ const (
 
 // Identifier plugin call outcomes the orchestrator composes. The rest of the
 // vocabulary is the plugin's own transport outcome and lives on
-// identifier.Outcome, which a caller spells with string(). These three are all
+// identifier.Outcome, which a caller spells with string(). These four are all
 // successes and are decided after every plugin has returned: superseded lost to a
-// better hint match despite higher precedence, and discarded_inconsistent was
-// dropped as contradicting the winner. No plugin can know either.
+// better hint match despite higher precedence, discarded_inconsistent was dropped
+// as contradicting the winner, and discarded_uncorroborated was dropped because
+// nothing named the security the two results share (adr/0078). No plugin can know
+// any of them.
 const (
-	TelemetryPluginCallWon                   = "won"
-	TelemetryPluginCallSuperseded            = "superseded"
-	TelemetryPluginCallDiscardedInconsistent = "discarded_inconsistent"
+	TelemetryPluginCallWon                     = "won"
+	TelemetryPluginCallSuperseded              = "superseded"
+	TelemetryPluginCallDiscardedInconsistent   = "discarded_inconsistent"
+	TelemetryPluginCallDiscardedUncorroborated = "discarded_uncorroborated"
 )
 
 // Price gap outcomes. TelemetryGapSettledEmpty is a success and the mirror of

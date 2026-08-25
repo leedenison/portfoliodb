@@ -33,6 +33,11 @@ excludes a result failing either. These compare two answers rather than an answe
 against the store, so the open-world rule does not reach them: neither side is a
 partial record.
 
+Deciding that two results named one line does not decide that they named one
+security, and merge admission asks both. What settles the second is an identifier
+of security grain the two share, per
+[0078](0078-merge-admission-needs-a-security-both-results-named.md).
+
 ## Consequences
 
 **A stated venue is never a hint difference.** `CompareHints` compared a hint's

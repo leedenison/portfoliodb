@@ -198,11 +198,13 @@ CREATE INDEX idx_telemetry_identification_attempt_key
 
 -- One plugin invocation within an attempt.
 --
--- won, superseded and discarded_inconsistent are all successes, and are decided by the
--- orchestrator after every plugin has returned: superseded lost to a better hint match
--- despite higher precedence, and discarded_inconsistent was dropped as contradicting
--- the winner. A plugin cannot know either, which is why it returns its transport
--- outcome and the orchestrator composes the row. retries and duration_ms are the
+-- won, superseded, discarded_inconsistent and discarded_uncorroborated are all
+-- successes, and are decided by the orchestrator after every plugin has returned:
+-- superseded lost to a better hint match despite higher precedence,
+-- discarded_inconsistent was dropped as contradicting the winner, and
+-- discarded_uncorroborated was dropped because nothing named the security the two
+-- results share. A plugin cannot know any of them, which is why it returns its
+-- transport outcome and the orchestrator composes the row. retries and duration_ms are the
 -- orchestrator's too: the retry loop and the clock belong to it.
 CREATE TABLE telemetry.identifier_plugin_call (
   id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -211,6 +213,7 @@ CREATE TABLE telemetry.identifier_plugin_call (
   plugin_id                 TEXT NOT NULL,
   outcome                   TEXT NOT NULL CHECK (outcome IN ('won', 'superseded',
                                                              'discarded_inconsistent',
+                                                             'discarded_uncorroborated',
                                                              'not_identified', 'rate_limited',
                                                              'timeout', 'error',
                                                              'skipped_expired')),

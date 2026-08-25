@@ -197,6 +197,31 @@ func NamesAListing(t string) bool {
 	return ok && p.Grain == GrainListing
 }
 
+// CorroboratesSecurity reports whether two results naming one value of this type
+// have thereby named one security.
+//
+// Grain selects it. A ticker, a SEDOL and a composite FIGI name one line, and
+// two results agreeing about a line have not said they resolved one security --
+// adr/0060 says exactly this of a currency and a venue.
+//
+// A description is excluded on the other axis. It is not injective, as the table
+// above records, so two results agreeing on the text have agreed about the text
+// rather than about its subject.
+//
+// Routine reassignment does not exclude a type here, though it bars one from
+// mediating a chain (adr/0061). A contract symbol passes to another strike over
+// time, but two results resolving now from one symbol both mean today's
+// contract. Reassignment is a question about time; this one is about how much a
+// query left open at an instant.
+//
+// False for a type outside the vocabulary, for the reason NamesAListing gives.
+//
+// See docs/adr/0078-merge-admission-needs-a-security-both-results-named.md.
+func CorroboratesSecurity(t string) bool {
+	p, ok := idTypes[t]
+	return ok && p.Grain == GrainSecurity && p.Scope != ScopeDescription
+}
+
 // providerIDTypes is the grain of each provider-specific identifier type.
 //
 // A provider type is a free-form string a plugin invents rather than a member of

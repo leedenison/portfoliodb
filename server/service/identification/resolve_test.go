@@ -1064,10 +1064,14 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	})
-	// Plugin B (lower precedence): XNAS/USD with FIGI -- consistent
+	// Plugin B (lower precedence): XNAS/USD with FIGI -- consistent, and naming
+	// the winner's ISIN beside it, which is what admits it (adr/0078).
 	registry.Register("pluginB", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple Inc.", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
-		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
+		ids: []identifier.Identifier{
+			{Type: "ISIN", Value: "US0378331005"},
+			{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"},
+		},
 	})
 
 	database.EXPECT().
@@ -1133,11 +1137,14 @@ func TestResolveWithPlugins_TwoVenuesOfOneCurrencyMerge(t *testing.T) {
 		},
 	})
 	// One line, quoted in USD at a second venue. Under the retired rule the
-	// differing MIC_TICKER domains excluded this outright.
+	// differing MIC_TICKER domains excluded this outright. It names the winner's
+	// ISIN, so a security is what the two share and the currency decides only
+	// the line (adr/0078).
 	registry.Register("pluginB", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Vodafone Group", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XLON"}, Currency: "USD"}},
 		ids: []identifier.Identifier{
 			{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"},
+			{Type: "ISIN", Value: "GB00BH4HKS39"},
 			{Type: "SEDOL", Value: "BH4HKS3"},
 		},
 	})
@@ -1172,6 +1179,84 @@ func TestResolveWithPlugins_TwoVenuesOfOneCurrencyMerge(t *testing.T) {
 			}
 			if !london {
 				t.Error("expected the London MIC_TICKER to reach the instrument")
+			}
+			return "id", "listing-id", nil
+		})
+
+	_, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "VOD"}}, Hints: identifier.Hints{}},
+		false, nil, Attempt{}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+// The whole of what an uncorroborated loser contributes: nothing. Not its
+// identifiers, of either grain, and not the fields the winner left blank. The
+// stated ticker names no venue, so each plugin picked one listing out of several
+// the query admits, and that they agree about the currency is the query restated
+// (adr/0078).
+func TestResolveWithPlugins_UncorroboratedLoserContributesNothing(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().LookupMICCountry(gomock.Any(), gomock.Any()).DoAndReturn(testMICCountry).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	// A composite answer, as OpenFIGI gives one: a market, a currency, no CIK.
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Vodafone", Listing: identifier.Listing{Venue: identifier.Venue{Country: "US"}, Currency: "USD"}},
+		ids: []identifier.Identifier{
+			{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"},
+			{Type: "OPENFIGI_TICKER", Domain: "US", Value: "VOD"},
+		},
+	})
+	// A search answer, as EODHD gives one, about a security nobody said was the
+	// same. Its currency agrees, so nothing contradicts; it shares no
+	// security-grain subject, so nothing corroborates either.
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Vodacom Group", CIK: "0001234567", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
+		ids: []identifier.Identifier{
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "VODPF"},
+			{Type: "ISIN", Value: "ZAE000132577"},
+		},
+	})
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "VOD").
+		Return("", "", nil, nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "VOD").
+		Return("", nil)
+	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "VOD").Return("", nil).AnyTimes()
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+
+	// The CIK is the field the winner left blank, so it is what says whether the
+	// loser filled anything.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "USD", "Vodafone", "", "", gomock.Any(), gomock.Any(), "", nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _ string, idns []db.IdentifierInput, claims []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
+			for _, idn := range idns {
+				switch {
+				case idn.Ref.Type == "ISIN":
+					t.Errorf("the loser's ISIN %q reached the security", idn.Ref.Value)
+				case idn.Ref.Type == "MIC_TICKER" && idn.Ref.Domain == "XNAS":
+					t.Errorf("the loser's ticker %q reached the line", idn.Ref.Value)
+				}
+			}
+			if len(claims) != 1 {
+				t.Errorf("claims = %d, want 1: the loser asserted nothing the resolver may act on", len(claims))
 			}
 			return "id", "listing-id", nil
 		})
@@ -1691,12 +1776,19 @@ func TestResolveWithPlugins_WinnerBlanksFilledFromConsistentLoser(t *testing.T) 
 	// Highest precedence: a composite answer. No venue, no currency, no CIK.
 	registry.Register("composite", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "BERKSHIRE HATHAWAY INC-CL B"},
-		ids:  []identifier.Identifier{{Type: "OPENFIGI_TICKER", Domain: "US", Value: "BRK/B"}},
+		ids: []identifier.Identifier{
+			{Type: "OPENFIGI_TICKER", Domain: "US", Value: "BRK/B"},
+			{Type: "ISIN", Value: "US0846707026"},
+		},
 	})
-	// Lower precedence: names the venue and the currency.
+	// Lower precedence: names the venue and the currency, and the ISIN that says
+	// the two are about one security (adr/0078).
 	registry.Register("venue", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Berkshire Hathaway Inc", CIK: "0001067983", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNYS"}, Currency: "USD"}},
-		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK.B"}},
+		ids: []identifier.Identifier{
+			{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK.B"},
+			{Type: "ISIN", Value: "US0846707026"},
+		},
 	})
 
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "BRK.B").Return("", "", nil, nil)
@@ -1861,11 +1953,17 @@ func TestResolveWithPlugins_VenueInsideTheMarketIsAdopted(t *testing.T) {
 	registry.Register("composite", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK",
 			Name: "BERKSHIRE HATHAWAY INC-CL B", Listing: identifier.Listing{Venue: identifier.Venue{Country: "US"}}},
-		ids: []identifier.Identifier{{Type: "OPENFIGI_TICKER", Domain: "US", Value: "BRK/B"}},
+		ids: []identifier.Identifier{
+			{Type: "OPENFIGI_TICKER", Domain: "US", Value: "BRK/B"},
+			{Type: "ISIN", Value: "US0846707026"},
+		},
 	})
 	registry.Register("venue", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Berkshire Hathaway Inc", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNYS"}, Currency: "USD"}},
-		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK.B"}},
+		ids: []identifier.Identifier{
+			{Type: "MIC_TICKER", Domain: "XNYS", Value: "BRK.B"},
+			{Type: "ISIN", Value: "US0846707026"},
+		},
 	})
 
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "BRK.B").Return("", "", nil, nil)
@@ -2440,11 +2538,42 @@ func TestResolveWithPlugins_ADatabaseHitLeavesProposalsUnused(t *testing.T) {
 
 // --- Identity claims reaching the merge site (0139) ---
 
-// Two plugins returning disjoint types are two claims, not one. This is the
-// case adr/0060 is written for: the union of the two is a set the resolver
-// assembled and nobody asserted, and telling it from one plugin naming both is
-// what 0140 needs the partition for.
-func TestResolveWithPlugins_DisjointResultsAreSeparateClaims(t *testing.T) {
+// Two plugins are two claims, not one. This is the case adr/0060 is written
+// for: the union of the two is a set the resolver assembled and nobody
+// asserted, and telling it from one plugin naming both is what 0140 needs the
+// partition for. Both name the ISIN, which is what gets the second result to
+// the merge site at all (adr/0078); the CUSIP beside it was named by one of
+// them and not by the other, and that is the difference the partition holds.
+func TestResolveWithPlugins_TwoResultsAreSeparateClaims(t *testing.T) {
+	claims := claimsFromResolve(t,
+		&fakePlugin{
+			inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
+			ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+		},
+		&fakePlugin{
+			inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple Inc.", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
+			ids: []identifier.Identifier{
+				{Type: "ISIN", Value: "US0378331005"},
+				{Type: "CUSIP", Value: "037833100"},
+			},
+		})
+
+	if len(claims) != 2 {
+		t.Fatalf("claims = %d, want 2: %+v", len(claims), claims)
+	}
+	if got := claims[0].Identifiers; len(got) != 1 || got[0].Ref.Type != "ISIN" || got[0].Role != db.ClaimRoleReturned {
+		t.Errorf("claim 0 = %+v", got)
+	}
+	if got := claims[1].Identifiers; len(got) != 2 {
+		t.Errorf("claim 1 = %+v, want the ISIN and the CUSIP together", got)
+	}
+}
+
+// Two plugins sharing no security-grain identifier reach the merge site as one
+// claim, because only one of them reaches it. An ISIN and a CUSIP named by two
+// results are not one security asserted twice: nothing said the two results were
+// about one security, and the currency and venue they agree on do not (adr/0078).
+func TestResolveWithPlugins_AnUncorroboratedResultContributesNoClaim(t *testing.T) {
 	claims := claimsFromResolve(t,
 		&fakePlugin{
 			inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
@@ -2455,14 +2584,11 @@ func TestResolveWithPlugins_DisjointResultsAreSeparateClaims(t *testing.T) {
 			ids:  []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}},
 		})
 
-	if len(claims) != 2 {
-		t.Fatalf("claims = %d, want 2: %+v", len(claims), claims)
+	if len(claims) != 1 {
+		t.Fatalf("claims = %d, want 1: %+v", len(claims), claims)
 	}
-	if got := claims[0].Identifiers; len(got) != 1 || got[0].Ref.Type != "ISIN" || got[0].Role != db.ClaimRoleReturned {
-		t.Errorf("claim 0 = %+v", got)
-	}
-	if got := claims[1].Identifiers; len(got) != 1 || got[0].Ref.Type != "CUSIP" || got[0].Role != db.ClaimRoleReturned {
-		t.Errorf("claim 1 = %+v", got)
+	if got := claims[0].Identifiers; len(got) != 1 || got[0].Ref.Type != "ISIN" {
+		t.Errorf("claim 0 = %+v, want the winner's ISIN alone", got)
 	}
 }
 
@@ -2764,6 +2890,107 @@ func TestConsistentWith_AWinnerNamingTwoListingsAcceptsEither(t *testing.T) {
 	}
 }
 
+// --- Merge admission asks what named the security (0160) ---
+
+// One ISIN both results named is what ties them to one security, whatever else
+// they each carry.
+func TestCorroborated_AnAgreedISINTiesTwoResults(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids: []identifier.Identifier{
+			{Type: "ISIN", Value: "US0378331005"},
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
+		},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids: []identifier.Identifier{
+			{Type: "ISIN", Value: "US0378331005"},
+			{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"},
+		},
+	}
+	if !corroborated(context.Background(), nil, "a", "b", w, o, testMICNormalizer()) {
+		t.Error("expected an agreed ISIN to tie the two results to one security")
+	}
+	o.ids[0].Value = "GB00BH4HKS39"
+	if corroborated(context.Background(), nil, "a", "b", w, o, testMICNormalizer()) {
+		t.Error("expected two ISINs to tie nothing")
+	}
+}
+
+// The shape EODHD and OpenFIGI actually produce. A SEDOL and a composite FIGI
+// name one line, and a line is not a security: two results agreeing about where
+// something trades have not agreed about what trades there.
+func TestCorroborated_ALineIsNotASecurity(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB00BH4HKS39"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids: []identifier.Identifier{
+			{Type: "SEDOL", Value: "BH4HKS3"},
+			{Type: "OPENFIGI_COMPOSITE", Value: "BBG000C6K6G9"},
+			{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"},
+		},
+	}
+	if corroborated(context.Background(), nil, "a", "b", w, o, testMICNormalizer()) {
+		t.Error("expected listing-grain agreement to tie nothing")
+	}
+}
+
+// adr/0060's second form. A provider that answers a strictly filtered call has
+// asserted the filtered value denotes the security it described, so OpenFIGI
+// mapping a stated ISIN corroborates it against the plugin that returned it --
+// even though OpenFIGI deliberately does not echo the ISIN back.
+func TestCorroborated_AFilteredISINCorroboratesAReturnedOne(t *testing.T) {
+	w := &pluginResult{
+		inst:     &identifier.Instrument{},
+		ids:      []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}},
+		filtered: []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	if !corroborated(context.Background(), nil, "a", "b", w, o, testMICNormalizer()) {
+		t.Error("expected a filtered ISIN to corroborate a returned one")
+	}
+}
+
+// Two securities can wear one description, so agreeing on the text is agreeing
+// about the text rather than about its subject.
+func TestCorroborated_ADescriptionCorroboratesNothing(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "ibkr", Value: "APPLE INC"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "ibkr", Value: "APPLE INC"}},
+	}
+	if corroborated(context.Background(), nil, "a", "b", w, o, testMICNormalizer()) {
+		t.Error("expected a description to corroborate nothing")
+	}
+}
+
+// A contract symbol passes to another strike over time, which is what stops it
+// mediating a chain. It still names one contract now, and two results resolving
+// now both mean that one.
+func TestCorroborated_AnAgreedContractSymbolTiesTwoResults(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "OCC", Value: "AAPL  260116C00150000"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "OCC", Value: "AAPL  260116C00150000"}},
+	}
+	if !corroborated(context.Background(), nil, "a", "b", w, o, testMICNormalizer()) {
+		t.Error("expected an agreed contract symbol to tie the two results")
+	}
+}
+
 // The venue is half of what the source stated. A result naming the symbol on
 // another venue has agreed with the other half and with nothing that was said.
 func TestConfirmedFields_AStatedTickerOnAnotherVenueIsNotConfirmed(t *testing.T) {
@@ -2870,7 +3097,10 @@ func TestResolveWithPlugins_AVenueSilentResultSuppliesTheCurrency(t *testing.T) 
 	registry := identifier.NewRegistry()
 	registry.Register("venue", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Apple Inc", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}}},
-		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
+		ids: []identifier.Identifier{
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
+			{Type: "ISIN", Value: "US0378331005"},
+		},
 	})
 	registry.Register("security", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", CIK: "0000320193", Listing: identifier.Listing{Currency: "GBP"}},

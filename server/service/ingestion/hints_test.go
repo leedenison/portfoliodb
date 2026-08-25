@@ -3,7 +3,6 @@ package ingestion
 import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
-	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"testing"
 )
@@ -13,15 +12,17 @@ func TestHintsFromTx_AssetClassHint(t *testing.T) {
 		name     string
 		hint     typev1.AssetClass
 		wantHint string
-		wantKind string
 	}{
-		{"stated CASH", typev1.AssetClass_CASH, identifier.SecurityTypeHintCash, db.InstrumentKindCash},
-		{"stated STOCK", typev1.AssetClass_STOCK, identifier.SecurityTypeHintStock, db.InstrumentKindSecurity},
-		{"stated OPTION", typev1.AssetClass_OPTION, identifier.SecurityTypeHintOption, db.InstrumentKindSecurity},
-		{"stated UNKNOWN is a security of unstated class", typev1.AssetClass_UNKNOWN, identifier.SecurityTypeHintUnknown, db.InstrumentKindSecurity},
-		// No claim leaves the class unconstrained but still routes as a
-		// security: cash plugins run only for a stated CASH.
-		{"unset states no claim", typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, "", db.InstrumentKindSecurity},
+		{"stated CASH", typev1.AssetClass_CASH, identifier.SecurityTypeHintCash},
+		{"stated STOCK", typev1.AssetClass_STOCK, identifier.SecurityTypeHintStock},
+		{"stated OPTION", typev1.AssetClass_OPTION, identifier.SecurityTypeHintOption},
+		{"stated EQUITY is carried as stated", typev1.AssetClass_EQUITY, identifier.SecurityTypeHintEquity},
+		// Both of these route as a security: cash plugins run only for a stated
+		// class under CASH, and neither of these is one.
+		{"stated UNKNOWN rules nothing out and is floored",
+			typev1.AssetClass_UNKNOWN, identifier.SecurityTypeHintSecurity},
+		{"unset states no claim and is floored",
+			typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, identifier.SecurityTypeHintSecurity},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -29,10 +30,21 @@ func TestHintsFromTx_AssetClassHint(t *testing.T) {
 			if h.SecurityTypeHint != tt.wantHint {
 				t.Errorf("SecurityTypeHint = %q, want %q", h.SecurityTypeHint, tt.wantHint)
 			}
-			if h.InstrumentKind != tt.wantKind {
-				t.Errorf("InstrumentKind = %q, want %q", h.InstrumentKind, tt.wantKind)
-			}
 		})
+	}
+}
+
+// A floored hint reaches the security plugins and no cash plugin, which is the
+// whole reason for the floor.
+func TestHintsFromTx_FlooredHintRoutesAsASecurity(t *testing.T) {
+	h := HintsFromTx(&apiv1.Tx{AssetClassHint: typev1.AssetClass_ASSET_CLASS_UNSPECIFIED})
+	cash := map[string]bool{identifier.SecurityTypeHintCash: true}
+	stocks := map[string]bool{identifier.SecurityTypeHintStock: true}
+	if identifier.ShouldAttemptPlugin(cash, h.SecurityTypeHint) {
+		t.Error("a row nobody called cash reached a cash plugin")
+	}
+	if !identifier.ShouldAttemptPlugin(stocks, h.SecurityTypeHint) {
+		t.Error("a row stating only that it is a security was refused a security plugin")
 	}
 }
 
@@ -46,7 +58,7 @@ func TestHintsFromTx_Currency(t *testing.T) {
 	})
 	t.Run("nil tx returns empty hints", func(t *testing.T) {
 		h := HintsFromTx(nil)
-		if h.Currency != "" || h.SecurityTypeHint != "" || h.InstrumentKind != "" {
+		if h.Currency != "" || h.SecurityTypeHint != "" {
 			t.Errorf("expected empty hints, got %+v", h)
 		}
 	})

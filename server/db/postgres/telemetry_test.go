@@ -105,8 +105,7 @@ func TestWriteNest(t *testing.T) {
 		Source:           "FIDELITY_CSV",
 		Description:      "APPLE INC COM",
 		TxCount:          300,
-		SecurityTypeHint: "Stock",
-		InstrumentKind:   "security",
+		SecurityTypeHint: "STOCK",
 	})
 	if keyID == "" {
 		t.Fatal("StartResolutionKey returned no id")

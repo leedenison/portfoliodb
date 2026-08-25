@@ -124,11 +124,11 @@ func (t *Telemetry) StartResolutionKey(ctx context.Context, k db.TelemetryResolu
 	err := t.db.QueryRowContext(ctx, `
 		INSERT INTO telemetry.resolution_key
 			(run_id, source, description, tx_count, had_identifier_hints,
-			 security_type_hint, instrument_kind)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+			 security_type_hint)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
 	`, runID, k.Source, k.Description, k.TxCount, k.HadIdentifierHints,
-		nullStr(k.SecurityTypeHint), nullStr(k.InstrumentKind)).Scan(&id)
+		nullStr(k.SecurityTypeHint)).Scan(&id)
 	if err != nil {
 		t.fail(ctx, k.RunID, "start resolution key", err)
 		return ""

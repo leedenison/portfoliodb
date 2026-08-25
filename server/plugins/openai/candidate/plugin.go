@@ -53,24 +53,17 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
-// AcceptableInstrumentKinds returns only Security.
-func (p *Plugin) AcceptableInstrumentKinds() map[string]bool {
-	return map[string]bool{identifier.InstrumentKindSecurity: true}
-}
-
-// AcceptableSecurityTypes returns the security type hints this plugin can
-// attempt extraction for (STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION; not
-// CASH or UNKNOWN). An ETF description names a ticker exactly as a stock's does,
-// and the set is exclusive -- ShouldAttemptPlugin drops any item whose type is
-// absent from it -- so leaving ETF out sent every ETF that arrived without
-// identifiers straight to broker-description-only, with no plugin having
-// declined it.
+// AcceptableSecurityTypes returns the classes this plugin can attempt
+// extraction for. EQUITY covers the three below it in one entry, because a
+// description names a ticker the same way whichever of them it turns out to be
+// and this plugin cannot tell them apart either.
+//
+// Not cash: that belongs to the cash plugin, and the classes here reach no
+// further across the tree.
 func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{
-		identifier.SecurityTypeHintStock:       true,
-		identifier.SecurityTypeHintETF:         true,
+		identifier.SecurityTypeHintEquity:      true,
 		identifier.SecurityTypeHintFixedIncome: true,
-		identifier.SecurityTypeHintMutualFund:  true,
 		identifier.SecurityTypeHintOption:      true,
 	}
 }

@@ -805,10 +805,10 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 		diffs = append(diffs, identifier.HintDiff{Field: "Currency", HintValue: hints.Currency, ResolvedValue: inst.Listing.Currency})
 	}
 
-	// SecurityType (same vocabulary as AssetClass).
-	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
-		inst.AssetClass != "" && inst.AssetClass != identifier.SecurityTypeHintUnknown &&
-		!strings.EqualFold(hints.SecurityTypeHint, inst.AssetClass) {
+	// SecurityType. A difference is a contradiction and not an inequality: a
+	// source saying EQUITY and a plugin answering ETF have agreed, the source
+	// having never been asked which of the three.
+	if db.AssetClassContradicts(hints.SecurityTypeHint, inst.AssetClass) {
 		diffs = append(diffs, identifier.HintDiff{Field: "SecurityType", HintValue: hints.SecurityTypeHint, ResolvedValue: inst.AssetClass})
 	}
 
@@ -872,8 +872,7 @@ func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierH
 	if hints.Currency != "" && r.inst.Listing.Currency != "" {
 		return true
 	}
-	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
-		r.inst.AssetClass != "" && r.inst.AssetClass != identifier.SecurityTypeHintUnknown {
+	if db.AssetClassCorroborates(hints.SecurityTypeHint, r.inst.AssetClass) {
 		return true
 	}
 	// Same subject test CompareHints used, because this asks whether that
@@ -919,9 +918,7 @@ func CompareDBMeta(hints identifier.Hints, r ResolvedInstrument) []identifier.Hi
 			ResolvedValue: strings.Join(r.Currencies, ", "),
 		})
 	}
-	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
-		r.AssetClass != "" && r.AssetClass != identifier.SecurityTypeHintUnknown &&
-		!strings.EqualFold(hints.SecurityTypeHint, r.AssetClass) {
+	if db.AssetClassContradicts(hints.SecurityTypeHint, r.AssetClass) {
 		diffs = append(diffs, identifier.HintDiff{Field: "SecurityType", HintValue: hints.SecurityTypeHint, ResolvedValue: r.AssetClass})
 	}
 	return diffs
@@ -935,9 +932,7 @@ func ConfirmedDBFields(hints identifier.Hints, r ResolvedInstrument) []string {
 	if hints.Currency != "" && holdsCurrency(r.Currencies, hints.Currency) {
 		out = append(out, "Currency")
 	}
-	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
-		r.AssetClass != "" && r.AssetClass != identifier.SecurityTypeHintUnknown &&
-		strings.EqualFold(hints.SecurityTypeHint, r.AssetClass) {
+	if db.AssetClassCorroborates(hints.SecurityTypeHint, r.AssetClass) {
 		out = append(out, "SecurityType")
 	}
 	return out
@@ -1018,9 +1013,7 @@ func confirmedFields(ctx context.Context, hints identifier.Hints, stated []ident
 	if hints.Currency != "" && inst.Listing.Currency != "" && currency.Same(hints.Currency, inst.Listing.Currency) {
 		out = append(out, "Currency")
 	}
-	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
-		inst.AssetClass != "" && inst.AssetClass != identifier.SecurityTypeHintUnknown &&
-		strings.EqualFold(hints.SecurityTypeHint, inst.AssetClass) {
+	if db.AssetClassCorroborates(hints.SecurityTypeHint, inst.AssetClass) {
 		out = append(out, "SecurityType")
 	}
 	// Every stated MIC_TICKER: a source that named two listings corroborates the
@@ -1224,7 +1217,7 @@ func ResolveWithPlugins(
 		if p == nil {
 			continue
 		}
-		if !identifier.ShouldAttemptPlugin(p.AcceptableInstrumentKinds(), p.AcceptableSecurityTypes(), hints.InstrumentKind, hints.SecurityTypeHint) {
+		if !identifier.ShouldAttemptPlugin(p.AcceptableSecurityTypes(), hints.SecurityTypeHint) {
 			continue
 		}
 		inputs = append(inputs, pluginInput{config: c, plugin: p})
@@ -1275,7 +1268,7 @@ func ResolveWithPlugins(
 	// each provenance so that a proposal cannot make a stated match look possible
 	// where none was.
 	hasStated := hints.Currency != "" ||
-		(hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown) ||
+		db.AssetClassClaims(hints.SecurityTypeHint) ||
 		len(identifierHints) > 0
 	hasProposed := len(keyed.Proposed) > 0
 

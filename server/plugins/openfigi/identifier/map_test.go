@@ -25,8 +25,10 @@ func TestClassify_SpecExamples(t *testing.T) {
 		// catch-all at priority 702 fires. Use a non-matching marketSector to
 		// exercise the UNKNOWN fallback; Equity case tested separately below.
 		{"index wrt unknown", "Index WRT", "Warrant", "Other", db.AssetClassUnknown},
-		// With Equity marketSector, warrants fall into STOCK via the broad catch-all.
-		{"index wrt equity", "Index WRT", "Warrant", "Equity", db.AssetClassStock},
+		// With Equity marketSector, a warrant falls into SECURITY via the broad
+		// catch-all. Not EQUITY: a warrant is not a shareholding, and the sector
+		// it is filed under does not claim it is one.
+		{"index wrt equity", "Index WRT", "Warrant", "Equity", db.AssetClassSecurity},
 		{"abs auto pool mtge", "ABS Auto", "Pool", "Mtge", db.AssetClassFixedIncome},
 	}
 	for _, tt := range tests {
@@ -58,8 +60,11 @@ func TestClassify_PriorityEdgeCases(t *testing.T) {
 		{"curncy market sector", "Some Type", "Some Type2", "Curncy", db.AssetClassFX},
 		// Corp marketSector -> FIXED_INCOME, not STOCK
 		{"corp market sector", "Some Type", "Some Type2", "Corp", db.AssetClassFixedIncome},
-		// Equity marketSector with unknown securityType -> STOCK
-		{"equity market sector fallback", "Some Type", "Some Type2", "Equity", db.AssetClassStock},
+		// Equity marketSector with unknown securityType -> SECURITY. Bloomberg
+		// files options, futures and warrants under the Equity sector beside
+		// shares and funds, so the sector alone says what the security is not --
+		// debt, currency, commodity -- and not what it is.
+		{"equity market sector fallback", "Some Type", "Some Type2", "Equity", db.AssetClassSecurity},
 		// FUTURE securityType2 -> FUTURE
 		{"future via securityType2", "Some Type", "Future", "Equity", db.AssetClassFuture},
 		// Fund securityType2 -> MUTUAL_FUND
@@ -175,5 +180,27 @@ func TestToOpenFIGICurrency(t *testing.T) {
 	}
 	if len(openFIGICurrencyOverrides) != 1 {
 		t.Errorf("openFIGICurrencyOverrides = %+v, want only GBX", openFIGICurrencyOverrides)
+	}
+}
+
+// An equity option carries marketSector "Equity", which is why the sector alone
+// cannot be read as a shareholding. The securityType names it and the OPTION
+// rule takes it first; this pins that, and pins what is left when the more
+// specific fields say nothing this table knows.
+//
+// The inputs are the shape the recorded responses in testdata carry: OpenFIGI
+// returns securityType "Equity Option" with marketSector "Equity", and
+// securityType2 "Option" on most venues but plain "Equity" on some.
+func TestClassify_EquitySectorIsNotAShareholding(t *testing.T) {
+	if got := classify("Equity Option", "Option", "Equity"); got != db.AssetClassOption {
+		t.Errorf("classify(Equity Option/Option/Equity) = %q, want OPTION", got)
+	}
+	if got := classify("Equity Option", "Equity", "Equity"); got != db.AssetClassOption {
+		t.Errorf("classify(Equity Option/Equity/Equity) = %q, want OPTION", got)
+	}
+	// And with nothing above it matching, the sector is not evidence of a
+	// shareholding: it holds derivatives too.
+	if got := classify("", "", "Equity"); got != db.AssetClassSecurity {
+		t.Errorf("classify(//Equity) = %q, want SECURITY", got)
 	}
 }

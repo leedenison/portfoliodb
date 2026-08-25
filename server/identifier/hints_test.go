@@ -3,45 +3,64 @@ package identifier
 import "testing"
 
 func TestShouldAttemptPlugin(t *testing.T) {
-	cashKinds := map[string]bool{InstrumentKindCash: true}
-	secKinds := map[string]bool{InstrumentKindSecurity: true}
 	cashTypes := map[string]bool{SecurityTypeHintCash: true}
 	stockTypes := map[string]bool{SecurityTypeHintStock: true, SecurityTypeHintFixedIncome: true}
 
 	tests := []struct {
-		name            string
-		acceptableKinds map[string]bool
-		acceptableTypes map[string]bool
-		kind            string
-		secType         string
-		want            bool
+		name       string
+		acceptable map[string]bool
+		secType    string
+		want       bool
 	}{
-		// TRANSFER: kind=SECURITY, type=UNKNOWN
-		{"cash plugin rejects SECURITY kind", cashKinds, cashTypes, InstrumentKindSecurity, SecurityTypeHintUnknown, false},
-		{"security plugin accepts SECURITY+UNKNOWN", secKinds, stockTypes, InstrumentKindSecurity, SecurityTypeHintUnknown, true},
-		// BUYSTOCK: kind=SECURITY, type=STOCK
-		{"security plugin accepts STOCK", secKinds, stockTypes, InstrumentKindSecurity, SecurityTypeHintStock, true},
-		{"cash plugin rejects STOCK", cashKinds, cashTypes, InstrumentKindSecurity, SecurityTypeHintStock, false},
-		// INCOME: kind=CASH, type=CASH
-		{"cash plugin accepts CASH", cashKinds, cashTypes, InstrumentKindCash, SecurityTypeHintCash, true},
-		{"security plugin rejects CASH kind", secKinds, stockTypes, InstrumentKindCash, SecurityTypeHintCash, false},
-		// BUYOPT: kind=SECURITY, type=OPTION -- plugin only accepts STOCK/FIXED_INCOME
-		{"stock plugin rejects OPTION type", secKinds, stockTypes, InstrumentKindSecurity, SecurityTypeHintOption, false},
-		// Empty maps (accept all)
-		{"nil kinds accepts any kind", nil, stockTypes, InstrumentKindCash, SecurityTypeHintStock, true},
-		{"nil types accepts any type", secKinds, nil, InstrumentKindSecurity, SecurityTypeHintOption, true},
-		{"both nil accepts everything", nil, nil, InstrumentKindSecurity, SecurityTypeHintStock, true},
-		// Empty hint kind
-		{"empty hint kind passes kind gate", secKinds, stockTypes, "", SecurityTypeHintStock, true},
-		// Empty hint type
-		{"empty hint type passes type gate", secKinds, stockTypes, InstrumentKindSecurity, "", true},
+		// A plugin covering shares is offered what a statement line says, which
+		// is the coarse value rather than the leaf below it.
+		{"stock plugin accepts EQUITY", stockTypes, SecurityTypeHintEquity, true},
+		{"stock plugin accepts STOCK", stockTypes, SecurityTypeHintStock, true},
+		{"stock plugin accepts one of several declared", stockTypes, SecurityTypeHintFixedIncome, true},
+
+		// A row whose source said only that it is a security is offered every
+		// security plugin, and none of them has to enumerate the vocabulary to
+		// be reached by it.
+		{"stock plugin accepts SECURITY", stockTypes, SecurityTypeHintSecurity, true},
+
+		// And the coarse value does not reach across the tree.
+		{"cash plugin rejects a security", cashTypes, SecurityTypeHintSecurity, false},
+		{"cash plugin rejects EQUITY", cashTypes, SecurityTypeHintEquity, false},
+		{"stock plugin rejects CASH", stockTypes, SecurityTypeHintCash, false},
+		{"cash plugin accepts CASH", cashTypes, SecurityTypeHintCash, true},
+
+		// A class the plugin does not cover is refused however specific it is.
+		{"stock plugin rejects OPTION", stockTypes, SecurityTypeHintOption, false},
+		{"stock plugin rejects ETF", stockTypes, SecurityTypeHintETF, false},
+
+		// The root reaches everything: it rules nothing out, so no plugin can
+		// be said not to cover it.
+		{"cash plugin accepts the root", cashTypes, SecurityTypeHintUnknown, true},
+		{"stock plugin accepts the root", stockTypes, SecurityTypeHintUnknown, true},
+
+		{"a plugin declaring nothing accepts everything", nil, SecurityTypeHintOption, true},
+		{"a row stating nothing reaches every plugin", cashTypes, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ShouldAttemptPlugin(tt.acceptableKinds, tt.acceptableTypes, tt.kind, tt.secType)
-			if got != tt.want {
-				t.Errorf("ShouldAttemptPlugin() = %v, want %v", got, tt.want)
+			if got := ShouldAttemptPlugin(tt.acceptable, tt.secType); got != tt.want {
+				t.Errorf("ShouldAttemptPlugin(%v, %q) = %v, want %v", tt.acceptable, tt.secType, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestUnderlyingSecTypeHint(t *testing.T) {
+	// EQUITY: a listed option is written on a share or on a fund, and the
+	// contract symbol does not say which.
+	for _, c := range []string{SecurityTypeHintOption, SecurityTypeHintFuture} {
+		if got := UnderlyingSecTypeHint(c); got != SecurityTypeHintEquity {
+			t.Errorf("UnderlyingSecTypeHint(%q) = %q, want %q", c, got, SecurityTypeHintEquity)
+		}
+	}
+	for _, c := range []string{SecurityTypeHintStock, SecurityTypeHintDerivative, SecurityTypeHintCash, ""} {
+		if got := UnderlyingSecTypeHint(c); got != "" {
+			t.Errorf("UnderlyingSecTypeHint(%q) = %q, want empty", c, got)
+		}
 	}
 }

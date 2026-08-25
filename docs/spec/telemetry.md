@@ -80,7 +80,7 @@ one affecting 1.
 | --- | --- |
 | `run_id`, `source`, `description` | |
 | `tx_count` | transactions sharing this key |
-| `had_identifier_hints`, `security_type_hint`, `instrument_kind` | lets a spike be attributed rather than merely noticed |
+| `had_identifier_hints`, `security_type_hint` | lets a spike be attributed rather than merely noticed |
 | `candidate_outcome` | stage 1, below |
 | `outcome` | stage 2, below |
 | `mismatch_detected` | which probe found two namings disagreeing, below |

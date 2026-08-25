@@ -454,7 +454,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  k.description,\n  k.source,\n  k.tx_count,\n  k.outcome,\n  k.candidate_outcome,\n  k.had_attempt,\n  k.had_identifier_hints,\n  k.security_type_hint,\n  k.instrument_kind,\n  k.mismatch_detected\nFROM telemetry.v_resolution_key k\nWHERE k.run_id = '${run}'::uuid\n  AND NOT k.resolved\nORDER BY k.tx_count DESC, k.description",
+          "rawSql": "SELECT\n  k.description,\n  k.source,\n  k.tx_count,\n  k.outcome,\n  k.candidate_outcome,\n  k.had_attempt,\n  k.had_identifier_hints,\n  k.security_type_hint,\n  k.mismatch_detected\nFROM telemetry.v_resolution_key k\nWHERE k.run_id = '${run}'::uuid\n  AND NOT k.resolved\nORDER BY k.tx_count DESC, k.description",
           "refId": "A"
         }
       ],

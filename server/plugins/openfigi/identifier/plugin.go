@@ -52,20 +52,15 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
-// AcceptableInstrumentKinds returns only Security.
-func (p *Plugin) AcceptableInstrumentKinds() map[string]bool {
-	return map[string]bool{identifier.InstrumentKindSecurity: true}
-}
-
-// AcceptableSecurityTypes returns the security type hints this plugin can attempt identification for.
+// AcceptableSecurityTypes returns the classes this plugin can attempt
+// identification for: every security class but cash, named at the branches
+// rather than leaf by leaf, since the mapping call does not turn on which leaf
+// a security is.
 func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{
-		identifier.SecurityTypeHintStock:       true,
-		identifier.SecurityTypeHintETF:         true,
+		identifier.SecurityTypeHintEquity:      true,
 		identifier.SecurityTypeHintFixedIncome: true,
-		identifier.SecurityTypeHintMutualFund:  true,
-		identifier.SecurityTypeHintOption:      true,
-		identifier.SecurityTypeHintFuture:      true,
+		identifier.SecurityTypeHintDerivative:  true,
 		identifier.SecurityTypeHintFX:          true,
 	}
 }

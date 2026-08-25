@@ -264,9 +264,11 @@ func TestProcessBulk_StatedCashOnStockInstrumentFails(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-// TestProcessBulk_StockEtfEquivalence verifies that a stated STOCK resolved to
-// an ETF instrument is accepted as compatible (broker-level equivalence).
-func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
+// TestProcessBulk_SpecificHintMeansWhatItSays is the other side of the coarse
+// value existing: a source that said STOCK claimed a share and not a fund, so a
+// resolution to an ETF contradicts it. Before EQUITY was a value it could
+// state, this had to be tolerated and the tolerance was invisible here.
+func TestProcessBulk_SpecificHintMeansWhatItSays(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -280,6 +282,73 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 	postings := []*archivev1.Posting{
 		{OrderDate: from,
 			TradeDate: from, InstrumentDescription: "SPY", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
+	}
+	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
+		Window: &archivev1.TxWindow{
+			Broker:       typev1.Broker_IBKR,
+			Source:       "IBKR:test:statement",
+			PeriodFrom:   from,
+			PeriodBefore: before,
+			Postings:     postings,
+		},
+	})
+	j := &JobRequest{JobID: "job-stock-etf", JobType: "tx"}
+
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-stock-etf", apiv1.JobStatus_RUNNING).
+		Return(nil)
+	expectLoadPayload(database, "job-stock-etf", "user-1", payload)
+	database.EXPECT().
+		SetJobTotalCount(gomock.Any(), "job-stock-etf", int32(1)).
+		Return(nil)
+	database.EXPECT().
+		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "SPY").
+		Return("spy-etf-id", nil)
+	database.EXPECT().
+		IncrJobProcessedCount(gomock.Any(), "job-stock-etf").
+		Return(nil)
+	database.EXPECT().
+		AppendIdentificationErrors(gomock.Any(), "job-stock-etf", gomock.Any()).
+		Times(0)
+	database.EXPECT().
+		ListInstrumentsByIDs(gomock.Any(), []string{"spy-etf-id"}).
+		Return([]*db.InstrumentRow{{ID: "spy-etf-id", AssetClass: strPtr(db.AssetClassETF)}}, nil)
+	database.EXPECT().
+		AppendValidationErrors(gomock.Any(), "job-stock-etf", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
+			if len(errs) != 1 {
+				t.Errorf("expected 1 validation error, got %d", len(errs))
+				return nil
+			}
+			if errs[0].Field != "asset_class_hint" {
+				t.Errorf("validation error field = %q, want %q", errs[0].Field, "asset_class_hint")
+			}
+			return nil
+		})
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-stock-etf", apiv1.JobStatus_FAILED).
+		Return(nil)
+
+	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
+}
+
+// TestProcessBulk_CoarseHintAdmitsItsLeaf verifies that a source that could not
+// tell a share from a fund, and said so, is not contradicted by a resolution to
+// either. The row states EQUITY and the description is already linked to an ETF.
+func TestProcessBulk_CoarseHintAdmitsItsLeaf(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	from := timestamppb.Now()
+	before := timestamppb.Now()
+	postings := []*archivev1.Posting{
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "SPY", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_EQUITY, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -391,8 +460,9 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 }
 
 // TestProcessBulk_TransferToCashRejected verifies that a transfer stating
-// UNKNOWN -- a security of unstated class -- resolved to a CASH instrument is
-// rejected.
+// SECURITY -- a security of unstated class -- resolved to a CASH instrument is
+// rejected. Money and securities are disjoint branches, so this falls out of
+// the vocabulary rather than needing a rule about UNKNOWN of its own.
 func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -406,7 +476,7 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
 		{OrderDate: from,
-			TradeDate: from, InstrumentDescription: "USD CASH", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_UNKNOWN, Quantity: "10", Account: ""},
+			TradeDate: from, InstrumentDescription: "USD CASH", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_SECURITY, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -799,8 +869,7 @@ func TestProposeCandidates_AStatedIsinWithNoVenueIsCompleted(t *testing.T) {
 	expectCandidateConfig(database)
 
 	plugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
+		acceptable: map[string]bool{identifier.SecurityTypeHintStock: true},
 		resultsByDesc: map[string][]identifier.Identifier{
 			"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
 		},
@@ -845,9 +914,8 @@ func TestProposeCandidates_AStatedVenueIsNotCompleted(t *testing.T) {
 	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 
 	plugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
-		resultsByDesc:   map[string][]identifier.Identifier{"APPLE INC": {{Type: "CURRENCY", Value: "USD"}}},
+		acceptable:    map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc: map[string][]identifier.Identifier{"APPLE INC": {{Type: "CURRENCY", Value: "USD"}}},
 	}
 
 	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "AAPL"})}
@@ -883,9 +951,8 @@ func TestProposeCandidates_AnArchiveDoesNotCompleteAPartialIdentity(t *testing.T
 	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 
 	plugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
-		resultsByDesc:   map[string][]identifier.Identifier{"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
+		acceptable:    map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc: map[string][]identifier.Identifier{"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
 	}
 
 	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"})}
@@ -918,9 +985,8 @@ func TestProposeCandidates_AnArchiveStillProposesForADescriptionAlone(t *testing
 	expectCandidateConfig(database)
 
 	plugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
-		resultsByDesc:   map[string][]identifier.Identifier{"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
+		acceptable:    map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc: map[string][]identifier.Identifier{"APPLE INC": {{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
 	}
 
 	txs := []*apiv1.Tx{tx("APPLE INC")}
@@ -948,9 +1014,8 @@ func TestProposeCandidates_AConflictIsNotCompleted(t *testing.T) {
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "CUSIP", "", "000000001").Return("inst-b", nil)
 
 	plugin := &fakeDescPlugin{
-		acceptableKinds: map[string]bool{identifier.InstrumentKindSecurity: true},
-		acceptable:      map[string]bool{identifier.SecurityTypeHintStock: true},
-		resultsByDesc:   map[string][]identifier.Identifier{"AMBIGUOUS": {{Type: "MIC_TICKER", Value: "AMB"}}},
+		acceptable:    map[string]bool{identifier.SecurityTypeHintStock: true},
+		resultsByDesc: map[string][]identifier.Identifier{"AMBIGUOUS": {{Type: "MIC_TICKER", Value: "AMB"}}},
 	}
 
 	txs := []*apiv1.Tx{hintedTx("AMBIGUOUS",

@@ -76,12 +76,15 @@ type Plugin interface {
 	// DisplayName returns a human-readable name for the plugin (e.g. "OpenFIGI"). Shown in the admin UI.
 	DisplayName() string
 
-	// AcceptableInstrumentKinds returns the set of instrument kinds this plugin handles (InstrumentKindCash, InstrumentKindSecurity).
-	// Nil or empty map means all kinds. Checked before AcceptableSecurityTypes as a coarse filter.
-	AcceptableInstrumentKinds() map[string]bool
-
-	// AcceptableSecurityTypes returns the set of security type hints this plugin can attempt identification for (e.g. Stock, Bond).
-	// Keys must be from the identifier package constants (SecurityTypeHintStock, etc.). Nil or empty map means all types.
+	// AcceptableSecurityTypes returns the asset classes this plugin can attempt
+	// identification for. Keys must be from the identifier package constants
+	// (SecurityTypeHintStock, etc.); nil or empty map means all of them.
+	//
+	// Declare the classes the plugin actually covers rather than every class a
+	// source might spell them as. A plugin is offered any row whose stated class
+	// could be one of these -- see ShouldAttemptPlugin -- so a plugin covering
+	// shares declares STOCK and is offered the EQUITY a statement line says, and
+	// a cash plugin declares CASH and is offered nothing else.
 	AcceptableSecurityTypes() map[string]bool
 
 	// Identify resolves to canonical instrument data and identifiers. When ident.Stated is non-empty, resolution is from those identifiers (e.g. mapping by TICKER/FIGI); when empty, the plugin may use instrumentDescription only if it can do so safely (e.g. no raw search with long text).

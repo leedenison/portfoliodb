@@ -113,7 +113,6 @@ func newResolutionKeys(ctx context.Context, tel db.TelemetryDB, runID, source st
 			TxCount:            s.txCount,
 			HadIdentifierHints: s.hasHints,
 			SecurityTypeHint:   s.txHints.SecurityTypeHint,
-			InstrumentKind:     s.txHints.InstrumentKind,
 		})
 	}
 	return k

@@ -71,6 +71,9 @@ var parent = map[typev1.AssetClass]typev1.AssetClass{
 	typev1.AssetClass_FX: typev1.AssetClass_SECURITY,
 }
 
+// Root is the node every other value is under: a claim that rules nothing out.
+const Root = typev1.AssetClass_UNKNOWN
+
 // Parent returns the node above c, ASSET_CLASS_UNSPECIFIED above the root.
 func Parent(c typev1.AssetClass) typev1.AssetClass {
 	return parent[c]
@@ -103,6 +106,17 @@ func MustBe(c typev1.AssetClass, xs ...typev1.AssetClass) bool {
 	return false
 }
 
+// Below reports whether c lies strictly inside x's subtree: it is one of the
+// things x covers rather than x itself.
+//
+// MustBe answers yes for x, and there are questions where being x is not yet
+// being one of them. A security classified only as far as DERIVATIVE has not
+// been resolved to the contract whose strike an underlying line would let us
+// read, so the rule that a derivative needs one asks this and not MustBe.
+func Below(c, x typev1.AssetClass) bool {
+	return c != x && MustBe(c, x)
+}
+
 // MayBe reports whether c could be one of xs under some reading: c lies in an
 // x's subtree, or is an ancestor of one -- a source that said EQUITY may yet
 // turn out to have meant ETF.
@@ -117,4 +131,53 @@ func MayBe(c typev1.AssetClass, xs ...typev1.AssetClass) bool {
 		}
 	}
 	return false
+}
+
+// Contradicts reports whether two claims about one security's class cannot both
+// be true.
+//
+// This is the permissive question read as a verdict, and it is what a source
+// disagreeing with a resolution means: not that the two values differ, but that
+// no reading admits them both. A source saying EQUITY and a plugin answering
+// ETF have not disagreed, and the source was never asked to choose.
+//
+// Silence contradicts nothing, so an unset value on either side is not a
+// finding. A source that stated the root has ruled nothing out and cannot
+// contradict either -- it is admitted here by the general rule rather than by a
+// case of its own, the root being an ancestor of everything.
+func Contradicts(stated, resolved typev1.AssetClass) bool {
+	if stated == typev1.AssetClass_ASSET_CLASS_UNSPECIFIED || resolved == typev1.AssetClass_ASSET_CLASS_UNSPECIFIED {
+		return false
+	}
+	return !MayBe(stated, resolved)
+}
+
+// Claims reports whether a value is a claim that could fail. A source that
+// stated nothing has not claimed, and one that stated the root has claimed
+// nothing a resolution could contradict or confirm -- money or a security is
+// every instrument there is.
+func Claims(c typev1.AssetClass) bool {
+	return c != typev1.AssetClass_ASSET_CLASS_UNSPECIFIED && c != Root
+}
+
+// Corroborates reports whether an answer confirms what a source claimed: the
+// claim ruled something out, and the answer falls inside it.
+//
+// The strict question, and asymmetric where Contradicts is symmetric. The
+// answer has to be at least as specific as the claim, because that is what
+// makes it a test the claim could have failed: a source saying EQUITY is
+// corroborated by an answer of ETF, which had to land in one of three and did,
+// while a source saying STOCK is not corroborated by an answer of EQUITY, which
+// never reached the question.
+//
+// A claim of the root is excluded for the same reason rather than a different
+// one: it rules nothing out, so nothing can pass it. What this reports is that
+// a real test was made and held, which is a stronger thing than the absence of
+// a contradiction -- an answer that says almost nothing contradicts almost
+// nothing.
+func Corroborates(stated, resolved typev1.AssetClass) bool {
+	if !Claims(stated) {
+		return false
+	}
+	return MustBe(resolved, stated)
 }

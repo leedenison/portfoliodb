@@ -151,15 +151,26 @@ func TestProposeBatch_TypeHintPassedToClient(t *testing.T) {
 	}
 }
 
-func TestPlugin_AcceptableSecurityTypes_IncludesETF(t *testing.T) {
+func TestPlugin_AcceptableSecurityTypes_ReachesEveryShareholding(t *testing.T) {
 	p := NewPlugin(nil, nil)
 	types := p.AcceptableSecurityTypes()
-	if !types[identifier.SecurityTypeHintETF] {
-		t.Error("ETF is not acceptable; an ETF arriving with no identifiers gets no candidate plugin at all")
+	// A description names a ticker the same way whichever of these it is, so an
+	// ETF arriving with no identifiers must not be left with no candidate plugin
+	// at all. Declaring EQUITY is what makes all three reach this one.
+	for _, c := range []string{
+		identifier.SecurityTypeHintStock,
+		identifier.SecurityTypeHintETF,
+		identifier.SecurityTypeHintMutualFund,
+		identifier.SecurityTypeHintEquity,
+	} {
+		if !identifier.ShouldAttemptPlugin(types, c) {
+			t.Errorf("a row stating %s does not reach the OpenAI plugin", c)
+		}
 	}
-	// The set stays exclusive: CASH belongs to the cash plugin.
-	if types[identifier.SecurityTypeHintCash] {
-		t.Error("CASH should not be acceptable to the OpenAI plugin")
+	// And the set reaches no further across the tree: cash belongs to the cash
+	// plugin.
+	if identifier.ShouldAttemptPlugin(types, identifier.SecurityTypeHintCash) {
+		t.Error("a cash row reached the OpenAI plugin")
 	}
 }
 

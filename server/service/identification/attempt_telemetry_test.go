@@ -170,10 +170,11 @@ func (p *cashOnlyPlugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{identifier.SecurityTypeHintCash: true}
 }
 
-// TestPluginCallOutcomesAreComposed pins the three outcomes no plugin can know.
-// They are decided after every plugin has returned: the winner won, a plugin that
-// agreed with it but did not win was superseded, and one contradicting it was
-// discarded.
+// TestPluginCallOutcomesAreComposed pins the four outcomes no plugin can know.
+// They are decided after every plugin has returned: the winner won, a plugin
+// that agreed with it but did not win was superseded, one contradicting it was
+// discarded as inconsistent, and one that named no security in common with it
+// was discarded as uncorroborated.
 func TestPluginCallOutcomesAreComposed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -184,9 +185,10 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 	tel := mock.NewMockTelemetryDB(ctrl)
 	spy := newAttemptSpy(t, tel)
 
-	// Highest precedence answers first but does not match the currency hint;
-	// the middle one does, so it wins despite losing on precedence. The last
-	// contradicts the winner's currency and is dropped from the merge.
+	// The highest precedence result matches the currency hint and wins. "mid"
+	// agrees with it and names its ISIN, so it is merged and superseded. "odd"
+	// contradicts the winner's currency. "lone" contradicts nothing and names no
+	// security the winner named either, which is the other way to lose.
 	registry := identifier.NewRegistry()
 	registry.Register("high", &telPlugin{
 		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "USD"}},
@@ -194,12 +196,20 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 		outcome: identifier.OutcomeIdentified,
 	})
 	registry.Register("mid", &telPlugin{
-		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "USD"}},
-		ids:     []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		inst: &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "USD"}},
+		ids: []identifier.Identifier{
+			{Type: "ISIN", Value: "US0378331005"},
+			{Type: "MIC_TICKER", Value: "AAPL"},
+		},
 		outcome: identifier.OutcomeIdentified,
 	})
 	registry.Register("odd", &telPlugin{
 		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "EUR"}},
+		outcome: identifier.OutcomeIdentified,
+	})
+	registry.Register("lone", &telPlugin{
+		inst:    &identifier.Instrument{Name: "Apple", AssetClass: "STOCK", Listing: identifier.Listing{Currency: "USD"}},
+		ids:     []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}},
 		outcome: identifier.OutcomeIdentified,
 	})
 
@@ -212,6 +222,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 			{PluginID: "high", Precedence: 30},
 			{PluginID: "mid", Precedence: 20},
 			{PluginID: "odd", Precedence: 10},
+			{PluginID: "lone", Precedence: 5},
 		}, nil)
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -231,6 +242,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 		"high": db.TelemetryPluginCallWon,
 		"mid":  db.TelemetryPluginCallSuperseded,
 		"odd":  db.TelemetryPluginCallDiscardedInconsistent,
+		"lone": db.TelemetryPluginCallDiscardedUncorroborated,
 	}
 	for id, w := range want {
 		got := spy.calls[id]

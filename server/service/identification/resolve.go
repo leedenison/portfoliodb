@@ -623,6 +623,64 @@ func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlug
 	return false
 }
 
+// securityClaim is what a result said about which security it resolved: the
+// identifiers of security grain it returned, and the ones the call was strictly
+// filtered on.
+//
+// The two are one set here because they are one claim. A provider that answers
+// "no identifier found" when its filter matches nothing has asserted that the
+// filtered value denotes the security it described, so a value it filtered on
+// and deliberately did not echo back says what a returned one says (adr/0060).
+func securityClaim(r *pluginResult) []identifier.Identifier {
+	var out []identifier.Identifier
+	for _, idn := range r.ids {
+		if idn.Value != "" && identifier.CorroboratesSecurity(idn.Type) {
+			out = append(out, idn)
+		}
+	}
+	for _, idn := range r.filtered {
+		if idn.Value != "" && identifier.CorroboratesSecurity(idn.Type) {
+			out = append(out, idn)
+		}
+	}
+	return out
+}
+
+// corroborated reports whether something named the security both results
+// describe, and logs what each offered when nothing did.
+//
+// Agreeing about the line is not evidence about the security. The identity a
+// resolution starts from is routinely ambiguous -- a broker file names a symbol
+// and a currency and no venue, and one symbol is quoted in one currency in more
+// than one place -- so where two providers can disagree at all, each has picked
+// one listing out of several the query admits. That they agree about the
+// currency is the query restated rather than evidence they picked the same
+// security. Only a value that names a security carries that, and only where both
+// of them named it.
+//
+// So the loser crosses on one security-grain identifier the two share, and
+// contributes nothing where there is none: not its identifiers of either grain,
+// not the fields it would have filled. See adr/0078.
+func corroborated(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer) bool {
+	w, o := securityClaim(winner), securityClaim(other)
+	for _, a := range w {
+		for _, b := range o {
+			if a.Value == b.Value && sameSubject(ctx, normalizeMIC, a, b) {
+				return true
+			}
+		}
+	}
+	// Info rather than Warn. A mismatch is two providers disagreeing and worth
+	// a reader's attention; this is the ordinary shape of two answers to an
+	// ambiguous query, and with plugins whose identifier vocabularies do not
+	// overlap it is most of them. Logging it as a warning would bury the
+	// mismatches. The telemetry row carries it either way.
+	resolveLogger(l).InfoContext(ctx, "identifier plugin named no security in common, excluding from merge",
+		"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
+		"winner_value", HintsSummary(w), "other_value", HintsSummary(o))
+	return false
+}
+
 // fillBlanks copies fields src knows and dst does not. Only empty fields are
 // written: adr/0004 makes the identifier the source of truth for an instrument,
 // so a value already present is never replaced, and the first result to fill a
@@ -1340,16 +1398,27 @@ func ResolveWithPlugins(
 			if r.err != nil || r.inst == nil {
 				continue
 			}
-			// Decided here rather than recomputed later: consistentWith logs a
-			// warning per mismatch, so asking it twice would say it twice.
-			if i != winnerIdx && !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC, countryOf) {
+			// Decided here rather than recomputed later: each predicate logs a
+			// warning when it refuses, so asking twice would say it twice.
+			//
+			// The two refusals are kept apart because they are different
+			// findings. consistentWith says the two results argued -- about the
+			// line, or about a value under a subject they share. corroborated
+			// says nothing tied them to one security in the first place, which is
+			// the ordinary shape of two answers to an ambiguous query rather than
+			// a disagreement. A reader asking why a plugin's answer did not reach
+			// an instrument needs to know which happened.
+			switch {
+			case i == winnerIdx:
+				callOutcomes[i] = db.TelemetryPluginCallWon
+			case !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC, countryOf):
 				callOutcomes[i] = db.TelemetryPluginCallDiscardedInconsistent
 				continue
-			}
-			if i == winnerIdx {
-				callOutcomes[i] = db.TelemetryPluginCallWon
-			} else {
-				// Identified the same instrument but did not win it. Precedence or
+			case !corroborated(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC):
+				callOutcomes[i] = db.TelemetryPluginCallDiscardedUncorroborated
+				continue
+			default:
+				// Identified the same security and did not win it. Precedence or
 				// a better hint match put another plugin ahead.
 				callOutcomes[i] = db.TelemetryPluginCallSuperseded
 			}

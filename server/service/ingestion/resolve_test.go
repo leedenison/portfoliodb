@@ -520,8 +520,10 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 }
 
 func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
-	// High-precedence plugin returns ISIN; low returns CUSIP. Both identifier types should appear (merged).
-	// If both returned the same type (e.g. ISIN), high's value would be used.
+	// Both plugins name the ISIN, which is what admits the low-precedence result
+	// (adr/0078); a broker description would not, being a name two securities can
+	// share. Low carries a CUSIP beside it, and both identifier types should
+	// appear (merged). If both returned the same type, high's value would be used.
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -531,8 +533,12 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 	source := "IBKR:test:statement"
 	registry.Register("low", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "Low"},
-		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "Y"}, {Type: "CUSIP", Value: "12345"}},
-		err:  nil,
+		ids: []identifier.Identifier{
+			{Type: "BROKER_DESCRIPTION", Domain: source, Value: "Y"},
+			{Type: "ISIN", Value: "US0000000000"},
+			{Type: "CUSIP", Value: "12345"},
+		},
+		err: nil,
 	})
 	registry.Register("high", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Name: "High"},

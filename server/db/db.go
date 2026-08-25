@@ -940,23 +940,31 @@ type EODPriceListDB interface {
 	ListPriceCoverageForExport(ctx context.Context) ([]ExportPriceCoverageRow, error)
 }
 
-// Valid asset class values (controlled vocabulary).
+// Asset class values (controlled vocabulary). The strings are the proto enum's
+// own value names, which is what the column holds; the hierarchy over them is
+// in server/assetclass, and the internal nodes are stored values like any
+// other.
 const (
+	AssetClassUnknown     = "UNKNOWN"
+	AssetClassCash        = "CASH"
+	AssetClassSecurity    = "SECURITY"
+	AssetClassEquity      = "EQUITY"
 	AssetClassStock       = "STOCK"
 	AssetClassETF         = "ETF"
-	AssetClassFixedIncome = "FIXED_INCOME"
 	AssetClassMutualFund  = "MUTUAL_FUND"
+	AssetClassFixedIncome = "FIXED_INCOME"
+	AssetClassDerivative  = "DERIVATIVE"
 	AssetClassOption      = "OPTION"
 	AssetClassFuture      = "FUTURE"
-	AssetClassCash        = "CASH"
 	AssetClassFX          = "FX"
-	AssetClassUnknown     = "UNKNOWN"
 )
 
-// ValidAssetClasses is the set of allowed asset_class values for validation.
-var ValidAssetClasses = map[string]bool{
-	AssetClassStock: true, AssetClassETF: true, AssetClassFixedIncome: true, AssetClassMutualFund: true,
-	AssetClassOption: true, AssetClassFuture: true, AssetClassCash: true, AssetClassFX: true, AssetClassUnknown: true,
+// ValidAssetClass reports whether s is a member of the vocabulary. It reads the
+// generated enum rather than a list written out again here: the column holds
+// the enum's value names, so a second list would be a copy that could fall
+// behind the proto without anything noticing.
+func ValidAssetClass(s string) bool {
+	return StrToAssetClass(s) != typev1.AssetClass_ASSET_CLASS_UNSPECIFIED
 }
 
 // AssetClassToStr converts a proto AssetClass enum to its DB string. The enum

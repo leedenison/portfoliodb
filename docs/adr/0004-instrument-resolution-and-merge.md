@@ -14,7 +14,13 @@ completes an instrument holding no canonical identifier rather than leaving it
 as found -- there being no stored value there for this to protect, and by
 [0071](0071-listings-merge-by-currency-and-an-unknown-one-splits.md), under
 which the merge unions the survivors' listing sets by currency rather than
-acting on instruments alone. The resolution order and the batch cache stand.
+acting on instruments alone, and by
+[0079](0079-an-instrument-carries-the-authority-of-the-channel-that-named-it.md),
+under which "the identifier is the source of truth for an existing instrument"
+protects a value a system authority wrote: metadata on an instrument named only
+through a user-mediated channel is a claim awaiting confirmation, and is
+discarded rather than kept when an authority arrives. The resolution order and
+the batch cache stand.
 
 Instrument resolution is ordered to minimize calls to expensive, quota-managed
 identifier plugins: (1) DB lookup by `(source, description)` or existing

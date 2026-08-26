@@ -2660,15 +2660,18 @@ const (
 // above it, so the vocabulary is read off the code rather than invented for the
 // chart.
 //
-// The four refusals are kept apart because they need different fixes. An
+// The five refusals are kept apart because they need different fixes. An
 // uncorroborated pair wants a plugin that returns both names; an unmediated one
-// is working as intended and is noise; a collision is two authorities
+// is working as intended and is noise; an unsettled one wants either another
+// user holding the same mapping or a plugin confirming it, and the promotion
+// sweep is what turns the first into the second; a collision is two authorities
 // contradicting each other and wants a person. See
 // docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
 const (
 	TelemetryMerged              = "merged"
 	TelemetryMergeUncorroborated = "refused_uncorroborated"
 	TelemetryMergeUnmediated     = "refused_unmediated"
+	TelemetryMergeUnsettled      = "refused_unsettled"
 	TelemetryMergeDisjoint       = "refused_disjoint"
 	TelemetryMergeCollision      = "refused_collision"
 )

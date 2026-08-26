@@ -181,17 +181,44 @@ func (t *Telemetry) WriteIdentifierPluginCall(ctx context.Context, c db.Telemetr
 	if !ok {
 		return ""
 	}
+	var subject, winner, other, winnerPlugin any
+	if c.Mismatch != nil {
+		subject, winner, other, winnerPlugin = c.Mismatch.Subject, c.Mismatch.Winner, c.Mismatch.Other, c.Mismatch.WinnerPlugin
+	}
 	var id string
 	if err := t.db.QueryRowContext(ctx, `
 		INSERT INTO telemetry.identifier_plugin_call
-			(identification_attempt_id, plugin_id, outcome, retries, duration_ms)
-		VALUES ($1, $2, $3, $4, $5)
+			(identification_attempt_id, plugin_id, outcome, retries, duration_ms,
+			 mismatch_subject, mismatch_winner, mismatch_other, mismatch_winner_plugin)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
-	`, attemptID, c.PluginID, c.Outcome, c.Retries, ms(c.Duration)).Scan(&id); err != nil {
+	`, attemptID, c.PluginID, c.Outcome, c.Retries, ms(c.Duration),
+		subject, winner, other, winnerPlugin).Scan(&id); err != nil {
 		t.fail(ctx, c.RunID, "write identifier plugin call", err)
 		return ""
 	}
 	return id
+}
+
+// WriteConflictingHint implements db.TelemetryDB. A hint whose key failed to
+// write has nothing to hang off and is dropped, as a claim whose call failed is.
+func (t *Telemetry) WriteConflictingHint(ctx context.Context, h db.TelemetryConflictingHint) {
+	keyID, ok := t.parent(ctx, h.RunID, h.KeyID, "write conflicting hint")
+	if !ok {
+		return
+	}
+	instrument, err := uuid.Parse(h.InstrumentID)
+	if err != nil {
+		t.fail(ctx, h.RunID, "write conflicting hint", err)
+		return
+	}
+	if _, err := t.db.ExecContext(ctx, `
+		INSERT INTO telemetry.conflicting_hint
+			(resolution_key_id, identifier_type, domain, value, instrument_id)
+		VALUES ($1, $2, $3, $4, $5)
+	`, keyID, h.Ref.Type, nullStr(h.Ref.Domain), h.Ref.Value, instrument); err != nil {
+		t.fail(ctx, h.RunID, "write conflicting hint", err)
+	}
 }
 
 // WriteIdentifierClaim implements db.TelemetryDB. A claim whose call failed to

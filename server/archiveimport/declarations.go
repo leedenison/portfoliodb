@@ -193,13 +193,13 @@ func findDeclaredInstrument(ctx context.Context, database db.DB, ref *archivev1.
 		Domain: ref.GetDomain(),
 		Value:  ref.GetValue(),
 	}
-	ids, err := identification.ResolveIDsByHintsDBOnly(ctx, database, []identifier.Identifier{hint})
+	matches, err := identification.ResolveIDsByHintsDBOnly(ctx, database, []identifier.Identifier{hint})
 	if err != nil {
 		return "", err
 	}
-	if len(ids) == 0 {
+	if len(matches) == 0 {
 		rep.Errf(idx, "instrument", fmt.Sprintf("%s %s is not an instrument this instance has", ref.GetType(), ref.GetValue()))
 		return "", nil
 	}
-	return ids[0], nil
+	return matches[0].Instrument, nil
 }

@@ -800,8 +800,17 @@ func TestProposeCandidates_ConflictIsRecordedNotRaised(t *testing.T) {
 	if err != nil {
 		t.Fatalf("proposeCandidates: %v", err)
 	}
-	if !pre.conflicts[cacheKeyWithHints("SRC", "AMBIGUOUS", txHints[0])] {
-		t.Error("expected the ambiguous key to be recorded as conflicting")
+	got := pre.conflicts[cacheKeyWithHints("SRC", "AMBIGUOUS", txHints[0])]
+	if len(got) != 2 {
+		t.Fatalf("conflicts = %+v, want the two names and the two instruments they reached", got)
+	}
+	// The pairing rather than a flag: which name led where is the whole of what a
+	// reader has afterwards, since nothing says which of the two is right.
+	if got[0].Ref.Type != "ISIN" || got[0].Instrument != "inst-a" {
+		t.Errorf("first match = %+v, want ISIN -> inst-a", got[0])
+	}
+	if got[1].Ref.Type != "CUSIP" || got[1].Instrument != "inst-b" {
+		t.Errorf("second match = %+v, want CUSIP -> inst-b", got[1])
 	}
 	if pre.resolved[cacheKeyWithHints("SRC", "OTHER CO", nil)].InstrumentID != "other-id" {
 		t.Error("the key after the conflict was not looked up")
@@ -1072,7 +1081,7 @@ func TestProposeCandidates_AConflictIsNotCompleted(t *testing.T) {
 		t.Fatalf("proposeCandidates: %v", err)
 	}
 	key := cacheKeyWithHints("SRC", "AMBIGUOUS", txHints[0])
-	if !pre.conflicts[key] {
+	if len(pre.conflicts[key]) < 2 {
 		t.Fatal("expected the ambiguous key to be recorded as conflicting")
 	}
 	if len(plugin.seen) != 0 {

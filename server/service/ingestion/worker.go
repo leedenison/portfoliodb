@@ -381,9 +381,12 @@ type prePass struct {
 	// resolved is the keys the database already answered.
 	resolved map[string]resolveResult
 	// conflicts is the keys whose stated identifiers name more than one
-	// instrument. Recorded rather than raised so one bad key does not stop the
-	// lookups for the rest; Resolve raises it at the row that carries it.
-	conflicts map[string]bool
+	// instrument, and which name reached which. Recorded rather than raised so one
+	// bad key does not stop the lookups for the rest, and carried as the matches
+	// rather than as a flag because the pairing is the whole of what a reader has
+	// afterwards: nothing in the data says which of the two is right, so the
+	// record is the two names and the two instruments.
+	conflicts map[string][]identification.HintMatch
 	// proposed is what the candidate plugins offered, already filtered, with the
 	// call each came from so a field can name both its parents.
 	proposed map[string]keyProposals
@@ -399,7 +402,7 @@ type prePass struct {
 func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker string, txs []*apiv1.Tx, txHints [][]identifier.Identifier) (prePass, error) {
 	database := deps.DB
 	cache := make(map[string]resolveResult)
-	conflicts := make(map[string]bool)
+	conflicts := make(map[string][]identification.HintMatch)
 	descOnly := make(map[string]string)
 	var proposedHintsCache map[string]keyProposals
 	outcome := make(map[string]string)
@@ -417,23 +420,23 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 		seen[key] = true
 
 		if len(txHints[i]) > 0 {
-			ids, err := identification.ResolveIDsByHintsDBOnly(ctx, database, txHints[i])
+			matches, err := identification.ResolveIDsByHintsDBOnly(ctx, database, txHints[i])
 			if err != nil {
 				return fail(err)
 			}
 			switch {
-			case len(ids) > 1:
+			case len(matches) > 1:
 				// Recorded rather than raised: one bad key must not stop the
-				// lookups for the rest, and Resolve raises it at the row that
+				// lookups for the rest, and Resolve settles it at the row that
 				// carries it, where the row index is known.
-				conflicts[key] = true
-				// A key that names two instruments is not a gap to be filled. It
-				// is about to fail at the row that carries it, and a proposal
-				// would be paid for and thrown away.
+				conflicts[key] = matches
+				// A key whose names disagree is not a gap to be filled. It is
+				// about to degrade to the broker's description at the row that
+				// carries it, and a proposal would be paid for and thrown away.
 				outcome[key] = db.TelemetryCandidateNotAttemptedConflictingHints
 				continue
-			case len(ids) == 1:
-				cache[key] = resolveResult{InstrumentID: ids[0], DBHitOutcome: db.TelemetryResolutionDBIdentifierHints}
+			case len(matches) == 1:
+				cache[key] = resolveResult{InstrumentID: matches[0].Instrument, DBHitOutcome: db.TelemetryResolutionDBIdentifierHints}
 				outcome[key] = db.TelemetryCandidateNotAttemptedDBHit
 				continue
 			}

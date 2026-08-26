@@ -230,17 +230,34 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 	return resolved, nil
 }
 
+// HintMatch is one identifier a source stated and the instrument the database
+// says it names.
+//
+// The pairing is what makes a disagreement readable: two matches mean the file
+// named two instruments, and which name reached which is the whole of what an
+// admin or a panel has to go on afterwards, since nothing in the data says which
+// of them is right.
+type HintMatch struct {
+	Ref        identifier.Identifier
+	Instrument string
+}
+
 // ResolveIDsByHintsDBOnly is a lightweight variant of ResolveByHintsDBOnly that
-// returns only instrument IDs (no metadata). It uses FindInstrumentByIdentifier
-// (index-only lookup) instead of FindInstrumentWithMetaByIdentifier (JOIN),
-// making it cheaper for callers that don't need hint comparison.
+// returns no metadata. It uses FindInstrumentByIdentifier (index-only lookup)
+// instead of FindInstrumentWithMetaByIdentifier (JOIN), making it cheaper for
+// callers that don't need hint comparison.
 // Only identifiers a source stated may be passed here. A lookup that a
 // proposal satisfied would resolve the instrument without any plugin having
 // confirmed the proposal, which is the one thing a proposal must never do.
 // See adr/0057.
-func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]string, error) {
+//
+// One entry per distinct instrument, carrying the first hint that reached it:
+// several names for one security are one answer, and it is the count of
+// instruments rather than of names that says whether the file disagreed with
+// itself.
+func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]HintMatch, error) {
 	seen := make(map[string]bool)
-	var ids []string
+	var ids []HintMatch
 	for _, h := range hints {
 		if h.Type == "" || h.Value == "" {
 			continue
@@ -274,7 +291,7 @@ func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hint
 		}
 		if id != "" && !seen[id] {
 			seen[id] = true
-			ids = append(ids, id)
+			ids = append(ids, HintMatch{Ref: h, Instrument: id})
 		}
 	}
 	return ids, nil
@@ -423,9 +440,18 @@ func (a Attempt) write(ctx context.Context, r db.TelemetryIdentificationAttempt)
 // claim, and it is exactly the discarded ones a contradiction is read from. A
 // call that got no answer claims nothing -- its filter matched nothing, so the
 // provider asserted nothing.
-func (a Attempt) writeCall(ctx context.Context, attemptID, pluginID, outcome string, stats callStats, r *pluginResult) {
+func (a Attempt) writeCall(ctx context.Context, attemptID, pluginID, outcome string, stats callStats, r *pluginResult, mm *mismatch) {
 	if a.DB == nil || attemptID == "" {
 		return
+	}
+	var tm *db.TelemetryMismatch
+	if mm != nil {
+		tm = &db.TelemetryMismatch{
+			Subject:      mm.field,
+			Winner:       mm.winner,
+			Other:        mm.other,
+			WinnerPlugin: mm.winnerPlugin,
+		}
 	}
 	callID := a.DB.WriteIdentifierPluginCall(ctx, db.TelemetryIdentifierPluginCall{
 		RunID:     a.RunID,
@@ -434,6 +460,7 @@ func (a Attempt) writeCall(ctx context.Context, attemptID, pluginID, outcome str
 		Outcome:   outcome,
 		Retries:   stats.Retries,
 		Duration:  stats.Duration,
+		Mismatch:  tm,
 	})
 	if callID == "" || r == nil || r.inst == nil {
 		return
@@ -515,8 +542,16 @@ func normalizeMICValue(ctx context.Context, normalizeMIC MICNormalizer, mic stri
 	return normalizeMIC(ctx, mic)
 }
 
-// mismatch is what excluded a result from a merge, ready for the log line.
-type mismatch struct{ field, winner, other string }
+// mismatch is what excluded a result from a merge: the subject the two results
+// argued about and what each said about it.
+//
+// It is returned rather than only logged. A log line is rediscovered and
+// re-logged on the next upload of the same file while nothing accumulates, so it
+// answers how often two providers disagree only by grepping. See
+// docs/adr/0080-a-contradiction-is-logged-not-queued.md.
+// winnerPlugin is filled in by consistentWith rather than by the two probes,
+// which compare results and have no notion of who produced them.
+type mismatch struct{ field, winner, other, winnerPlugin string }
 
 // lineMismatch reports whether two results described different lines, and what
 // said so.
@@ -543,14 +578,14 @@ func lineMismatch(ctx context.Context, normalizeMIC MICNormalizer, countryOf MIC
 	wc, oc := winner.Listing.Currency, other.Listing.Currency
 	if wc != "" && oc != "" {
 		if !currency.Same(wc, oc) {
-			return &mismatch{"Currency", wc, oc}
+			return &mismatch{field: "Currency", winner: wc, other: oc}
 		}
 		return nil
 	}
 	wv := normalizeVenue(ctx, normalizeMIC, winner.Listing.Venue)
 	ov := normalizeVenue(ctx, normalizeMIC, other.Listing.Venue)
 	if !wv.Agrees(ov, countryOf) {
-		return &mismatch{"Venue", venueString(wv), venueString(ov)}
+		return &mismatch{field: "Venue", winner: venueString(wv), other: venueString(ov)}
 	}
 	return nil
 }
@@ -591,7 +626,7 @@ func idMismatch(ctx context.Context, normalizeMIC MICNormalizer, winner, other [
 			}
 		}
 		if !agreed && found {
-			return &mismatch{"Identifier:" + o.Type, conflict.String(), o.String()}
+			return &mismatch{field: "Identifier:" + o.Type, winner: conflict.String(), other: o.String()}
 		}
 	}
 	return nil
@@ -603,18 +638,21 @@ func idMismatch(ctx context.Context, normalizeMIC MICNormalizer, winner, other [
 // Merge admission asks two things, and they are different questions. Whether
 // the two results described one line, which the currency decides. And whether
 // they contradict each other about the security, which the identifiers do.
-func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer, countryOf MICCountry) bool {
+// The mismatch is returned as well as logged, so the call row can carry what the
+// two results argued about rather than only that they did. Nil is consistent.
+func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer, countryOf MICCountry) *mismatch {
 	m := lineMismatch(ctx, normalizeMIC, countryOf, winner.inst, other.inst)
 	if m == nil {
 		m = idMismatch(ctx, normalizeMIC, winner.ids, other.ids)
 	}
 	if m == nil {
-		return true
+		return nil
 	}
 	resolveLogger(l).WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
 		"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
 		"field", m.field, "winner_value", m.winner, "other_value", m.other)
-	return false
+	m.winnerPlugin = winnerPlugin
+	return m
 }
 
 // securityClaim is what a result said about which security it resolved: the
@@ -1286,6 +1324,11 @@ func ResolveWithPlugins(
 	for i := range results {
 		callOutcomes[i] = string(results[i].tel.Outcome)
 	}
+	// What each discarded result argued with the winner about, parallel to
+	// callOutcomes and set only where the outcome becomes discarded_inconsistent.
+	// Kept beside the outcome rather than recomputed at the write, because
+	// consistentWith logs when it refuses and asking twice would say it twice.
+	callMismatches := make([]*mismatch, len(results))
 
 	// Whether there is anything to match against at all, checked separately for
 	// each provenance so that a proposal cannot make a stated match look possible
@@ -1374,7 +1417,7 @@ func ResolveWithPlugins(
 				// superseded and discarded are its words, and this is none of them.
 				o = string(identifier.OutcomeNotIdentified)
 			}
-			tel.writeCall(ctx, attemptID, inputs[i].config.PluginID, o, results[i].stats, &results[i])
+			tel.writeCall(ctx, attemptID, inputs[i].config.PluginID, o, results[i].stats, &results[i], callMismatches[i])
 		}
 	}
 
@@ -1406,11 +1449,16 @@ func ResolveWithPlugins(
 			// the ordinary shape of two answers to an ambiguous query rather than
 			// a disagreement. A reader asking why a plugin's answer did not reach
 			// an instrument needs to know which happened.
+			mm := (*mismatch)(nil)
+			if i != winnerIdx {
+				mm = consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC, countryOf)
+			}
 			switch {
 			case i == winnerIdx:
 				callOutcomes[i] = db.TelemetryPluginCallWon
-			case !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC, countryOf):
+			case mm != nil:
 				callOutcomes[i] = db.TelemetryPluginCallDiscardedInconsistent
+				callMismatches[i] = mm
 				continue
 			case !corroborated(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC):
 				callOutcomes[i] = db.TelemetryPluginCallDiscardedUncorroborated

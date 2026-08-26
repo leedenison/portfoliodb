@@ -161,6 +161,48 @@ CREATE TABLE telemetry.resolution_key (
 
 CREATE INDEX idx_telemetry_resolution_key_run ON telemetry.resolution_key (run_id);
 
+-- One identifier a source stated, and the instrument the database says it names,
+-- for a key whose stated identifiers named more than one instrument between them.
+--
+-- The key's own outcome already says conflicting_hints. This is what it was: the
+-- file named an ISIN the database holds on one security and a CUSIP it holds on
+-- another, and nothing in the data says which is right, because whichever arrived
+-- first is the one stored. Rows are written only for such a key, so the table is
+-- empty on an instance where no file has ever disagreed with the security master.
+--
+-- One row per identifier rather than one per conflict, because how many
+-- instruments the hints reached is not fixed: two is the ordinary case and three
+-- is possible. A panel groups by resolution_key_id to see the whole disagreement,
+-- and counts distinct keys to see how often it happens.
+--
+-- The instrument is not a foreign key, for the reason run.job_id is not one:
+-- telemetry outlives the work it describes, and a merge deleting one of these
+-- instruments must not take the record of the disagreement with it.
+-- v_instrument_label is where a panel turns it into a name.
+--
+-- This is an identity failure and not a transaction failure. The upload is
+-- accepted and the posting resolves to a broker-description-only instrument --
+-- the same degradation an identifier plugin timeout produces -- because blocking
+-- it would strand the user behind an admin over a corporate action neither knew
+-- about. See docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+CREATE TABLE telemetry.conflicting_hint (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  resolution_key_id UUID NOT NULL
+                    REFERENCES telemetry.resolution_key (id) ON DELETE CASCADE,
+  -- The whole triple the source stated, because a ticker under two domains names
+  -- two listings.
+  identifier_type   TEXT NOT NULL,
+  domain            TEXT,
+  value             TEXT NOT NULL,
+  instrument_id     UUID NOT NULL
+);
+
+CREATE INDEX idx_telemetry_conflicting_hint_key
+  ON telemetry.conflicting_hint (resolution_key_id);
+-- The panel asking what has ever been claimed to be one security with this one.
+CREATE INDEX idx_telemetry_conflicting_hint_instrument
+  ON telemetry.conflicting_hint (instrument_id);
+
 -- One ResolveWithPlugins call. A single resolution key produces several: one primary,
 -- two more when the mismatch check runs, and one per level of underlying recursion.
 -- That is a fact recorded in purpose and depth rather than a discrepancy between two
@@ -208,6 +250,18 @@ CREATE INDEX idx_telemetry_identification_attempt_key
 -- results share. A plugin cannot know any of them, which is why it returns its
 -- transport outcome and the orchestrator composes the row. retries and duration_ms are the
 -- orchestrator's too: the retry loop and the clock belong to it.
+--
+-- The mismatch columns are what discarded_inconsistent was dropped over, and they
+-- are on this row rather than in a table of their own because they share its
+-- grain exactly: the check stops at the first thing the two results argued about,
+-- so one call has at most one. They are null for every other outcome, as
+-- duration_ms is null on a price call that made none.
+--
+-- Recording them closes the same inversion identifier_claim closed. The outcome
+-- said a plugin contradicted the winner and nothing said about what, so the
+-- disagreement was rediscovered and re-logged on every upload while nothing
+-- accumulated. See docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md
+-- and docs/adr/0080-a-contradiction-is-logged-not-queued.md.
 CREATE TABLE telemetry.identifier_plugin_call (
   id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   identification_attempt_id UUID NOT NULL
@@ -220,7 +274,23 @@ CREATE TABLE telemetry.identifier_plugin_call (
                                                              'timeout', 'error',
                                                              'skipped_expired')),
   retries                   INT NOT NULL,
-  duration_ms               INT NOT NULL
+  duration_ms               INT NOT NULL,
+  -- What the two results argued about: a field of the line they described, or an
+  -- identifier subject they both named. Free text rather than a vocabulary
+  -- because an identifier subject spells its own type into it, so the values are
+  -- open by construction.
+  mismatch_subject          TEXT,
+  -- The winner's value and the discarded result's, as each was stated. An
+  -- identifier is spelled as its whole triple, a currency and a venue as
+  -- themselves.
+  mismatch_winner           TEXT,
+  mismatch_other            TEXT,
+  -- Which result it lost to. The plugin's identity decides nothing about a merge
+  -- -- every identifier plugin is equally authoritative for a global identifier --
+  -- but a reader asking why two providers disagree needs to know which two.
+  mismatch_winner_plugin    TEXT,
+  CONSTRAINT chk_telemetry_identifier_plugin_call_mismatch CHECK (
+    (outcome = 'discarded_inconsistent') = (mismatch_subject IS NOT NULL))
 );
 
 CREATE INDEX idx_telemetry_identifier_plugin_call_attempt
@@ -730,6 +800,10 @@ SELECT
   -- events with different fixes, and a panel counting plugin failures means this
   -- one. skipped_expired is outside it: nothing was called.
   c.outcome IN ('rate_limited', 'timeout', 'error') AS transport_failed,
+  c.mismatch_subject,
+  c.mismatch_winner,
+  c.mismatch_other,
+  c.mismatch_winner_plugin,
   a.purpose      AS attempt_purpose,
   a.depth        AS attempt_depth,
   a.outcome      AS attempt_outcome,
@@ -764,6 +838,36 @@ JOIN telemetry.run r ON r.id = k.run_id;
 -- carries no judgement column of its own: whether an association may be acted on
 -- is a question about two rows sharing a call_id rather than about one row, so a
 -- panel groups rather than filters.
+-- One stated identifier of a key whose identifiers disagreed, with its key and
+-- that key's run flattened in. One row per identifier rather than per conflict,
+-- so a panel groups by resolution_key_id for the whole disagreement and counts
+-- distinct keys for how often a file argues with the security master.
+CREATE VIEW telemetry.v_conflicting_hint AS
+SELECT
+  h.id,
+  h.resolution_key_id,
+  h.identifier_type,
+  h.domain,
+  h.value,
+  h.instrument_id,
+  k.source      AS key_source,
+  k.description AS key_description,
+  k.tx_count    AS key_tx_count,
+  k.outcome     AS key_outcome,
+  r.id         AS run_id,
+  r.kind       AS run_kind,
+  r.job_id     AS run_job_id,
+  r.user_id    AS run_user_id,
+  r.broker     AS run_broker,
+  r.source     AS run_source,
+  r.started_at AS run_started_at,
+  r.outcome    AS run_outcome,
+  r.telemetry_incomplete AS run_telemetry_incomplete,
+  r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
+FROM telemetry.conflicting_hint h
+JOIN telemetry.resolution_key k ON k.id = h.resolution_key_id
+JOIN telemetry.run r ON r.id = k.run_id;
+
 CREATE VIEW telemetry.v_identifier_claim AS
 SELECT
   cl.id,

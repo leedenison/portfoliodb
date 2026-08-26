@@ -1,17 +1,28 @@
 # An instrument with no identity is completed in place
 
+Generalised by
+[0079](0079-an-instrument-carries-the-authority-of-the-channel-that-named-it.md),
+which makes this the special case of one rule: an instrument named only through a
+user-mediated channel accepts what an authority writes on to it, its own metadata
+being unconfirmed rather than merely absent. What stands is everything below
+about identifiers; what changes is that filling a null column is the easy half of
+a rule whose hard half is discarding a column that was not null.
+
 There is no completion of this shape one level down. A listing carries a
 currency or does not exist
 ([0075](0075-a-name-that-could-not-be-placed-names-no-line.md)), so there is no
 listing holding nothing for a later result to fill in.
 
 A broker-description-only instrument is one row and one non-canonical
-`BROKER_DESCRIPTION`: it holds no canonical identifier and every column is null.
-It exists because an upload had to attach a transaction to something and nothing
-identified the security. When a later resolution does identify it,
-`EnsureInstrument` writes what it found on to that instrument, filling the null
-columns and inserting the identifiers, rather than matching it and discarding
-everything but the match.
+`BROKER_DESCRIPTION`: it holds no canonical identifier, and every column is null
+apart from the name, which ingestion fills with the broker's own text for want of
+anything better -- issue
+[0169](../issues/0169-unconfirmed-metadata-is-discarded.md) is that name
+outliving the completion. It exists because an upload had to attach a
+transaction to something and nothing identified the security. When a later
+resolution does identify it, `EnsureInstrument` writes what it found on to that
+instrument, filling the null columns and inserting the identifiers, rather than
+matching it and discarding everything but the match.
 
 That is a write on to an existing instrument, which is otherwise refused. The
 refusal has two reasons and neither reaches this case.

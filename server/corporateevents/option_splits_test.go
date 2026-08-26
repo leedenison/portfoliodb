@@ -102,7 +102,7 @@ func TestProcessPendingOptionSplits_SingleSplit(t *testing.T) {
 			return nil
 		})
 
-	adjusted := ProcessPendingOptionSplits(ctx, mockDB, "und-2222", nil)
+	adjusted := ProcessPendingOptionSplits(ctx, mockDB, "und-2222", Unhandled{}, nil)
 	if len(adjusted) != 1 {
 		t.Fatalf("adjusted = %d options, want 1", len(adjusted))
 	}
@@ -162,7 +162,7 @@ func TestProcessPendingOptionSplits_CompoundsMultipleSplits(t *testing.T) {
 			return nil
 		}).Times(1)
 
-	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 1 {
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", Unhandled{}, nil); len(adjusted) != 1 {
 		t.Fatalf("adjusted = %d options, want 1", len(adjusted))
 	}
 }
@@ -204,7 +204,7 @@ func TestProcessPendingOptionSplits_RestatesFromTheNameInForce(t *testing.T) {
 			return nil
 		})
 
-	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 1 {
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", Unhandled{}, nil); len(adjusted) != 1 {
 		t.Fatalf("adjusted = %d options, want 1", len(adjusted))
 	}
 }
@@ -227,7 +227,7 @@ func TestProcessPendingOptionSplits_ApplyFailureNotReported(t *testing.T) {
 		}}, nil)
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(errors.New("deadlock"))
 
-	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", Unhandled{}, nil); len(adjusted) != 0 {
 		t.Errorf("adjusted = %d options, want 0 after a failed apply", len(adjusted))
 	}
 }
@@ -254,7 +254,7 @@ func TestProcessPendingOptionSplits_OneFailureDoesNotBlockOthers(t *testing.T) {
 			return nil
 		}).Times(2)
 
-	adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil)
+	adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", Unhandled{}, nil)
 	if len(adjusted) != 1 || adjusted[0].ID != "opt-good" {
 		t.Errorf("adjusted = %v, want just opt-good", adjusted)
 	}
@@ -293,19 +293,18 @@ func TestProcessPendingOptionSplits_NonWholeSplitBlocksOption(t *testing.T) {
 				}}, nil)
 
 			// No ApplyOptionSplit: the option is blocked.
-			mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-				func(_ context.Context, e db.UnhandledCorporateEvent) error {
-					if e.InstrumentID != "und-nw" {
-						t.Errorf("event instrument = %q, want the underlying und-nw", e.InstrumentID)
-					}
-					if e.EventType != tc.eventType {
-						t.Errorf("event type = %q, want %q", e.EventType, tc.eventType)
-					}
-					return nil
-				})
-
-			if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+			queue, spy := spyQueue()
+			if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", queue, nil); len(adjusted) != 0 {
 				t.Errorf("adjusted = %d options, want 0", len(adjusted))
+			}
+			if len(spy.events) != 1 {
+				t.Fatalf("recorded %d unhandled events, want 1: %+v", len(spy.events), spy.events)
+			}
+			if e := spy.events[0]; e.InstrumentID != "und-nw" {
+				t.Errorf("event instrument = %q, want the underlying und-nw", e.InstrumentID)
+			}
+			if e := spy.events[0]; e.EventType != tc.eventType {
+				t.Errorf("event type = %q, want %q", e.EventType, tc.eventType)
 			}
 		})
 	}
@@ -327,15 +326,15 @@ func TestProcessPendingOptionSplits_NonWholeSplitReportedOncePerSplit(t *testing
 			{Option: makeOption("opt-b", "AAPL  250117C00300000", 300.0, date(2025, 1, 1)), Splits: s},
 		}, nil)
 
-	mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, e db.UnhandledCorporateEvent) error {
-			if !strings.Contains(string(e.Data), "opt-a") || !strings.Contains(string(e.Data), "opt-b") {
-				t.Errorf("event data %s should list both blocked options", e.Data)
-			}
-			return nil
-		}).Times(1)
+	queue, spy := spyQueue()
+	ProcessPendingOptionSplits(ctx, mockDB, "", queue, nil)
 
-	ProcessPendingOptionSplits(ctx, mockDB, "", nil)
+	if len(spy.events) != 1 {
+		t.Fatalf("recorded %d unhandled events, want one for the underlying: %+v", len(spy.events), spy.events)
+	}
+	if d := string(spy.events[0].Data); !strings.Contains(d, "opt-a") || !strings.Contains(d, "opt-b") {
+		t.Errorf("event data %s should list both blocked options", d)
+	}
 }
 
 func TestProcessPendingOptionSplits_NoOCC(t *testing.T) {
@@ -356,7 +355,7 @@ func TestProcessPendingOptionSplits_NoOCC(t *testing.T) {
 		}}, nil)
 	// No ApplyOptionSplit and no unhandled event: nothing to rewrite.
 
-	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", Unhandled{}, nil); len(adjusted) != 0 {
 		t.Errorf("adjusted = %d options, want 0", len(adjusted))
 	}
 }
@@ -374,16 +373,12 @@ func TestProcessPendingOptionSplits_UnparseableOCC(t *testing.T) {
 			Splits: []db.StockSplit{split("und-bad", date(2025, 1, 15), "1", "2")},
 		}}, nil)
 
-	mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, e db.UnhandledCorporateEvent) error {
-			if e.InstrumentID != "opt-bad-occ" {
-				t.Errorf("event instrument = %q, want the option", e.InstrumentID)
-			}
-			return nil
-		})
-
-	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+	queue, spy := spyQueue()
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", queue, nil); len(adjusted) != 0 {
 		t.Errorf("adjusted = %d options, want 0", len(adjusted))
+	}
+	if len(spy.events) != 1 || spy.events[0].InstrumentID != "opt-bad-occ" {
+		t.Errorf("recorded %+v, want one event against the option", spy.events)
 	}
 }
 
@@ -397,7 +392,7 @@ func TestProcessPendingOptionSplits_NothingPending(t *testing.T) {
 
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", Unhandled{}, nil); len(adjusted) != 0 {
 		t.Errorf("adjusted = %d options, want 0", len(adjusted))
 	}
 }
@@ -410,7 +405,7 @@ func TestProcessPendingOptionSplits_ListError(t *testing.T) {
 
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, errors.New("connection refused"))
 
-	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); adjusted != nil {
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", Unhandled{}, nil); adjusted != nil {
 		t.Errorf("adjusted = %v, want nil on a query error", adjusted)
 	}
 }

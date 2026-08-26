@@ -14,6 +14,7 @@ import (
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/archiveimport"
+	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -31,9 +32,31 @@ func eventPart(groups ...*archivev1.CorporateEventGroup) *archivev1.CorporateEve
 func runEventPart(t *testing.T, database db.DB, registry *identifier.Registry,
 	part *archivev1.CorporateEventPart, asOf *time.Time) (bool, []*apiv1.ValidationError, error) {
 	t.Helper()
+	persisted, _, errs, err := runEventPartRecording(t, database, registry, part, asOf)
+	return persisted, errs, err
+}
+
+// runEventPartRecording is runEventPart with the events the import could not
+// apply captured, for the tests that are about those.
+func runEventPartRecording(t *testing.T, database db.DB, registry *identifier.Registry,
+	part *archivev1.CorporateEventPart, asOf *time.Time) (bool, *unhandledSpy, []*apiv1.ValidationError, error) {
+	t.Helper()
 	rep := archiveimport.NewDetachedReporter()
-	persisted, err := importCorporateEventPart(context.Background(), database, registry, part, asOf, newResolveCache(), nil, rep)
-	return persisted, rep.Errors(), err
+	spy := &unhandledSpy{}
+	persisted, err := importCorporateEventPart(context.Background(), database, registry, part, asOf,
+		newResolveCache(), nil, corporateevents.Unhandled{DB: spy, RunID: "run-1"}, rep)
+	return persisted, spy, rep.Errors(), err
+}
+
+// unhandledSpy captures what the import could not apply. NopTelemetry supplies
+// the rest of the interface: these tests are about one method.
+type unhandledSpy struct {
+	db.NopTelemetry
+	events []db.UnhandledCorporateEvent
+}
+
+func (s *unhandledSpy) WriteUnhandledCorporateEvent(_ context.Context, e db.UnhandledCorporateEvent) {
+	s.events = append(s.events, e)
 }
 
 // tickerGroup is one group naming an instrument by MIC ticker.
@@ -269,18 +292,16 @@ func TestProcessCorporateEventImport_UnattributableDividendIsQueuedAndReported(t
 		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
 			return divs, nil
 		})
-	database.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, e db.UnhandledCorporateEvent) error {
-			if e.EventType != "UNATTRIBUTABLE_DIVIDEND" {
-				t.Errorf("event type: got %q, want UNATTRIBUTABLE_DIVIDEND", e.EventType)
-			}
-			if e.InstrumentID != "inst-msft" {
-				t.Errorf("instrument: got %q", e.InstrumentID)
-			}
-			return nil
-		})
-
-	persisted, errs, err := runEventPart(t, database, registry, part, nil)
+	persisted, spy, errs, err := runEventPartRecording(t, database, registry, part, nil)
+	if len(spy.events) != 1 {
+		t.Fatalf("recorded %d unhandled events, want 1: %+v", len(spy.events), spy.events)
+	}
+	if e := spy.events[0]; e.EventType != "UNATTRIBUTABLE_DIVIDEND" {
+		t.Errorf("event type: got %q, want UNATTRIBUTABLE_DIVIDEND", e.EventType)
+	}
+	if e := spy.events[0]; e.InstrumentID != "inst-msft" {
+		t.Errorf("instrument: got %q", e.InstrumentID)
+	}
 	if err != nil {
 		t.Fatalf("importCorporateEventPart: %v", err)
 	}
@@ -317,8 +338,6 @@ func TestProcessCorporateEventImport_OneUnattributableDividendDoesNotUnsetPersis
 		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
 			return divs[1:], nil
 		})
-	database.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).Return(nil)
-
 	persisted, errs, err := runEventPart(t, database, registry, part, nil)
 	if err != nil {
 		t.Fatalf("importCorporateEventPart: %v", err)

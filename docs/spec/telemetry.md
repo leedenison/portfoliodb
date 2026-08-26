@@ -451,6 +451,39 @@ rows rather than through a third value, so every decision recorded here names tw
 endpoints and a column for a third would be null on every row. Transitivity is visible as
 several rows under one run.
 
+### unhandled_corporate_event
+
+One corporate event a run could not apply: a reverse or non-whole split, an
+extraordinary dividend on an option, a dividend in a currency no line of the security
+is quoted in, a futures adjustment.
+
+| column | notes |
+| --- | --- |
+| `run_id` | the run, directly: the corporate event cycle has no resolution key to hang off |
+| `instrument_id` | not a foreign key, so a merge deleting the instrument leaves the record |
+| `event_type` | `REVERSE_SPLIT`, `NON_WHOLE_SPLIT`, `SPECIAL_CASH_DIVIDEND`, `UNATTRIBUTABLE_DIVIDEND`, ... |
+| `ex_date` | optional; absent for the rare event with no date |
+| `detail` | the sentence a person reads |
+| `data` | the event's own terms, free-form per `event_type` |
+
+The unit of work is one event one run could not handle, so an event that fails every
+cycle writes a row each time. That is the signal rather than noise, exactly as a price
+gap coming back every cycle is: how long it has been failing is what the repeated rows
+say. Within a run it is deduped -- a split is examined for the underlying and again per
+option, and recording it twice would say one finding twice.
+
+This was an operational table with a `resolved` flag an admin set. Both moved here in
+0141: an operator's decision is state where this schema records events, and a row here
+is read and acted on elsewhere rather than worked. The admin surface reads it, which is
+the one read of telemetry a serving path makes -- a read of what happened rather than a
+dependency, since nothing the system does turns on the answer. See
+adr/0080-a-contradiction-is-logged-not-queued.md.
+
+Two kinds of dividend are recorded here and nowhere else, because the fetch refuses
+them a home in `cash_dividends` and this schema is neither archived nor retained
+forever. That is a known gap:
+[0173](../issues/0173-an-unfiled-dividend-has-nowhere-durable-to-live.md).
+
 ### Views
 
 One view per table, each flattening its parents in and never fanning out into its
@@ -514,8 +547,8 @@ come back every cycle. `had_call` separates a gap that never asked from one that
 was told nothing -- filters, fetch blocks, missing identifiers and existing coverage each
 return before `FetchPrices`, so no call is ordinary rather than a fault.
 
-`v_run` also carries `key_count`, `key_tx_count`, `description_call_count`, `gap_count` and
-`merge_count`. These are
+`v_run` also carries `key_count`, `key_tx_count`, `description_call_count`, `gap_count`,
+`merge_count` and `unhandled_event_count`. These are
 scalar subqueries, one per child table, and they are the only sanctioned way for a view
 to reach into a second child. The rule above forbids a view *fanning out* into two
 sibling grains, because that repeats the parent once per child and makes counting it
@@ -540,6 +573,9 @@ zero for every other run kind, as `key_count` is for a cycle.
 `merge_count` is zero for almost every run, and that is what makes it worth carrying: a
 merge is only asked about where one resolution's identifiers reached more than one
 instrument, so a non-zero count is itself the signal rather than a volume to normalise.
+
+`unhandled_event_count` is zero for every run kind but the corporate event cycle and an
+archive import, as `gap_count` is for the price fetch cycle.
 
 ### Naming an instrument
 

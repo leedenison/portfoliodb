@@ -1945,18 +1945,6 @@ type CashDividend struct {
 	FirstKnownAt time.Time
 }
 
-// ExportUnhandledCorporateEvent is one unhandled event named the way a file
-// names it: by the best identifier for the instrument rather than by its id.
-type ExportUnhandledCorporateEvent struct {
-	Ref       InstrumentRef
-	EventType string
-	ExDate    *time.Time
-	Detail    string
-	Data      []byte // JSONB, carried as the text it is stored as
-	Resolved  bool
-	CreatedAt time.Time
-}
-
 // CorporateEventCoverage is one half-open [CoveredFrom, CoveredBefore) coverage
 // interval for a (instrument, plugin). Adjacent or overlapping intervals for the
 // same (InstrumentID, PluginID) are merged on insert by
@@ -1979,17 +1967,24 @@ type CorporateEventFetchBlock struct {
 	FirstBlockedAt time.Time
 }
 
-// UnhandledCorporateEvent is a corporate event that cannot be automatically
-// processed (reverse splits, non-whole splits, mergers, extraordinary
-// dividends on options, futures adjustments). Surfaced to admins.
+// UnhandledCorporateEvent is a corporate event a cycle could not apply: a
+// reverse or non-whole split, an extraordinary dividend on an option, a dividend
+// in a currency no line of the security is quoted in, a futures adjustment.
+//
+// It is a run-scoped telemetry row rather than an operational one. The unit of
+// work is one event one run could not handle, so an event that fails on every
+// cycle writes a row each time, which is the signal rather than noise. There is
+// no resolved flag: an operator's decision is state where this schema records
+// events, and a row here is read and acted on elsewhere rather than worked. See
+// docs/adr/0080-a-contradiction-is-logged-not-queued.md.
 type UnhandledCorporateEvent struct {
 	ID           string
+	RunID        string
 	InstrumentID string
 	EventType    string
 	ExDate       *time.Time
 	Detail       string
 	Data         []byte // JSONB
-	Resolved     bool
 	CreatedAt    time.Time
 }
 
@@ -2147,29 +2142,6 @@ type CorporateEventDB interface {
 	// rather than failing: it is a duplicate created while the split was
 	// unknown, and rolling back would leave this option pending forever.
 	ApplyOptionSplit(ctx context.Context, params OptionSplitParams) error
-
-	// InsertUnhandledCorporateEvent stores a corporate event that requires
-	// manual admin review. Duplicate unresolved (instrument_id, event_type,
-	// ex_date) rows are silently ignored via ON CONFLICT DO NOTHING.
-	InsertUnhandledCorporateEvent(ctx context.Context, event UnhandledCorporateEvent) error
-	// ListUnhandledCorporateEvents returns unhandled events, newest first.
-	// When includeResolved is false, only unresolved events are returned.
-	ListUnhandledCorporateEvents(ctx context.Context, includeResolved bool, pageSize int32, pageToken string) ([]UnhandledCorporateEvent, int32, string, error)
-	// CountUnhandledCorporateEvents returns the number of unresolved events.
-	CountUnhandledCorporateEvents(ctx context.Context) (int32, error)
-	// ResolveUnhandledCorporateEvent marks an event as resolved.
-	ResolveUnhandledCorporateEvent(ctx context.Context, id string) error
-
-	// ListUnhandledCorporateEventsForExport returns every unhandled event,
-	// resolved and unresolved alike, with the best identifier per instrument.
-	// Unpaged, because a file carries the lot.
-	ListUnhandledCorporateEventsForExport(ctx context.Context) ([]ExportUnhandledCorporateEvent, error)
-	// RestoreUnhandledCorporateEvents writes events from an archive, honouring
-	// their resolved flag and detection time, and returns how many were
-	// inserted. A row matching an already-stored (instrument_id, event_type,
-	// ex_date, resolved) is skipped, so importing the same file twice does not
-	// double the review queue.
-	RestoreUnhandledCorporateEvents(ctx context.Context, events []UnhandledCorporateEvent) (int, error)
 }
 
 // HeldInstrument is one held instrument with the date of its earliest tx.
@@ -2996,6 +2968,20 @@ type TelemetryDB interface {
 	// WriteCandidateField records one proposed field against its key and its call.
 	WriteCandidateField(ctx context.Context, f TelemetryCandidateField)
 
+	// WriteUnhandledCorporateEvent records a corporate event the run could not
+	// apply. Reaching the same event twice within one run writes one row; the
+	// same event on a later run writes another, because an event that fails every
+	// cycle is a different fact from one that failed once.
+	WriteUnhandledCorporateEvent(ctx context.Context, e UnhandledCorporateEvent)
+	// ListUnhandledCorporateEvents returns unhandled events, newest first, for
+	// the admin surface. This is the one read of telemetry a serving path makes,
+	// and it is a read of what happened rather than a dependency: nothing the
+	// system does turns on the answer. See
+	// docs/adr/0053-telemetry-is-run-scoped-event-rows.md.
+	ListUnhandledCorporateEvents(ctx context.Context, pageSize int32, pageToken string) ([]UnhandledCorporateEvent, int32, string, error)
+	// CountUnhandledCorporateEvents returns how many there are.
+	CountUnhandledCorporateEvents(ctx context.Context) (int32, error)
+
 	// WriteMerge records one decision about whether two identifiers denote one
 	// security. It hangs directly off the run rather than off a resolution key,
 	// because the corporate event cycle merges too -- a split minting an OCC
@@ -3060,6 +3046,14 @@ func (NopTelemetry) WriteCandidatePluginCall(context.Context, TelemetryCandidate
 }
 
 func (NopTelemetry) WriteCandidateField(context.Context, TelemetryCandidateField) {}
+
+func (NopTelemetry) WriteUnhandledCorporateEvent(context.Context, UnhandledCorporateEvent) {}
+
+func (NopTelemetry) ListUnhandledCorporateEvents(context.Context, int32, string) ([]UnhandledCorporateEvent, int32, string, error) {
+	return nil, 0, "", nil
+}
+
+func (NopTelemetry) CountUnhandledCorporateEvents(context.Context) (int32, error) { return 0, nil }
 
 func (NopTelemetry) WriteMerge(context.Context, TelemetryMerge) {}
 

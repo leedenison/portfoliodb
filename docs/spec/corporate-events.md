@@ -11,7 +11,7 @@ Two event tables in PostgreSQL, keyed at the grain each is a fact about:
 
   The stated `currency` is how a row finds its line: it is matched against the security's listings on the currency family, so a provider quoting the London line's dividend in pence files against the line stored as GBP. The column is kept rather than derived from the listing because it is the code the amount is quoted in, and nineteen pence is not nineteen pounds. Agreement between the two is a property of the write path — the line is selected from the currency — rather than of a constraint.
 
-  A stated currency **never mints a line**. A dividend says a payment was made in a currency, which is not the claim that the security trades in it: a broker converting a dividend into the account currency reports exactly the first and not the second. A dividend whose currency matches no line of its security is stored nowhere and goes to `unhandled_corporate_events` as an `UNATTRIBUTABLE_DIVIDEND`. See adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
+  A stated currency **never mints a line**. A dividend says a payment was made in a currency, which is not the claim that the security trades in it: a broker converting a dividend into the account currency reports exactly the first and not the second. A dividend whose currency matches no line of its security is stored nowhere and is recorded as an `UNATTRIBUTABLE_DIVIDEND` in `telemetry.unhandled_corporate_event`. See adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
 
 Plus two auxiliary tables:
 
@@ -181,7 +181,7 @@ One name is minted per pending split, each derived from the option's stored stri
 
 A name another instrument already holds absorbs that instrument rather than failing. It is a duplicate of the same contract, created while the split was still unknown; the option being restated survives, because it is the row carrying the contract's history.
 
-Non-whole-forward splits (reverse splits, fractional ratios) are not applied: they are routed to `unhandled_corporate_events` for manual review, and they block their option entirely rather than being skipped over, since adjusting only the splits either side would produce a strike matching no real contract. The option stays pending so it is picked up once the event is resolved. `contract_multiplier` is never adjusted automatically.
+Non-whole-forward splits (reverse splits, fractional ratios) are not applied: they are recorded in `telemetry.unhandled_corporate_event` for a person to look at, and they block their option entirely rather than being skipped over, since adjusting only the splits either side would produce a strike matching no real contract. The option stays pending, so the cycle raises the event again on every run until whatever blocks it is dealt with -- which is how long it has been blocked, rather than noise. `contract_multiplier` is never adjusted automatically.
 
 The instruments fetched each cycle come from `HeldEventBearingInstruments`: direct STOCK and ETF holdings, plus the underlyings of held OPTION and FUTURE positions.
 

@@ -1,14 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useAuthedQuery } from "@/hooks/use-authed-query";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { ErrorAlert } from "@/app/components/error-alert";
 import {
   listUnhandledCorporateEvents,
-  resolveUnhandledCorporateEvent,
   type UnhandledCorporateEvent,
 } from "@/lib/portfolio-api";
 import { SplitsTab } from "./splits-tab";
@@ -55,10 +53,6 @@ function TabButton({
 
 export default function AdminCorporateEventsPage() {
   const [tab, setTab] = useState<Tab>("unhandled");
-  const queryClient = useQueryClient();
-  const [resolveError, setResolveError] = useState<string | null>(null);
-  const [resolving, setResolving] = useState<string | null>(null);
-
   const {
     data: events = [],
     isPending: loading,
@@ -68,23 +62,7 @@ export default function AdminCorporateEventsPage() {
     queryFn: async () => (await listUnhandledCorporateEvents()).events,
   });
 
-  const error =
-    resolveError ?? (loadError ? errorMessage(loadError, "Failed to load corporate events") : null);
-
-  async function handleResolve(id: string) {
-    setResolving(id);
-    setResolveError(null);
-    try {
-      await resolveUnhandledCorporateEvent(id);
-      await queryClient.invalidateQueries({ queryKey: qk.unhandledCorporateEvents() });
-      // The dashboard shows the same count.
-      await queryClient.invalidateQueries({ queryKey: qk.unhandledCorporateEventCount() });
-    } catch (e) {
-      setResolveError(errorMessage(e, `Failed to resolve event ${id}`));
-    } finally {
-      setResolving(null);
-    }
-  }
+  const error = loadError ? errorMessage(loadError, "Failed to load corporate events") : null;
 
   return (
     <div data-testid="page-corporate-events">
@@ -122,7 +100,6 @@ export default function AdminCorporateEventsPage() {
                   <th className="py-2 pr-4 font-medium">Ex Date</th>
                   <th className="py-2 pr-4 font-medium">Detail</th>
                   <th className="py-2 pr-4 font-medium">Created</th>
-                  <th className="py-2 font-medium" />
                 </tr>
               </thead>
               <tbody>
@@ -142,16 +119,6 @@ export default function AdminCorporateEventsPage() {
                     <td className="py-2 pr-4 text-text-muted">{ev.detail || "\u2014"}</td>
                     <td className="py-2 pr-4 text-text-muted">
                       {ev.createdAt ? ev.createdAt.toLocaleDateString() : "\u2014"}
-                    </td>
-                    <td className="py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleResolve(ev.id)}
-                        disabled={resolving !== null}
-                        className="rounded-sm border border-border px-3 py-1 text-xs hover:bg-background disabled:opacity-50"
-                      >
-                        {resolving === ev.id ? "Resolving..." : "Resolve"}
-                      </button>
                     </td>
                   </tr>
                 ))}

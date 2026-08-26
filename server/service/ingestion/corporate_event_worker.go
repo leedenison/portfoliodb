@@ -22,7 +22,7 @@ import (
 // and an error only for a hard failure: an event the import could not read is a
 // validation error on a part that still succeeded.
 func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
-	part *archivev1.CorporateEventPart, eventsAsOf *time.Time, resolveCache map[string]*resolveEntry, keys *resolutionKeys, rep *archiveimport.PartReporter) (bool, error) {
+	part *archivev1.CorporateEventPart, eventsAsOf *time.Time, resolveCache map[string]*resolveEntry, keys *resolutionKeys, unhandled corporateevents.Unhandled, rep *archiveimport.PartReporter) (bool, error) {
 	groups := part.GetGroups()
 	total := 0
 	for _, g := range groups {
@@ -90,7 +90,7 @@ func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistr
 		// flattened across groups by the time the line is resolved, and inventing
 		// an index would point at the wrong event.
 		for _, d := range unfiled {
-			corporateevents.QueueUnhandledDividend(ctx, database, d, "UNATTRIBUTABLE_DIVIDEND",
+			corporateevents.QueueUnhandledDividend(ctx, unhandled, d, "UNATTRIBUTABLE_DIVIDEND",
 				"Dividend in a currency no listing is quoted in:", ingestionLog)
 			rep.Errf(-1, "dividends", fmt.Sprintf(
 				"dividend on %s ex %s names no %s listing; queued for review",
@@ -128,7 +128,7 @@ func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistr
 	// failed to apply. ApplyOptionSplit recomputes each adjusted option's
 	// split-adjusted values inside its own transaction.
 	if len(splitInstruments) > 0 {
-		corporateevents.ProcessPendingOptionSplits(ctx, database, "", ingestionLog)
+		corporateevents.ProcessPendingOptionSplits(ctx, database, "", unhandled, ingestionLog)
 	}
 	return persisted, nil
 }

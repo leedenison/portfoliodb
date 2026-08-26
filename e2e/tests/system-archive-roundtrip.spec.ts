@@ -138,15 +138,6 @@ test.describe("system archive page", () => {
         WHERE ii.value = $3`,
       [BLOCKED_PLUGIN, BLOCK_REASON, tickers[0]],
     );
-    // Resolved, because the flag is the only trace that a person looked at this
-    // and decided.
-    await rawQuery(
-      `INSERT INTO unhandled_corporate_events (instrument_id, event_type, ex_date, detail, resolved)
-       SELECT ii.instrument_id, 'REVERSE_SPLIT', '2025-04-11', '1:10 reverse split', true
-         FROM ${INSTRUMENT_NAMES} ii WHERE ii.value = $1`,
-      [tickers[0]],
-    );
-
     const rows = (await rawQuery(
       `SELECT plugin_id, enabled FROM plugin_config WHERE category = 'price' ORDER BY precedence DESC LIMIT 1`,
     )) as { plugin_id: string; enabled: boolean }[];
@@ -264,10 +255,6 @@ test.describe("system archive page", () => {
       plugin_id: BLOCKED_PLUGIN,
       reason: BLOCK_REASON,
     });
-    expect(doc.unhandled_events.groups[0].events[0]).toMatchObject({
-      event_type: "REVERSE_SPLIT",
-      resolved: true,
-    });
     const exportedPlugin = doc.plugin_config.configs.find(
       (c: { plugin_id: string; category: string }) =>
         c.plugin_id === pluginRow.plugin_id && c.category === "PRICE",
@@ -280,7 +267,6 @@ test.describe("system archive page", () => {
     await rawQuery("DELETE FROM price_coverage");
     await rawQuery("DELETE FROM inflation_indices");
     await rawQuery("DELETE FROM price_fetch_blocks");
-    await rawQuery("DELETE FROM unhandled_corporate_events");
     await rawQuery(`UPDATE plugin_config SET enabled = $1 WHERE category = 'price' AND plugin_id = $2`, [
       pluginRow.enabled,
       pluginRow.plugin_id,
@@ -293,7 +279,11 @@ test.describe("system archive page", () => {
 
     const parts = page.locator("[data-testid='job-parts']");
     await expect(parts).toBeVisible({ timeout: TIMEOUT_SLOW });
-    await expect(parts.getByText("Done")).toHaveCount(7, { timeout: TIMEOUT_SLOW });
+    // Six parts: instruments, prices, corporate events, inflation indices, fetch
+    // blocks and plugin config. Unhandled corporate events used to be a seventh
+    // and are telemetry now, which is retained on a clock rather than archived
+    // (adr/0080).
+    await expect(parts.getByText("Done")).toHaveCount(6, { timeout: TIMEOUT_SLOW });
 
     // What the page said happened, checked against what is stored.
     const priceRows = (await rawQuery(
@@ -392,11 +382,6 @@ test.describe("system archive page", () => {
     expect(blocks).toEqual([
       { plugin_id: BLOCKED_PLUGIN, reason: BLOCK_REASON, currency: "USD" },
     ]);
-
-    const events = (await rawQuery(
-      `SELECT event_type, resolved FROM unhandled_corporate_events`,
-    )) as { event_type: string; resolved: boolean }[];
-    expect(events).toEqual([{ event_type: "REVERSE_SPLIT", resolved: true }]);
 
     const plugin = (await rawQuery(
       `SELECT enabled FROM plugin_config WHERE category = 'price' AND plugin_id = $1`,

@@ -13,7 +13,6 @@ import "archive/v1/plugin_config.proto";
 import "archive/v1/preferences.proto";
 import "archive/v1/prices.proto";
 import "archive/v1/txs.proto";
-import "archive/v1/unhandled_events.proto";
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "google/type/date.proto";
@@ -402,7 +401,6 @@ service ApiService {
   // that require admin review.
   rpc ListUnhandledCorporateEvents(ListUnhandledCorporateEventsRequest) returns (ListUnhandledCorporateEventsResponse);
   rpc CountUnhandledCorporateEvents(CountUnhandledCorporateEventsRequest) returns (CountUnhandledCorporateEventsResponse);
-  rpc ResolveUnhandledCorporateEvent(ResolveUnhandledCorporateEventRequest) returns (ResolveUnhandledCorporateEventResponse);
 
   // Residual balances (admin-only). The net IMBALANCE, TRANSFER_CLEARING and
   // SOURCE_ROUNDING value left in each broker account: a direct measure of how lossy
@@ -718,9 +716,8 @@ message ExportSystemArchiveResponse {
     portfoliodb.archive.v1.CorporateEventGroup corporate_event_group = 5;
     portfoliodb.archive.v1.InflationGroup inflation_group = 6;
     portfoliodb.archive.v1.FetchBlockGroup fetch_block_group = 7;
-    portfoliodb.archive.v1.UnhandledEventGroup unhandled_event_group = 8;
     // A flat list, so one row per message rather than one group.
-    portfoliodb.archive.v1.PluginConfig plugin_config = 9;
+    portfoliodb.archive.v1.PluginConfig plugin_config = 8;
   }
 }
 
@@ -1310,6 +1307,11 @@ message TriggerTransferMatchResponse {}
 
 // Unhandled corporate events.
 
+// One corporate event a run could not apply. A telemetry row rather than a queue
+// entry: it says what happened, and there is no resolved flag because an
+// operator's decision is state where telemetry records events. The same event
+// failing on every cycle appears once per run, which is how long it has been
+// failing. See docs/adr/0080-a-contradiction-is-logged-not-queued.md.
 message UnhandledCorporateEvent {
   string id = 1;
   string instrument_id = 2;
@@ -1318,14 +1320,15 @@ message UnhandledCorporateEvent {
   string ex_date = 5;      // YYYY-MM-DD, may be empty
   string detail = 6;
   string data = 7;         // JSON
-  bool resolved = 8;
-  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp created_at = 8;
+  // The run that could not apply it: a corporate event cycle, or an archive
+  // import raising the same events as it restores.
+  string run_id = 9;
 }
 
 message ListUnhandledCorporateEventsRequest {
-  bool include_resolved = 1;
-  int32 page_size = 2;
-  string page_token = 3;
+  int32 page_size = 1;
+  string page_token = 2;
 }
 
 message ListUnhandledCorporateEventsResponse {
@@ -1339,12 +1342,6 @@ message CountUnhandledCorporateEventsRequest {}
 message CountUnhandledCorporateEventsResponse {
   int32 count = 1;
 }
-
-message ResolveUnhandledCorporateEventRequest {
-  string id = 1;
-}
-
-message ResolveUnhandledCorporateEventResponse {}
 
 // Residual balances.
 

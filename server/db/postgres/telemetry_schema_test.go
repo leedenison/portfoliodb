@@ -1118,3 +1118,91 @@ func TestTelemetryViews_ConflictingHint(t *testing.T) {
 		t.Errorf("run_kind = %q, key_source = %q; want the parents flattened in", runKind, keySource)
 	}
 }
+
+// An unhandled event is deduped within a run and not across them. The same event
+// failing on every cycle is how long it has been failing, and folding the rows
+// together would take that away -- the reason price_gap writes a row per cycle
+// for a gap that keeps coming back.
+func TestTelemetrySchema_UnhandledEventRecursAcrossRuns(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	inst := usdInstrument(t, p)
+
+	insert := func(runID string) error {
+		_, err := p.q.ExecContext(ctx, `
+			INSERT INTO telemetry.unhandled_corporate_event
+				(run_id, instrument_id, event_type, ex_date, detail)
+			VALUES ($1::uuid, $2::uuid, 'REVERSE_SPLIT', '2025-04-11', '1:10')
+			ON CONFLICT (run_id, instrument_id, event_type, ex_date) DO NOTHING
+		`, runID, inst)
+		return err
+	}
+
+	first := seedRun(t, p, "corporate_event_cycle", time.Now())
+	if err := insert(first); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	// Reached twice in one run -- a split is examined for the underlying and
+	// again per option -- and recorded once.
+	if err := insert(first); err != nil {
+		t.Fatalf("second insert in the same run: %v", err)
+	}
+	second := seedRun(t, p, "corporate_event_cycle", time.Now())
+	if err := insert(second); err != nil {
+		t.Fatalf("insert under a second run: %v", err)
+	}
+
+	var n int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM telemetry.unhandled_corporate_event WHERE instrument_id = $1::uuid`,
+		inst).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("rows = %d, want one per run", n)
+	}
+
+	// The run is flattened into the view, so a panel reads what kind of run
+	// could not apply it without joining out of the schema.
+	var kind string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT min(run_kind) FROM telemetry.v_unhandled_corporate_event
+		WHERE instrument_id = $1::uuid
+	`, inst).Scan(&kind); err != nil {
+		t.Fatalf("select v_unhandled_corporate_event: %v", err)
+	}
+	if kind != "corporate_event_cycle" {
+		t.Errorf("run_kind = %q, want the cycle's", kind)
+	}
+}
+
+// The instrument is not a foreign key: telemetry outlives the work it describes,
+// and a merge deleting an instrument must not take the record of what could not
+// be applied to it.
+func TestTelemetrySchema_UnhandledEventOutlivesItsInstrument(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	inst := usdInstrument(t, p)
+	runID := seedRun(t, p, "corporate_event_cycle", time.Now())
+
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO telemetry.unhandled_corporate_event
+			(run_id, instrument_id, event_type, detail)
+		VALUES ($1::uuid, $2::uuid, 'MERGER', 'unsupported')
+	`, runID, inst); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := p.q.ExecContext(ctx, `DELETE FROM instruments WHERE id = $1::uuid`, inst); err != nil {
+		t.Fatalf("delete instrument: %v", err)
+	}
+
+	var n int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM telemetry.unhandled_corporate_event WHERE instrument_id = $1::uuid`,
+		inst).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("rows = %d; the event went with the instrument it names", n)
+	}
+}

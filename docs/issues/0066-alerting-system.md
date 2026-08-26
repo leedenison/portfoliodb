@@ -53,7 +53,7 @@ have to wade through per-user data-quality noise.
 
 ## Migration
 
-`unhandled_corporate_events` is the closest existing thing and should move onto this
+`unhandled_corporate_events` was the closest existing thing. 0141 moved it into the telemetry schema instead, so what this surface shows about corporate events is a read of telemetry rather than a table of its own; whether the rest of the alerting surface follows it or stays operational is open. It should move onto this
 mechanism rather than sit alongside it. `validation_errors` and
 `identification_errors` are per-upload and already have a natural home on the uploads
 page; whether they also become alerts is a judgement call worth making explicitly

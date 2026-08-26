@@ -634,6 +634,62 @@ CREATE INDEX idx_telemetry_merge_run ON telemetry.merge (run_id);
 -- security. A wrong merge is traced back this way.
 CREATE INDEX idx_telemetry_merge_a_instrument ON telemetry.merge (a_instrument_id);
 
+-- A corporate event a cycle could not apply, for a person to look at.
+--
+-- A reverse or non-whole split, an extraordinary dividend on an option, a
+-- dividend in a currency no line of the security is quoted in, a futures
+-- adjustment. The unit of work is one event one run could not handle, so the
+-- same event recurring cycle after cycle writes a row each time -- which is the
+-- signal rather than noise, exactly as a price gap that comes back every cycle
+-- is. It used to be one operational row that stayed until an admin marked it
+-- resolved.
+--
+-- The resolved flag is gone with the move. An operator's decision is state, not
+-- an event, and this schema records what happened; a row here is read and acted
+-- on elsewhere rather than worked. See
+-- docs/adr/0053-telemetry-is-run-scoped-event-rows.md and
+-- docs/adr/0080-a-contradiction-is-logged-not-queued.md.
+--
+-- instrument_id is not a foreign key, for the reason run.job_id is not one:
+-- telemetry outlives the work it describes, and an instrument deleted by a merge
+-- must not take the record of what could not be applied to it.
+-- v_instrument_label is where a panel turns it into a name.
+--
+-- Rows here are the only record of two kinds of dividend, which the fetch
+-- refuses a home in cash_dividends and this schema does not retain. That is a
+-- known gap rather than a property of the design: see
+-- docs/issues/0173-an-unfiled-dividend-has-nowhere-durable-to-live.md.
+CREATE TABLE telemetry.unhandled_corporate_event (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id        UUID NOT NULL REFERENCES telemetry.run (id) ON DELETE CASCADE,
+  instrument_id UUID NOT NULL,
+  event_type    TEXT NOT NULL,
+  ex_date       DATE,
+  detail        TEXT NOT NULL,
+  -- The event's own terms, so a person can see what was refused without going
+  -- back to the provider. Free-form per event_type, which is why it is JSONB
+  -- rather than columns none of the other types would fill.
+  data          JSONB,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_telemetry_unhandled_ce_run
+  ON telemetry.unhandled_corporate_event (run_id);
+-- The panel asking what has ever failed to apply to one security.
+CREATE INDEX idx_telemetry_unhandled_ce_instrument
+  ON telemetry.unhandled_corporate_event (instrument_id);
+
+-- One row per event per run. Within a run the same event can be reached twice --
+-- a split is examined for the underlying and again per option -- and recording it
+-- twice would say one finding twice. Across runs it is deliberately not deduped:
+-- an event that cannot be applied on every cycle is a different fact from one
+-- that failed once.
+--
+-- NULL ex_dates are treated as distinct by PostgreSQL unique indexes, which is
+-- acceptable since events without an ex_date are rare edge cases.
+CREATE UNIQUE INDEX idx_telemetry_unhandled_ce_dedup
+  ON telemetry.unhandled_corporate_event (run_id, instrument_id, event_type, ex_date);
+
 -- Views.
 --
 -- One per table, each flattening its parents in and never fanning out into its
@@ -695,7 +751,12 @@ SELECT
   -- only asked about where one resolution's identifiers reached more than one
   -- instrument, so a non-zero count is itself the signal.
   (SELECT count(*) FROM telemetry.merge m
-     WHERE m.run_id = r.id) AS merge_count
+     WHERE m.run_id = r.id) AS merge_count,
+  -- Corporate events the run could not apply. Zero for every run kind but the
+  -- corporate event cycle and an archive import, as gap_count is for the price
+  -- fetch cycle.
+  (SELECT count(*) FROM telemetry.unhandled_corporate_event u
+     WHERE u.run_id = r.id) AS unhandled_event_count
 FROM telemetry.run r;
 
 CREATE VIEW telemetry.v_resolution_key AS
@@ -1111,6 +1172,30 @@ SELECT
   r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
 FROM telemetry.merge m
 JOIN telemetry.run r ON r.id = m.run_id;
+
+-- One unhandled corporate event, with its run flattened in. It hangs directly
+-- off the run because the corporate event cycle has no resolution key to hang
+-- off, and because the archive import raises the same events under a run of its
+-- own.
+CREATE VIEW telemetry.v_unhandled_corporate_event AS
+SELECT
+  u.id,
+  u.instrument_id,
+  u.event_type,
+  u.ex_date,
+  u.detail,
+  u.data,
+  u.created_at,
+  r.id         AS run_id,
+  r.kind       AS run_kind,
+  r.job_id     AS run_job_id,
+  r.user_id    AS run_user_id,
+  r.started_at AS run_started_at,
+  r.outcome    AS run_outcome,
+  r.telemetry_incomplete AS run_telemetry_incomplete,
+  r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
+FROM telemetry.unhandled_corporate_event u
+JOIN telemetry.run r ON r.id = u.run_id;
 
 -- The one thing here that reads outside the telemetry schema.
 --

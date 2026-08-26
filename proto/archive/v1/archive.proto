@@ -12,7 +12,6 @@ import "archive/v1/plugin_config.proto";
 import "archive/v1/preferences.proto";
 import "archive/v1/prices.proto";
 import "archive/v1/txs.proto";
-import "archive/v1/unhandled_events.proto";
 import "buf/validate/validate.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
@@ -36,10 +35,9 @@ message SystemArchive {
   CorporateEventPart corporate_events = 4;
   InflationPart inflation_indices = 5;
   FetchBlockPart fetch_blocks = 6;
-  UnhandledEventPart unhandled_events = 7;
   // Last because it is the one part that makes the document a secret, and a
   // reader skimming a file should reach the rest before the keys.
-  PluginConfigPart plugin_config = 8;
+  PluginConfigPart plugin_config = 7;
 }
 
 // UserArchive is one user archive document: one user's own data, and no system

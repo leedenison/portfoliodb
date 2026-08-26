@@ -47,12 +47,6 @@ export const SYSTEM_ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
     defaultSelected: true,
   },
   {
-    part: ArchivePart.UNHANDLED_EVENTS,
-    label: "Unhandled corporate events",
-    note: "The review queue, and the calls an admin has already made on it.",
-    defaultSelected: true,
-  },
-  {
     part: ArchivePart.PLUGIN_CONFIG,
     label: "Plugin config",
     note: "Which plugins are on, in what order, and how each is configured. Carries live API keys, which makes the file a secret.",
@@ -89,7 +83,6 @@ export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.CORPORATE_EVENTS]: "Corporate events",
   [ArchivePart.INFLATION_INDICES]: "Inflation indices",
   [ArchivePart.FETCH_BLOCKS]: "Fetch blocks",
-  [ArchivePart.UNHANDLED_EVENTS]: "Unhandled corporate events",
   [ArchivePart.PLUGIN_CONFIG]: "Plugin config",
   [ArchivePart.PREFERENCES]: "Preferences",
   [ArchivePart.TXS]: "Transactions",

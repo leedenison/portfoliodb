@@ -19,7 +19,10 @@ type JobEnqueuer func(jobID, jobType string) error
 // Server implements ApiService.
 type Server struct {
 	apiv1.UnimplementedApiServiceServer
-	db                     db.DB
+	db db.DB
+	// telemetryDB is optional. PurgeTelemetry needs it to do anything, and the
+	// unhandled-event listing reads it; a build without one lists nothing rather
+	// than failing, which is what telemetry() returns.
 	telemetryDB            db.TelemetryDB
 	pluginRegistry         *identifier.Registry
 	candRegistry           *candidate.Registry

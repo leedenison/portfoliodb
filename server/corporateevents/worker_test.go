@@ -184,7 +184,7 @@ func TestRunCycle_OptionPassRunsWithNoPluginsEnabled(t *testing.T) {
 	}}, nil)
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(nil)
 
-	_ = runCycle(ctx, mockDB, NewRegistry(), nil, nil)
+	_ = runCycle(ctx, mockDB, NewRegistry(), Unhandled{}, nil, nil)
 }
 
 // TestRunCycle_OptionPassRunsWithNothingHeld verifies the same for the other
@@ -197,7 +197,7 @@ func TestRunCycle_OptionPassRunsWithNothingHeld(t *testing.T) {
 	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, NewRegistry(), nil, nil)
+	_ = runCycle(ctx, mockDB, NewRegistry(), Unhandled{}, nil, nil)
 }
 
 func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
@@ -255,7 +255,7 @@ func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
 	// The option pass runs once per cycle regardless of what landed.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, Unhandled{}, nil, nil)
 
 	if highPrec.calls != 1 {
 		t.Errorf("high plugin: expected 1 call, got %d", highPrec.calls)
@@ -310,7 +310,7 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	// The option pass runs once for the cycle, across all underlyings.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, Unhandled{}, nil, nil)
 
 	if plugin.calls != 1 {
 		t.Errorf("expected 1 call, got %d", plugin.calls)
@@ -367,7 +367,7 @@ func TestRunCycle_OptionPassRunsWithoutSplitsLanding(t *testing.T) {
 		Splits: []db.StockSplit{split(instID, date(2025, 1, 15), "1", "2")},
 	}}, nil)
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(nil)
-	_ = runCycle(ctx, mockDB, reg, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, Unhandled{}, nil, nil)
 }
 
 // TestRunCycle_PermanentErrorCreatesBlock verifies that ErrPermanent results
@@ -420,7 +420,7 @@ func TestRunCycle_PermanentErrorCreatesBlock(t *testing.T) {
 	// The option pass runs once per cycle regardless of what landed.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, Unhandled{}, nil, nil)
 
 	if failing.calls != 1 || good.calls != 1 {
 		t.Errorf("expected both plugins called once, got broken=%d good=%d", failing.calls, good.calls)
@@ -471,29 +471,34 @@ func TestRunCycle_SpecialDividendRoutedToUnhandled(t *testing.T) {
 
 	// Regular dividend goes to UpsertCashDividends.
 	mockDB.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Len(1)).Return(nil, nil)
-	// Special dividend goes to InsertUnhandledCorporateEvent.
-	mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, e db.UnhandledCorporateEvent) error {
-			if e.EventType != "SPECIAL_CASH_DIVIDEND" {
-				t.Errorf("event type: got %q, want SPECIAL_CASH_DIVIDEND", e.EventType)
-			}
-			if e.InstrumentID != instID {
-				t.Errorf("instrument: got %q, want %q", e.InstrumentID, instID)
-			}
-			if e.ExDate == nil || !e.ExDate.Equal(d(2024, 6, 1)) {
-				t.Errorf("ex_date: got %v", e.ExDate)
-			}
-			if len(e.Data) == 0 {
-				t.Error("expected non-empty JSONB data")
-			}
-			return nil
-		})
 	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	// The option pass runs once per cycle regardless of what landed.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil)
+	// The special dividend is recorded against the run rather than filed.
+	queue, spy := spyQueue()
+	_ = runCycle(ctx, mockDB, reg, queue, nil, nil)
+
+	if len(spy.events) != 1 {
+		t.Fatalf("recorded %d unhandled events, want 1: %+v", len(spy.events), spy.events)
+	}
+	e := spy.events[0]
+	if e.EventType != "SPECIAL_CASH_DIVIDEND" {
+		t.Errorf("event type: got %q, want SPECIAL_CASH_DIVIDEND", e.EventType)
+	}
+	if e.InstrumentID != instID {
+		t.Errorf("instrument: got %q, want %q", e.InstrumentID, instID)
+	}
+	if e.ExDate == nil || !e.ExDate.Equal(d(2024, 6, 1)) {
+		t.Errorf("ex_date: got %v", e.ExDate)
+	}
+	if len(e.Data) == 0 {
+		t.Error("expected non-empty JSONB data")
+	}
+	if e.RunID != "run-1" {
+		t.Errorf("run = %q, want the cycle's own", e.RunID)
+	}
 }
 
 // A dividend the store could not attribute to a line comes back from the upsert
@@ -543,26 +548,28 @@ func TestRunCycle_UnattributableDividendRoutedToUnhandled(t *testing.T) {
 		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
 			return divs, nil
 		})
-	mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, e db.UnhandledCorporateEvent) error {
-			if e.EventType != "UNATTRIBUTABLE_DIVIDEND" {
-				t.Errorf("event type: got %q, want UNATTRIBUTABLE_DIVIDEND", e.EventType)
-			}
-			if e.InstrumentID != instID {
-				t.Errorf("instrument: got %q, want %q", e.InstrumentID, instID)
-			}
-			if e.ExDate == nil || !e.ExDate.Equal(d(2024, 2, 9)) {
-				t.Errorf("ex_date: got %v", e.ExDate)
-			}
-			if !strings.Contains(string(e.Data), `"currency":"CAD"`) {
-				t.Errorf("expected the stated currency in the payload, got %s", e.Data)
-			}
-			return nil
-		})
 	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil)
+	queue, spy := spyQueue()
+	_ = runCycle(ctx, mockDB, reg, queue, nil, nil)
+
+	if len(spy.events) != 1 {
+		t.Fatalf("recorded %d unhandled events, want 1: %+v", len(spy.events), spy.events)
+	}
+	e := spy.events[0]
+	if e.EventType != "UNATTRIBUTABLE_DIVIDEND" {
+		t.Errorf("event type: got %q, want UNATTRIBUTABLE_DIVIDEND", e.EventType)
+	}
+	if e.InstrumentID != instID {
+		t.Errorf("instrument: got %q, want %q", e.InstrumentID, instID)
+	}
+	if e.ExDate == nil || !e.ExDate.Equal(d(2024, 2, 9)) {
+		t.Errorf("ex_date: got %v", e.ExDate)
+	}
+	if !strings.Contains(string(e.Data), `"currency":"CAD"`) {
+		t.Errorf("expected the stated currency in the payload, got %s", e.Data)
+	}
 }
 
 // TestRunCycle_BlockedPluginSkipped verifies that fetch blocks are honored.
@@ -604,7 +611,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	// The option pass runs once per cycle regardless of what landed.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, Unhandled{}, nil, nil)
 
 	if plugin.calls != 0 {
 		t.Errorf("expected 0 calls, got %d", plugin.calls)

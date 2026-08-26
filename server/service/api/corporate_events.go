@@ -123,8 +123,14 @@ func dividendTypeFromString(s string) archivev1.DividendType {
 	return archivev1.DividendType_DIVIDEND_TYPE_UNSPECIFIED
 }
 
-// ListUnhandledCorporateEvents returns corporate events that could not be
-// automatically processed and require admin review. Admin only.
+// ListUnhandledCorporateEvents returns corporate events a run could not apply.
+// Admin only.
+//
+// It reads the telemetry schema, which is the one read of it a serving path
+// makes. That is a read of what happened rather than a dependency: nothing the
+// system does turns on the answer, so a purged row costs a person a page of
+// history and costs the system nothing. See
+// docs/adr/0053-telemetry-is-run-scoped-event-rows.md.
 func (s *Server) ListUnhandledCorporateEvents(ctx context.Context, req *apiv1.ListUnhandledCorporateEventsRequest) (*apiv1.ListUnhandledCorporateEventsResponse, error) {
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
@@ -133,7 +139,7 @@ func (s *Server) ListUnhandledCorporateEvents(ctx context.Context, req *apiv1.Li
 	if pageSize <= 0 {
 		pageSize = 50
 	}
-	events, total, nextToken, err := s.db.ListUnhandledCorporateEvents(ctx, req.GetIncludeResolved(), pageSize, req.GetPageToken())
+	events, total, nextToken, err := s.telemetry().ListUnhandledCorporateEvents(ctx, pageSize, req.GetPageToken())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -144,10 +150,10 @@ func (s *Server) ListUnhandledCorporateEvents(ctx context.Context, req *apiv1.Li
 	for _, e := range events {
 		pe := &apiv1.UnhandledCorporateEvent{
 			Id:           e.ID,
+			RunId:        e.RunID,
 			InstrumentId: e.InstrumentID,
 			EventType:    e.EventType,
 			Detail:       e.Detail,
-			Resolved:     e.Resolved,
 			CreatedAt:    timestamppb.New(e.CreatedAt),
 		}
 		if e.ExDate != nil {
@@ -156,7 +162,12 @@ func (s *Server) ListUnhandledCorporateEvents(ctx context.Context, req *apiv1.Li
 		if e.Data != nil {
 			pe.Data = string(e.Data)
 		}
-		// Resolve instrument name for display.
+		// The readable name, looked up now rather than recorded then. An
+		// instrument renamed since changes what this says about an old run,
+		// which is the right trade for a label: the recorded facts are the event
+		// and its terms, and they do not move. An instrument a merge has deleted
+		// leaves the name empty rather than failing the page, which is why the
+		// error is dropped.
 		inst, _ := s.db.GetInstrument(ctx, e.InstrumentID)
 		if inst != nil && inst.Name != nil {
 			pe.InstrumentName = *inst.Name
@@ -166,30 +177,14 @@ func (s *Server) ListUnhandledCorporateEvents(ctx context.Context, req *apiv1.Li
 	return resp, nil
 }
 
-// CountUnhandledCorporateEvents returns the number of unresolved corporate
-// events. Admin only.
+// CountUnhandledCorporateEvents returns how many there are. Admin only.
 func (s *Server) CountUnhandledCorporateEvents(ctx context.Context, _ *apiv1.CountUnhandledCorporateEventsRequest) (*apiv1.CountUnhandledCorporateEventsResponse, error) {
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
 	}
-	count, err := s.db.CountUnhandledCorporateEvents(ctx)
+	count, err := s.telemetry().CountUnhandledCorporateEvents(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &apiv1.CountUnhandledCorporateEventsResponse{Count: count}, nil
-}
-
-// ResolveUnhandledCorporateEvent marks an unhandled corporate event as
-// resolved. Admin only.
-func (s *Server) ResolveUnhandledCorporateEvent(ctx context.Context, req *apiv1.ResolveUnhandledCorporateEventRequest) (*apiv1.ResolveUnhandledCorporateEventResponse, error) {
-	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
-		return nil, authErr
-	}
-	if req.GetId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "id required")
-	}
-	if err := s.db.ResolveUnhandledCorporateEvent(ctx, req.GetId()); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	return &apiv1.ResolveUnhandledCorporateEventResponse{}, nil
 }

@@ -1414,31 +1414,6 @@ CREATE TABLE corporate_event_fetch_blocks (
   PRIMARY KEY (instrument_id, plugin_id)
 );
 
--- Corporate events that cannot be automatically processed (reverse splits,
--- non-whole splits, mergers, extraordinary dividends on options, dividends in a
--- currency no line of the security is quoted in, futures adjustments). Surfaced
--- to admin users for manual review.
-CREATE TABLE unhandled_corporate_events (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  instrument_id UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
-  event_type    TEXT        NOT NULL,
-  ex_date       DATE,
-  detail        TEXT        NOT NULL,
-  data          JSONB,
-  resolved      BOOLEAN     NOT NULL DEFAULT false,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX idx_unhandled_ce_unresolved
-  ON unhandled_corporate_events (resolved) WHERE NOT resolved;
-
--- Prevent duplicate unresolved events for the same (instrument, type, date).
--- NULL ex_dates are treated as distinct by PostgreSQL unique indexes, which is
--- acceptable since events without an ex_date are rare edge cases.
-CREATE UNIQUE INDEX idx_unhandled_ce_dedup
-  ON unhandled_corporate_events (instrument_id, event_type, ex_date)
-  WHERE NOT resolved;
-
 -- Default the split_adjusted_* columns on txs to the raw counterparts whenever
 -- they are not explicitly set. This keeps every existing INSERT/UPSERT path
 -- working without modification: callers continue to set quantity / unit_price

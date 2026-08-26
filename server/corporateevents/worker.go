@@ -45,12 +45,36 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, tel db.T
 			}
 			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunCorporateEventCycle})
 			outcome := db.TelemetryOutcomeSuccess
-			if err := runCycle(ctx, database, registry, log, workers); err != nil {
+			if err := runCycle(ctx, database, registry, Unhandled{DB: tel, RunID: runID}, log, workers); err != nil {
 				outcome = db.TelemetryOutcomeFailed
 			}
 			tel.EndRun(ctx, runID, outcome)
 		}
 	}
+}
+
+// Unhandled is where one run records the corporate events it could not apply.
+//
+// A scope rather than two parameters threaded side by side, for the reason
+// identification.Attempt is one: every site that raises an event needs both the
+// writer and the run, and a call that had one without the other would write a row
+// under no run or silently write none.
+//
+// The zero value records nothing, which is what a caller with no run passes.
+type Unhandled struct {
+	DB    db.TelemetryDB
+	RunID string
+}
+
+// write records one event against the run. A scope with no run drops it: there
+// is nothing to hang the row off, and the writer already skips a child whose
+// parent id is empty.
+func (u Unhandled) write(ctx context.Context, e db.UnhandledCorporateEvent) {
+	if u.DB == nil || u.RunID == "" {
+		return
+	}
+	e.RunID = u.RunID
+	u.DB.WriteUnhandledCorporateEvent(ctx, e)
 }
 
 // pluginEntry pairs a registered plugin with its config row.
@@ -60,7 +84,7 @@ type pluginEntry struct {
 	config []byte
 }
 
-func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog.Logger, workers *worker.Registry) error {
+func runCycle(ctx context.Context, database db.DB, registry *Registry, unhandled Unhandled, log *slog.Logger, workers *worker.Registry) error {
 	const name = "corporate_event_fetcher"
 	defer func() {
 		if workers != nil {
@@ -84,7 +108,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 	// future-dated split once its ex_date passes.
 	defer func() {
 		if ctx.Err() == nil {
-			ProcessPendingOptionSplits(ctx, database, "", log)
+			ProcessPendingOptionSplits(ctx, database, "", unhandled, log)
 		}
 	}()
 
@@ -170,7 +194,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 			continue
 		}
 		processInstrument(ctx, database, plugins, inst, h.EarliestTxDate, endBefore,
-			coverageByInst[h.InstrumentID], blocked[h.InstrumentID], log)
+			coverageByInst[h.InstrumentID], blocked[h.InstrumentID], unhandled, log)
 	}
 	return nil
 }
@@ -182,7 +206,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog
 // offered to plugins one at a time. The first plugin that returns a
 // successful response (including an empty result) records coverage and
 // claims that interval; lower-precedence plugins are not consulted for it.
-func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntry, inst *db.InstrumentRow, earliestTxDate, endBefore time.Time, coverage []db.CorporateEventCoverage, blocked map[string]bool, log *slog.Logger) {
+func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntry, inst *db.InstrumentRow, earliestTxDate, endBefore time.Time, coverage []db.CorporateEventCoverage, blocked map[string]bool, unhandled Unhandled, log *slog.Logger) {
 	missing := computeMissingIntervals(earliestTxDate, endBefore, coverage)
 	if len(missing) == 0 {
 		return
@@ -266,7 +290,7 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 					var regular []CashDividend
 					for _, d := range result.CashDividends {
 						if d.Type == "SC" {
-							insertSpecialDividend(ctx, database, inst.ID, pe.id, d, log)
+							insertSpecialDividend(ctx, unhandled, inst.ID, pe.id, d, log)
 						} else {
 							regular = append(regular, d)
 						}
@@ -284,7 +308,7 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 						// names no line, and a dividend that names no line is
 						// reviewed rather than filed against a guess.
 						for _, d := range unfiled {
-							QueueUnhandledDividend(ctx, database, d, "UNATTRIBUTABLE_DIVIDEND",
+							QueueUnhandledDividend(ctx, unhandled, d, "UNATTRIBUTABLE_DIVIDEND",
 								"Dividend in a currency no listing is quoted in:", log)
 						}
 					}
@@ -389,8 +413,8 @@ func dividendToDB(instrumentID, provider string, d CashDividend) db.CashDividend
 // insertSpecialDividend stores a special cash dividend as an unhandled
 // corporate event. A special dividend is not the regular series the calendar is
 // for, so it is reviewed rather than filed.
-func insertSpecialDividend(ctx context.Context, database db.CorporateEventDB, instrumentID, provider string, d CashDividend, log *slog.Logger) {
-	QueueUnhandledDividend(ctx, database, dividendToDB(instrumentID, provider, d),
+func insertSpecialDividend(ctx context.Context, u Unhandled, instrumentID, provider string, d CashDividend, log *slog.Logger) {
+	QueueUnhandledDividend(ctx, u, dividendToDB(instrumentID, provider, d),
 		"SPECIAL_CASH_DIVIDEND", "Special cash dividend", log)
 }
 
@@ -404,7 +428,7 @@ func insertSpecialDividend(ctx context.Context, database db.CorporateEventDB, in
 // security does not trade in -- so it is put in front of a person rather than
 // dropped or used to invent a listing. See
 // docs/adr/0073-a-dividend-names-a-line-it-does-not-mint.md.
-func QueueUnhandledDividend(ctx context.Context, database db.CorporateEventDB, d db.CashDividend, eventType, description string, log *slog.Logger) {
+func QueueUnhandledDividend(ctx context.Context, u Unhandled, d db.CashDividend, eventType, description string, log *slog.Logger) {
 	type dividendData struct {
 		Amount          string `json:"amount"`
 		Currency        string `json:"currency"`
@@ -441,12 +465,7 @@ func QueueUnhandledDividend(ctx context.Context, database db.CorporateEventDB, d
 		Detail:       fmt.Sprintf("%s %s %s (provider: %s)", description, d.Amount, d.Currency, d.DataProvider),
 		Data:         data,
 	}
-	if err := database.InsertUnhandledCorporateEvent(ctx, event); err != nil {
-		if log != nil {
-			log.ErrorContext(ctx, "corporate event fetch: insert unhandled dividend",
-				"instrument", d.InstrumentID, "event_type", eventType, "err", err)
-		}
-	}
+	u.write(ctx, event)
 }
 
 // optDay formats an optional date the way the JSONB payload carries it.

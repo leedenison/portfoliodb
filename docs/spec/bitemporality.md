@@ -46,7 +46,7 @@ clock every read API means by "as of".
 | `corporate_event_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about. |
 | `inflation_indices` | `month` | The month the index value describes. |
 | `ingestion_jobs` | `period_from`, `period_before` | The valid-time window a bulk upload replaces. |
-| `unhandled_corporate_events` | `ex_date` | The effective date of the event we could not handle. |
+| `telemetry.unhandled_corporate_event` | `ex_date` | The effective date of the event we could not handle. |
 
 Every date interval -- wire API, database column pair, or in-memory range -- is
 half-open `[from, before)` with midnight-UTC values, matching PostgreSQL's
@@ -133,7 +133,7 @@ a revision occurred, which follows from rule 8 below
 | `inflation_indices` | `last_fetched_at` | Staleness only. |
 | `price_fetch_blocks` | `first_blocked_at` | First known. |
 | `corporate_event_fetch_blocks` | `first_blocked_at` | First known. |
-| `txs`, `users`, `portfolios`, `instruments`, `ingestion_jobs`, `unhandled_corporate_events`, `holding_declarations`, `service_accounts` | `created_at` | Row audit. Not queried. |
+| `txs`, `users`, `portfolios`, `instruments`, `ingestion_jobs`, `telemetry.unhandled_corporate_event`, `holding_declarations`, `service_accounts` | `created_at` | Row audit. Not queried. |
 | `holding_declarations` | `updated_at` | Row audit. |
 
 On the wire, `ImportPricesRequest.exported_at` and

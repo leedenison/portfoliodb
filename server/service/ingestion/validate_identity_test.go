@@ -197,3 +197,39 @@ func TestIngestBatch_RejectsAFileThatContradictsItself(t *testing.T) {
 		t.Fatalf("errors = %+v, want one against the stated identifiers", got)
 	}
 }
+
+// What a person is told about their own rows, and what they are not.
+//
+// The vocabulary is three because three is how many different things there are
+// to do about a row that did not identify: supply an identifier, upload again
+// later, or go and look at a disagreement. It used to be five, which named the
+// stage that gave up rather than what to do -- a distinction about this system
+// rather than about the file, and one telemetry keeps in full.
+//
+// A fourth member added here without a fourth answer to "and then what" is the
+// drift this pins.
+func TestIdentificationMessages_AreWhatAPersonCanActOn(t *testing.T) {
+	messages := []string{
+		MsgNotIdentified,
+		MsgIdentificationUnavailable,
+		MsgConflictingHints,
+	}
+	seen := map[string]bool{}
+	for _, m := range messages {
+		if m == "" {
+			t.Error("an identification error with no message says nothing")
+		}
+		if seen[m] {
+			t.Errorf("two outcomes share the message %q, so they cannot be told apart", m)
+		}
+		seen[m] = true
+		// Shown to the uploader verbatim, beside their own row and description.
+		// The internal vocabulary these replaced -- "broker description only",
+		// "description extraction failed" -- named our stages at them.
+		for _, jargon := range []string{"plugin", "extraction", "broker description only", "unconfirmed"} {
+			if strings.Contains(strings.ToLower(m), jargon) {
+				t.Errorf("message %q names %q, which is this system's word rather than the reader's", m, jargon)
+			}
+		}
+	}
+}

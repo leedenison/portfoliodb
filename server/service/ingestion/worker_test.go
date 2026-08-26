@@ -89,8 +89,8 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 				t.Errorf("expected 1 identification error, got %d", len(errs))
 				return nil
 			}
-			if errs[0].Message != MsgExtractionFailed {
-				t.Errorf("identification error message = %q, want %q", errs[0].Message, MsgExtractionFailed)
+			if errs[0].Message != MsgNotIdentified {
+				t.Errorf("identification error message = %q, want %q", errs[0].Message, MsgNotIdentified)
 			}
 			if errs[0].InstrumentDescription != "UNKNOWN" {
 				t.Errorf("instrument description = %q, want UNKNOWN", errs[0].InstrumentDescription)

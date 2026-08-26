@@ -47,20 +47,39 @@ func ingestionLogger() *slog.Logger {
 	return slog.Default()
 }
 
-// Distinct messages for identification errors (per spec).
+// What a person is told about one of their own rows that did not identify.
+//
+// This is feedback rather than diagnostics. It used to be five messages naming
+// the stage that gave up -- "description extraction failed", "broker description
+// only", "proposed identifier unconfirmed" and the two plugin failures -- shown
+// to the uploader verbatim. Those distinguish which of our stages answered,
+// which is a question about this system rather than about their file, and no two
+// of them left the person anything different to do.
+//
+// The precise outcome is not lost: telemetry.resolution_key records all five and
+// more, under the run, for the reader who is asking about the system. See
+// resolutionOutcome, which is the same branch this one is derived from, and
+// docs/adr/0080-a-contradiction-is-logged-not-queued.md.
+//
+// So the vocabulary here is what changes what a person does next: supply an
+// identifier, upload again later, or go and look at a disagreement. Three
+// outcomes, and a fourth would need a fourth answer to "and then what".
 const (
-	MsgExtractionFailed      = "description extraction failed"
-	MsgBrokerDescriptionOnly = "broker description only"
-	MsgPluginTimeout         = "plugin timeout"
-	MsgPluginUnavailable     = "plugin unavailable"
-	// A result was found and not trusted: the whole identity was proposed and
-	// nothing the source stated agreed with what it resolved to. Distinct from
-	// MsgBrokerDescriptionOnly, which is nobody answering at all.
-	MsgProposalUnconfirmed = "proposed identifier unconfirmed"
-	// The identifiers the row states name different instruments in this
-	// database. Distinct from MsgBrokerDescriptionOnly, which is nobody
-	// answering: here two answers were found and they cannot both be right.
-	MsgConflictingHints = "conflicting identifier hints"
+	// Nothing identified the row: nothing was proposed from the description,
+	// or something was and no provider recognised it, or one did and nothing
+	// the source stated corroborated the answer. The holding is tracked by the
+	// broker's own text, which is visible and repairable, and supplying an
+	// identifier is what changes it.
+	MsgNotIdentified = "not identified, and tracked by the broker's description"
+	// A provider did not answer. Nothing about the row is wrong, so the same
+	// file uploaded later may identify it with no change at all -- which is the
+	// one case where doing nothing is the right thing to do.
+	MsgIdentificationUnavailable = "identification unavailable, so a later upload may resolve it"
+	// The identifiers the row states name different securities in this
+	// instance. Distinct from MsgNotIdentified, which is nobody answering:
+	// here two answers were found and they cannot both be right, and which of
+	// them is wrong is not something this system can work out.
+	MsgConflictingHints = "the identifiers on this row name different securities"
 )
 
 // resolveResult holds the outcome of resolving one (source, instrument_description).
@@ -460,7 +479,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		r := resolveResult{
 			InstrumentID:  instID,
 			FirstRowIndex: rowIndex,
-			IdErr:         &db.IdentificationError{RowIndex: rowIndex, InstrumentDescription: instrumentDescription, Message: MsgExtractionFailed},
+			IdErr:         &db.IdentificationError{RowIndex: rowIndex, InstrumentDescription: instrumentDescription, Message: MsgNotIdentified},
 		}
 		if cache != nil {
 			cache[key] = r
@@ -601,14 +620,13 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 
 	r := resolveResult{InstrumentID: result.InstrumentID, ListingID: result.ListingID, FirstRowIndex: rowIndex}
 	if !result.Identified {
-		msg := MsgBrokerDescriptionOnly
-		switch {
-		case result.Unconfirmed:
-			msg = MsgProposalUnconfirmed
-		case result.HadTimeout:
-			msg = MsgPluginTimeout
-		case result.HadError:
-			msg = MsgPluginUnavailable
+		// Two answers, where resolutionOutcome takes five from the same result. A
+		// provider that did not answer is the one case where the row may identify
+		// on a later upload with nothing changed; every other way of not
+		// identifying leaves the same thing to do.
+		msg := MsgNotIdentified
+		if result.HadTimeout || result.HadError {
+			msg = MsgIdentificationUnavailable
 		}
 		r.IdErr = &db.IdentificationError{RowIndex: rowIndex, InstrumentDescription: instrumentDescription, Message: msg}
 	}

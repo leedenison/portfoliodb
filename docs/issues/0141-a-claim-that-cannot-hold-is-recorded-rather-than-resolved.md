@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A claim that cannot hold is recorded rather than resolved
 milestone: M24
 dependencies: [0139]

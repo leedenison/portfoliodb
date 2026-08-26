@@ -474,7 +474,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 				continue
 			}
 		} else {
-			id, err := database.FindInstrumentBySourceDescription(ctx, source, desc)
+			id, err := database.FindInstrumentBySourceDescription(ctx, "", source, desc)
 			if err != nil {
 				return fail(err)
 			}

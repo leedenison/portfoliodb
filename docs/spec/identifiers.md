@@ -73,7 +73,7 @@ If a provider-specific identifier is not available (e.g. the instrument was impo
 
 Externally understood identifiers (eg. type = `"ISIN"`, `"CUSIP"`, `"MIC_TICKER"`, `"OPENFIGI_TICKER"`, etc) are **canonical** (ie. canonical: true).  Instruments can also be identified by a broker description (eg. type equals a source string like `"IBKR:<client>:statement"`) which is a non-canonical identifier (ie. canonical: false).  This flag is stored in the database and used (e.g. for export) to distinguish broker-description-only instruments without inferring from identifier_type. Whether a canonical name identifies a security at all -- at security grain, on one of its listings, or among the listing-grain names nobody could place -- is one question with one answer, so the API carries it as a derived `identified` field rather than leaving each client to read the three lists and combine them. Broker descriptions are stored as identifiers: `identifier_type` = source (the ingestion request’s source), `value` = full instrument description.
 
-The triple **(identifier_type, domain, value) is unique** in the system; the server does not allow duplicates. The database should enforce this with a unique index on (identifier_type, domain, value) so that instruments can be looked up by any known identifier.
+The triple **(identifier_type, domain, value) names one instrument at a time, per owner**. The database enforces it with an exclusion constraint over (identifier_type, domain, value, owner) and the validity interval: the interval is what lets a name an instrument gave up be retained beside the one that replaced it, and the owner is what lets two users disagree about a mapping instead of the second of them being rejected at insert. System-owned rows are the shared case, so the invariant is the old global one for every name the instance holds as a fact. See **Ownership of user-supplied mappings** below.
 
 **The (source, instrument_description) identifier is always stored on the instrument** whenever that description is resolved (by plugin or as broker-description-only), so that future uploads with the same source and description can resolve via DB lookup without calling plugins again. 
 
@@ -81,7 +81,7 @@ A broker may supply **multiple descriptions for the same stock** (e.g. from a st
 
 Broker-description-only instruments are first-class: they appear in holdings and the UI by that description. 
 
-Broker descriptions and canonical identifiers are unique once processed. Two users with the same brokerage and description, or two broker descriptions resolving to the same ISIN, refer to the same instrument so updates are reflected globally.
+Two broker descriptions resolving to the same ISIN refer to the same instrument, so updates are reflected globally. Two users with the same brokerage and description do too, up to the point where one of their files says otherwise: a description naming an instrument that is nothing but that description binds both of them to it, and a mapping either of them holds against the instance's is that user's own until the promotion sweep settles it. See **Ownership of user-supplied mappings** below.
 
 ## Identifying Instruments
 

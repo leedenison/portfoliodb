@@ -152,7 +152,7 @@ func transferUserQuotedIn(t *testing.T, p *Postgres, sub, currency string) (user
 	t.Helper()
 	ctx := context.Background()
 	userID, _ = p.GetOrCreateUser(ctx, sub, "U", sub+"@t.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", currency, "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", currency, "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GBP", Domain: sub},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -335,7 +335,7 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 	// Two instruments that turn out to be one security. The transfer is posted
 	// against the one that loses the merge -- the survivor is whichever carries more
 	// identifiers -- so the rewrite is the thing under test rather than a no-op.
-	mergedAway, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	mergedAway, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM1"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -343,7 +343,7 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
-	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM1"},
 			Canonical: true,
@@ -372,7 +372,7 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM1"},
 			Canonical: true,
 		}}
-	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
+	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestTransferMatches_CannotNameAnotherSecuritysLine(t *testing.T) {
 	ctx := context.Background()
 	userID, instID := transferUserQuotedIn(t, p, "sub|tm-fk", "GBP")
 	from, to := transferFixture(t, p, userID, instID)
-	other, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", []db.IdentifierInput{{
+	other, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "TMFK00000001"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -547,7 +547,7 @@ func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|tm-merge-line", "U", "u@mergeline.com")
-	mergedAway, _, err := p.EnsureInstrument(ctx, "", "GBP", "", "", "", []db.IdentifierInput{{
+	mergedAway, _, err := p.EnsureInstrument(ctx, "", "", "GBP", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM2"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -555,7 +555,7 @@ func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
-	if _, _, err := p.EnsureInstrument(ctx, "", "GBP", "", "", "", []db.IdentifierInput{
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "GBP", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM2"},
 			Canonical: true,
@@ -588,7 +588,7 @@ func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM2"},
 			Canonical: true,
 		}}
-	survivor, _, err := p.EnsureInstrument(ctx, "", "GBP", "", "", "", merging, oneClaim(merging...), "", nil, "")
+	survivor, _, err := p.EnsureInstrument(ctx, "", "", "GBP", "", "", "", merging, oneClaim(merging...), "", nil, "")
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -620,7 +620,7 @@ func TestTransferMatches_NoLineStaysNoneAcrossAMerge(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|tm-merge-none", "U", "u@mergenone.com")
-	mergedAway, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	mergedAway, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM3"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -628,7 +628,7 @@ func TestTransferMatches_NoLineStaysNoneAcrossAMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure merged-away: %v", err)
 	}
-	if _, _, err := p.EnsureInstrument(ctx, "", "GBP", "", "", "", []db.IdentifierInput{
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "GBP", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM3"},
 			Canonical: true,
@@ -647,7 +647,7 @@ func TestTransferMatches_NoLineStaysNoneAcrossAMerge(t *testing.T) {
 		t.Fatalf("create match: %v", err)
 	}
 
-	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM3"},
 			Canonical: true,

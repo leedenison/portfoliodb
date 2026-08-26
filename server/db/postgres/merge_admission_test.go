@@ -12,7 +12,7 @@ import (
 // nothing asserted about them beyond that they arrived together.
 func ensureOne(t *testing.T, p *Postgres, currency string, idns ...db.IdentifierInput) string {
 	t.Helper()
-	id, _, err := p.EnsureInstrument(context.Background(), "", currency, "", "", "", idns, oneClaim(idns...), "", nil, "")
+	id, _, err := p.EnsureInstrument(context.Background(), "", "", currency, "", "", "", idns, oneClaim(idns...), "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestEnsureInstrument_OneClaimNamingBothMerges(t *testing.T) {
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM001"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "CUSIP", Value: "CLAIM0001"}, Canonical: true},
 	}
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestEnsureInstrument_TwoClaimsNamingOneEachDoNotMerge(t *testing.T) {
 	// the corroborated case above, which is why the partition is the whole of
 	// the evidence.
 	claims := append(oneClaim(isin), oneClaim(cusip)...)
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{isin, cusip}, claims, "", nil, "")
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{isin, cusip}, claims, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestEnsureInstrument_ARoutinelyReassignedNameDoesNotMerge(t *testing.T) {
 			identified := ensureOne(t, p, "USD", isin)
 
 			merging := []db.IdentifierInput{tc.idn, isin}
-			got, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", merging, oneClaim(merging...), "", nil, "")
+			got, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", merging, oneClaim(merging...), "", nil, "")
 			if err != nil {
 				t.Fatalf("ensure: %v", err)
 			}
@@ -143,7 +143,7 @@ func TestEnsureInstrument_DisjointIntervalsDoNotMerge(t *testing.T) {
 	b := ensureOne(t, p, "", late)
 
 	merging := []db.IdentifierInput{early, late}
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestEnsureInstrument_AFilteredValueCorroborates(t *testing.T) {
 		{Ref: figi.Ref, Role: db.ClaimRoleReturned},
 		{Ref: isin.Ref, Role: db.ClaimRoleFiltered},
 	}}
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{figi}, []db.IdentityClaim{claim}, "", nil, "")
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{figi}, []db.IdentityClaim{claim}, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestEnsureInstrument_ClaimsChainThroughAThirdInstrument(t *testing.T) {
 	c := ensureOne(t, p, "", sedol)
 
 	claims := append(oneClaim(isin, cusip), oneClaim(cusip, sedol)...)
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{isin, cusip, sedol}, claims, "", nil, "")
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{isin, cusip, sedol}, claims, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestEnsureInstrument_ADescriptionOnlyInstrumentSurvivesBesideAnIdentifiedOn
 	// The resolution's own order: what the winner returned first, with the
 	// description it binds appended last.
 	merging := []db.IdentifierInput{isin, desc}
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -302,11 +302,11 @@ func TestEnsureInstrument_RecordsNothingWhereOneInstrumentHoldsEverything(t *tes
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00QUIET001"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "CUSIP", Value: "QUIET0001"}, Canonical: true},
 	}
-	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", idns, oneClaim(idns...), "", nil, testRun); err != nil {
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", idns, oneClaim(idns...), "", nil, testRun); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	// Again, now that one instrument holds both.
-	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", idns, oneClaim(idns...), "", nil, testRun); err != nil {
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", idns, oneClaim(idns...), "", nil, testRun); err != nil {
 		t.Fatalf("re-ensure: %v", err)
 	}
 	if len(rec.rows) != 0 {
@@ -326,7 +326,7 @@ func TestEnsureInstrument_RecordsAnAdmittedMerge(t *testing.T) {
 	b := ensureOne(t, p, "", cusip)
 
 	merging := []db.IdentifierInput{isin, cusip}
-	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, testRun); err != nil {
+	if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", merging, oneClaim(merging...), "", nil, testRun); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	got := only(t, rec)
@@ -361,7 +361,7 @@ func TestEnsureInstrument_RecordsWhyAMergeWasRefused(t *testing.T) {
 		ensureOne(t, p, "USD", isin)
 
 		merging := []db.IdentifierInput{ticker, isin}
-		if _, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", merging, oneClaim(merging...), "", nil, testRun); err != nil {
+		if _, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", merging, oneClaim(merging...), "", nil, testRun); err != nil {
 			t.Fatalf("ensure: %v", err)
 		}
 		if got := only(t, rec).Outcome; got != db.TelemetryMergeUnmediated {
@@ -386,7 +386,7 @@ func TestEnsureInstrument_RecordsWhyAMergeWasRefused(t *testing.T) {
 		ensureOne(t, p, "", late)
 
 		merging := []db.IdentifierInput{early, late}
-		if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, testRun); err != nil {
+		if _, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", merging, oneClaim(merging...), "", nil, testRun); err != nil {
 			t.Fatalf("ensure: %v", err)
 		}
 		if got := only(t, rec).Outcome; got != db.TelemetryMergeDisjoint {
@@ -408,7 +408,7 @@ func TestEnsureInstrument_RecordsAnUncorroboratedRefusal(t *testing.T) {
 	b := ensureOne(t, p, "", cusip)
 
 	// Nil claims: the caller assembled the set and nobody asserted the pair.
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{isin, cusip}, nil, "", nil, testRun)
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{isin, cusip}, nil, "", nil, testRun)
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}

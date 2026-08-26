@@ -32,7 +32,7 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 		{OrderDate: ts2,
 			TradeDate: ts2, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-3", Account: ""},
 	}
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -79,7 +79,7 @@ func TestReplaceTxsInPeriod_StoresALineConversionType(t *testing.T) {
 	from := timestamppb.New(now.Add(-2 * time.Hour))
 	to := timestamppb.New(now)
 	at := timestamppb.New(now.Add(-time.Hour))
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "VWRP", Domain: "FIDELITY"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -119,7 +119,7 @@ func TestReplaceTxsInPeriod_PeriodBeforeIsExclusive(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|replace-bound", "U", "u@bound.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BND", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -172,7 +172,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 	// Synthetic INITIALIZE tx timestamp falls inside [from, to]
 	initTs := now.Add(-90 * time.Minute)
 
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "MSFT", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -283,7 +283,7 @@ func TestCreateTx_CreatesGroup(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-create", "U", "u@grp.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "NVDA", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -360,7 +360,7 @@ func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|routed-del", "U", "u@routed.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "IMB", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -523,7 +523,7 @@ func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-per-tx", "U", "u@grp2.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "TSLA", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -622,7 +622,7 @@ func TestReplaceTxsInPeriod_DeletesWholeGroups(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-whole", "U", "u@whole.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GSK", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -662,7 +662,7 @@ func TestReplaceTxsInPeriod_DeletesGroupsInPeriod(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-replace", "U", "u@grp3.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AMD", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -707,7 +707,7 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 		TradeDate: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""}
 	tx2 := &apiv1.Tx{OrderDate: ts,
 		TradeDate: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""}
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GOOG", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -732,7 +732,7 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|order", "U", "u@u.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "ORD", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -816,7 +816,7 @@ func TestListTxs_PeriodBeforeIsExclusive(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|period", "U", "u@period.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "PER", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -952,7 +952,7 @@ func TestListTxsByPortfolio_ShowsOnlyTheMatchedLegs(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := balanceSeed(t, p, "sub|matched-legs")
-	aapl, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	aapl, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1015,7 +1015,7 @@ func TestListTxs_TiedTimestampsPageBoundary(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|ties", "U", "u@u.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "TIE", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1108,7 +1108,7 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 		{OrderDate: ts2,
 			TradeDate: ts2, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-3", Account: ""},
 	}
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1163,7 +1163,7 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 		t.Fatalf("set filters: %v", err)
 	}
 	ts := timestamppb.New(time.Now().Add(-1 * time.Hour))
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "X", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1215,7 +1215,7 @@ func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|acct-type", "U", "u@acct.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "USD", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1275,7 +1275,7 @@ func TestReplaceTxsInPeriod_RoundTripsCorrelations(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|corr", "U", "u@corr.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GBP", Domain: "Fidelity"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1383,7 +1383,7 @@ func TestReplaceTxsInPeriod_DeletesCorrelationsWithTheirPosting(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|corr-del", "U", "u@corr-del.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GBP", Domain: "Fidelity"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1420,7 +1420,7 @@ func TestTxCorrelations_VocabularyCheckConstraints(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|corr-check", "U", "u@corr-check.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "CHK", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1488,7 +1488,7 @@ func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|zero-price", "U", "u@zero.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "OPT", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -1552,7 +1552,7 @@ func TestReplaceTxsInPeriod_StoresWeight(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|weight", "U", "u@w.com")
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -1599,7 +1599,7 @@ func TestReplaceTxsInPeriod_DefaultsWeightWhenAbsent(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|weight-default", "U", "u@wd.com")
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "MSFT", Domain: "XNAS"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -1642,7 +1642,7 @@ func TestListTxsForExport_UsesTheBestIdentifier(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-id", "U", "u@exp-id.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "APPLE INC", Domain: "Fidelity:web:fidelity-csv"},
 			Canonical: false,
@@ -1688,7 +1688,7 @@ func TestListTxsForExport_ExcludesSyntheticGroups(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-syn", "U", "u@exp-syn.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SYN", Domain: "IBKR"},
 			Canonical: false,
@@ -1725,7 +1725,7 @@ func TestListTxsForExport_ShareCountBasisOnlyWhenRestated(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-scb", "U", "u@exp-scb.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SCB", Domain: "IBKR"},
 			Canonical: false,
@@ -1771,7 +1771,7 @@ func TestListTxsForExport_CarriesTheSourcesCashTotal(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-amt", "U", "u@exp-amt.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AMT", Domain: "IBKR"},
 			Canonical: false,
@@ -1818,7 +1818,7 @@ func TestListTxsForExport_OrderedForGrouping(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-ord", "U", "u@exp-ord.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "ORDX", Domain: "IBKR"},
 			Canonical: false,
@@ -2337,7 +2337,7 @@ func TestReplaceTxsInPeriod_KeepsSplitAdjustmentOnASurvivor(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, usd := balanceSeed(t, p, "sub|straddle-split")
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "SPLT", Domain: "XNAS"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -2469,12 +2469,12 @@ func TestPostingLine_ForeignKeyRejectsAnotherSecuritysLine(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|line-fk", "U", "u@line-fk.com")
 
-	instA, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "A", "", "", []db.IdentifierInput{
+	instA, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "A", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000AA1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
-	instB, listingB, err := p.EnsureInstrument(ctx, "STOCK", "USD", "B", "", "", []db.IdentifierInput{
+	instB, listingB, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "B", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000BB2"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure B: %v", err)
@@ -2506,7 +2506,7 @@ func TestPostingLine_NullLineIsAccepted(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|line-null", "U", "u@line-null.com")
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "A", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "A", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000AA1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
@@ -2529,7 +2529,7 @@ func TestPostingLine_LineWithoutSecurityIsRejected(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|line-orphan", "U", "u@line-orphan.com")
-	_, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "A", "", "", []db.IdentifierInput{
+	_, listingID, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "A", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000AA1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)

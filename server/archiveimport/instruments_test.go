@@ -148,7 +148,7 @@ func TestInstrumentPart_UnderlyingRefNotInArchive_FallsBackToInstance(t *testing
 	expectAnyMerge(database)
 	// The archive says an underlying appears in the same part, but a partial
 	// file whose underlying this instance already knows still imports.
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("known-1", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("known-1", nil)
 	// The ref names the line, so nothing is re-derived from the OCC symbol.
 	database.EXPECT().EnsureListing(gomock.Any(), "known-1", "USD").Return("known-line-1", nil)
 	database.EXPECT().EnsureArchiveInstrument(
@@ -174,7 +174,7 @@ func TestInstrumentPart_UnderlyingRefNotInArchive_FallsBackToInstance(t *testing
 
 func TestInstrumentPart_DanglingUnderlyingRef(t *testing.T) {
 	database, rep := newPartTest(t)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("", nil)
 	part := instrumentPart(&archivev1.Instrument{
 		AssetClass:  typev1.AssetClass_OPTION,
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},

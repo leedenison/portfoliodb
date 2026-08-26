@@ -35,7 +35,7 @@ func fetchBlockGroup(value string, blocks ...*archivev1.FetchBlock) *archivev1.F
 // the line it names is read rather than created.
 func expectFound(database *mock.MockDB, id string) {
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(id, nil).AnyTimes()
 	database.EXPECT().
 		FindListing(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -125,7 +125,7 @@ func TestFetchBlockPart_FallsBackToTheEnvelope(t *testing.T) {
 func TestFetchBlockPart_UnknownInstrumentIsRejectedNotResolved(t *testing.T) {
 	database, rep := newPartTest(t)
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("", nil)
 	database.EXPECT().UpsertPriceFetchBlocks(gomock.Any(), gomock.Len(0)).Return(nil)
 	database.EXPECT().UpsertCorporateEventFetchBlocks(gomock.Any(), gomock.Len(0)).Return(nil)

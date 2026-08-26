@@ -38,7 +38,7 @@ func setupUser(t *testing.T, p *Postgres) string {
 func setupInstrument(t *testing.T, p *Postgres, desc string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "TEST"},
 			Canonical: false,
@@ -858,7 +858,7 @@ func TestUpsertPricesForRange_DuplicateDates(t *testing.T) {
 func setupInstrumentWithCurrency(t *testing.T, p *Postgres, desc, assetClass, currency string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, _, err := p.EnsureInstrument(ctx, assetClass, currency, desc, "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, "", assetClass, currency, desc, "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "TEST"},
 			Canonical: false,
@@ -873,7 +873,7 @@ func setupInstrumentWithCurrency(t *testing.T, p *Postgres, desc, assetClass, cu
 func lookupFXInstrument(t *testing.T, p *Postgres, currency string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, err := p.FindInstrumentByTypeAndValue(ctx, "FX_PAIR", currency+"USD")
+	id, err := p.FindInstrumentByTypeAndValue(ctx, "", "FX_PAIR", currency+"USD")
 	if err != nil {
 		t.Fatalf("lookup FX instrument for %s: %v", currency, err)
 	}

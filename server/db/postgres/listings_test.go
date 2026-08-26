@@ -196,7 +196,7 @@ func TestEnsureInstrument_ALearnedCurrencyMintsTheLine(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// A broker-description-only instrument: no canonical identifier, no currency.
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "Some Security", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "Some Security", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME SECURITY", Domain: "test"}, Canonical: false},
 	}, nil, "", nil, "")
 	if err != nil {
@@ -207,7 +207,7 @@ func TestEnsureInstrument_ALearnedCurrencyMintsTheLine(t *testing.T) {
 	}
 
 	// Identification completes it, and the currency it learned names the line.
-	same, _, err := p.EnsureInstrument(ctx, "STOCK", "GBX", "Some Security", "", "", []db.IdentifierInput{
+	same, _, err := p.EnsureInstrument(ctx, "", "STOCK", "GBX", "Some Security", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME SECURITY", Domain: "test"}, Canonical: false},
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00LISTING08"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -334,7 +334,7 @@ func TestSeedCurrencyInstruments_Listings(t *testing.T) {
 	// GBX and GBP cash are different instruments, so the currency family never
 	// sees the two together and each keeps its own code.
 	for _, code := range []string{"USD", "GBP", "GBX"} {
-		id, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", code)
+		id, err := p.FindInstrumentByIdentifier(ctx, "", "CURRENCY", "", code)
 		if err != nil || id == "" {
 			t.Fatalf("find CURRENCY %s: %v (migration 002 may not have run)", code, err)
 		}
@@ -344,7 +344,7 @@ func TestSeedCurrencyInstruments_Listings(t *testing.T) {
 	}
 
 	for _, pair := range []string{"GBPUSD", "GBXUSD"} {
-		id, err := p.FindInstrumentByIdentifier(ctx, "FX_PAIR", "", pair)
+		id, err := p.FindInstrumentByIdentifier(ctx, "", "FX_PAIR", "", pair)
 		if err != nil || id == "" {
 			t.Fatalf("find FX_PAIR %s: %v", pair, err)
 		}
@@ -358,7 +358,7 @@ func TestSeedCurrencyInstruments_Listings(t *testing.T) {
 // with currency "" meaning the source stated none.
 func ensureListedInstrument(t *testing.T, p *Postgres, idType, value, currency string) string {
 	t.Helper()
-	id, _, err := p.EnsureInstrument(context.Background(), "STOCK", currency, "", "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(context.Background(), "", "STOCK", currency, "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: idType, Value: value}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
@@ -396,7 +396,7 @@ func listingCurrencies(t *testing.T, p *Postgres, instrumentID string) []string 
 func TestEnsureInstrument_StoresIdentifiersAtTheirGrain(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	instID, listingID, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00GRAIN001"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "GRN", Domain: "XNAS"}, Canonical: true},
 
@@ -443,7 +443,7 @@ func TestEnsureInstrument_StoresIdentifiersAtTheirGrain(t *testing.T) {
 func TestListingIdentifiers_OverlapExcludedAcrossListings(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, gbp, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
+	instID, gbp, err := p.EnsureInstrument(ctx, "", "STOCK", "GBP", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00OVERLAP1"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "DUP", Domain: "XLON"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -480,7 +480,7 @@ func TestListingIdentifiers_OverlapExcludedAcrossListings(t *testing.T) {
 func TestListingVenues_DerivedFromTickers(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	instID, listingID, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VEN", Domain: "XNAS"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
@@ -539,7 +539,7 @@ func TestListingVenues_CompositeRecordsNoVenue(t *testing.T) {
 func TestListingVenues_UnknownMICIsDropped(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	instID, listingID, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00UNKMIC01"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
@@ -570,7 +570,7 @@ func TestListingVenues_UnknownMICIsDropped(t *testing.T) {
 func TestRecomputeInstrumentName_ReadsBothGrains(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME EQUITY", Domain: "test"}, Canonical: false},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "NAMED", Domain: "XNAS"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -592,7 +592,7 @@ func TestRecomputeInstrumentName_ReadsBothGrains(t *testing.T) {
 func TestRecomputeInstrumentName_PrefersANameOnALine(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00PRIMARY1"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "KNOWN", Domain: "XNAS"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -627,14 +627,14 @@ func TestMergeInstruments_MovesListingIdentifiersByCurrencyFamily(t *testing.T) 
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Quoted in pence by one source.
-	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "GBX", "", "", "", []db.IdentifierInput{
+	loser, _, err := p.EnsureInstrument(ctx, "", "STOCK", "GBX", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "FAMILY", Domain: "XLON"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
 	// And in pounds by another, with two more names so it wins pickSurvivor.
-	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
+	survivor, _, err := p.EnsureInstrument(ctx, "", "STOCK", "GBP", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00FAMILY01"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BFAMILY"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -677,7 +677,7 @@ func TestMergeInstruments_MovesListingIdentifiersByCurrencyFamily(t *testing.T) 
 func TestEnsureInstrument_ANameWithNoCurrencyNamesNoLine(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", []db.IdentifierInput{
+	instID, listingID, err := p.EnsureInstrument(ctx, "", "STOCK", "", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED1"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNPL", Domain: "XLON"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -698,7 +698,7 @@ func TestEnsureInstrument_ANameWithNoCurrencyNamesNoLine(t *testing.T) {
 		t.Fatalf("unplaced identifiers = %+v, want the ticker", row.UnplacedIdentifiers)
 	}
 	// It still names the security, which is the whole reason to keep it.
-	found, err := p.FindInstrumentByIdentifier(ctx, "MIC_TICKER", "XLON", "UNPL")
+	found, err := p.FindInstrumentByIdentifier(ctx, "", "MIC_TICKER", "XLON", "UNPL")
 	if err != nil {
 		t.Fatalf("find by the unplaced ticker: %v", err)
 	}
@@ -713,14 +713,14 @@ func TestEnsureInstrument_ANameWithNoCurrencyNamesNoLine(t *testing.T) {
 func TestMergeInstruments_CarriesNamesThatNameNoLine(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", []db.IdentifierInput{
+	loser, _, err := p.EnsureInstrument(ctx, "", "STOCK", "", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED2"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNPM", Domain: "XLON"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
-	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	survivor, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "CUSIP", Value: "037833100"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BUNPLM2"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -751,7 +751,7 @@ func TestMergeInstruments_CarriesNamesThatNameNoLine(t *testing.T) {
 func TestListingIdentifiers_UnplacedSurvivesAListingDelete(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	instID, listingID, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED3"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
@@ -784,7 +784,7 @@ func TestListingIdentifiers_UnplacedSurvivesAListingDelete(t *testing.T) {
 func TestMergeInstruments_UnionsListingContents(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	loser, loserUSD, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	loser, loserUSD, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNION", Domain: "XNAS"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
@@ -796,7 +796,7 @@ func TestMergeInstruments_UnionsListingContents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loser GBP line: %v", err)
 	}
-	survivor, survivorUSD, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	survivor, survivorUSD, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00UNION001"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "CUSIP", Value: "00UNION01"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -880,13 +880,13 @@ func TestMergeInstruments_CarriesDeclarations(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|merge-decl", "U", "u@merge-decl.com")
 
-	loser, loserLine, err := p.EnsureInstrument(ctx, "STOCK", "GBX", "", "", "", []db.IdentifierInput{
+	loser, loserLine, err := p.EnsureInstrument(ctx, "", "STOCK", "GBX", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "DECL", Domain: "XLON"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
-	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
+	survivor, survivorLine, err := p.EnsureInstrument(ctx, "", "STOCK", "GBP", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00DECL0001"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BDECL01"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -934,7 +934,7 @@ func TestEnsureListing_ALineClaimsThePostingsThatStatedIt(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|claim-postings", "U", "u@claim-postings.com")
 	// Nothing stated a currency, so the security has no line and the posting below
 	// can name none.
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "C", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "", "C", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0001"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
@@ -976,7 +976,7 @@ func TestEnsureListing_ALineClaimsOnlyWhatStatedIt(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|claim-other", "U", "u@claim-other.com")
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "O", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "", "O", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0002"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {
@@ -1014,7 +1014,7 @@ func TestEnsureListing_ALineClaimsOnlyWhatStatedIt(t *testing.T) {
 func TestEnsureListing_ASoleLineClaimsTheNamesThatNamedNone(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0003"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "CLAM", Domain: "XLON"}, Canonical: true},
 	}, nil, "", nil, "")
@@ -1054,7 +1054,7 @@ func TestEnsureListing_ASoleLineClaimsTheNamesThatNamedNone(t *testing.T) {
 func TestEnsureListing_ASecondLineClaimsNoName(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0004"}, Canonical: true},
 	}, nil, "", nil, "")
 	if err != nil {

@@ -44,7 +44,7 @@ func seedResiduals(t *testing.T, p *Postgres, userID string, seeds ...residualSe
 
 func usdInstrument(t *testing.T, p *Postgres) string {
 	t.Helper()
-	id, _, err := p.EnsureInstrument(context.Background(), "CASH", "USD", "USD", "", "", []db.IdentifierInput{{
+	id, _, err := p.EnsureInstrument(context.Background(), "", "CASH", "USD", "USD", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "CURRENCY", Value: "USD"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -150,7 +150,7 @@ func TestListResidualBalances_OffsettingImbalancesDrop(t *testing.T) {
 func TestListResidualBalances_SecurityCommodity(t *testing.T) {
 	p := testDBTx(t)
 	userID := newUser(t, p, "sub|security")
-	stockID, _, err := p.EnsureInstrument(context.Background(), "STOCK", "USD", "", "", "", []db.IdentifierInput{{
+	stockID, _, err := p.EnsureInstrument(context.Background(), "", "STOCK", "USD", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 		Canonical: true,
 	}}, nil, "", nil, "")
@@ -405,7 +405,7 @@ func TestListResidualBalances_ShareResidualAcrossSplit(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID := newUser(t, p, "sub|residual-split")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "JRN", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")
@@ -439,7 +439,7 @@ func TestListResidualBalances_ShareResidualReportedInTodaysShareCount(t *testing
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID := newUser(t, p, "sub|residual-split-open")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "JRN2", Domain: "IBKR"},
 		Canonical: false,
 	}}, nil, "", nil, "")

@@ -444,16 +444,32 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 // one currency line, so those rows come back through loadListings attached to
 // the listing they name.
 func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.InstrumentRow) error {
+	return loadIdentifiersScoped(ctx, q, ids, rows, false)
+}
+
+// loadSystemIdentifiers is loadIdentifiers narrowed to the names the instance
+// holds as facts. It is what an export reads: a file it writes is imported back
+// carrying system authority, so a user's claim travelling in one would be
+// settled by the round trip rather than by anything corroborating it.
+func loadSystemIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.InstrumentRow) error {
+	return loadIdentifiersScoped(ctx, q, ids, rows, true)
+}
+
+func loadIdentifiersScoped(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.InstrumentRow, factsOnly bool) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	inClause, args := inClauseUUIDs(ids)
+	scope := ""
+	if factsOnly {
+		scope = " AND owner IS NULL"
+	}
 	idRows, err := q.QueryContext(ctx, fmt.Sprintf(`
-		SELECT instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before
+		SELECT instrument_id, identifier_type, domain, value, canonical, owner, valid_from, valid_before
 		FROM instrument_identifiers
-		WHERE instrument_id IN (%s)
+		WHERE instrument_id IN (%s)%s
 		ORDER BY instrument_id, valid_before IS NULL DESC, valid_before DESC
-	`, inClause), args...)
+	`, inClause, scope), args...)
 	if err != nil {
 		return err
 	}
@@ -465,15 +481,16 @@ func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*
 	for idRows.Next() {
 		var instID uuid.UUID
 		var idType, val string
-		var domain sql.NullString
+		var domain, owner sql.NullString
 		var canonical bool
 		var validFrom, validBefore sql.NullTime
-		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical, &validFrom, &validBefore); err != nil {
+		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical, &owner, &validFrom, &validBefore); err != nil {
 			return err
 		}
 		idn := db.IdentifierInput{
 			Ref:       db.InstrumentRef{Type: idType, Value: val},
 			Canonical: canonical,
+			Owner:     owner.String,
 		}
 		if domain.Valid {
 			idn.Ref.Domain = domain.String

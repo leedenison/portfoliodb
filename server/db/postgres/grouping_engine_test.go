@@ -36,7 +36,7 @@ func engineFixture(t *testing.T, sub string) (*Postgres, string, string) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "ENG-" + sub, Domain: "ENGINE"},
 			Canonical: false,

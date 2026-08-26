@@ -27,7 +27,7 @@ func newGroupingFixture(t *testing.T, sub string) *groupingFixture {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|"+sub, "U", sub+"@grouping.test")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GRP-" + sub, Domain: "FIDELITY"},
 			Canonical: false,

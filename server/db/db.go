@@ -78,6 +78,47 @@ type DB interface {
 	ResidualBalanceDB
 	TransferMatchDB
 	GroupingDB
+	SettingsDB
+}
+
+// Settings key vocabulary. One member per row seeded in the settings table:
+// nothing reads a key that is not here, and nothing seeds one that is not read.
+const (
+	// SettingPromotionThreshold is how many users must hold a user-owned
+	// identifier mapping, none of them holding a conflicting one, before the
+	// promotion sweep makes it the instance's. See
+	// docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
+	SettingPromotionThreshold = "promotion_threshold"
+)
+
+// Setting is one instance-level setting: what an admin configures about this
+// deployment as a whole, as against what a user configures about themselves.
+type Setting struct {
+	Key   string `db:"key"`
+	Value string `db:"value"`
+}
+
+// SettingsDB reads and writes the instance settings.
+//
+// Values are text and each reader parses and validates its own. There is no type
+// here to enforce -- the settings have nothing in common but who sets them -- and
+// a reader that wants a number wants a range as well, which only it knows.
+type SettingsDB interface {
+	// ListSettings returns every setting, ordered by key. The admin surface
+	// wants the lot; nothing else does.
+	ListSettings(ctx context.Context) ([]Setting, error)
+	// GetSetting returns one setting's value. A key with no row is an error
+	// rather than an empty string: every key this build reads is seeded by the
+	// migration, so a missing one is a deployment that did not migrate rather
+	// than a setting nobody has got round to.
+	GetSetting(ctx context.Context, key string) (string, error)
+	// SetSetting writes one setting's value, creating the row if the key is new.
+	SetSetting(ctx context.Context, key, value string) error
+	// PromotionThreshold is GetSetting for the promotion sweep, parsed and
+	// range-checked. Below one it is an error rather than a clamp: a threshold
+	// of zero would promote a mapping nobody holds, and the sweep must not
+	// quietly substitute a number the admin did not choose.
+	PromotionThreshold(ctx context.Context) (int, error)
 }
 
 // PriceFetchBlockDB manages permanently blocked (listing, plugin) pairs.

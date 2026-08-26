@@ -6,6 +6,7 @@
 import type { ComponentType } from "react";
 import type { Broker } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult } from "@/lib/csv/parse-result";
+import { statedIdentityErrors } from "@/lib/csv/stated-identity";
 
 export interface ConverterOptionsProps {
   onOptionsChange: (opts: Record<string, unknown>) => void;
@@ -33,8 +34,34 @@ export interface BrokerEntry {
 
 const registry: BrokerEntry[] = [];
 
+/**
+ * A converter with the self-contradiction check run over what it produced.
+ *
+ * Wrapped here rather than called by each converter so that a converter added
+ * later cannot forget it. What makes an upload acceptable is not a property of
+ * one broker's format, and a check every converter has to remember is one a
+ * converter will eventually not remember.
+ *
+ * The errors are appended rather than replacing the converter's own: a file can
+ * be both unreadable in places and self-contradicting, and the upload is refused
+ * either way -- a non-empty errors list is what stops it.
+ */
+function checked(convert: NonNullable<FormatEntry["convert"]>): FormatEntry["convert"] {
+  return (text, options) => {
+    const result = convert(text, options);
+    const stated = statedIdentityErrors(result.postings);
+    if (stated.length === 0) return result;
+    return { ...result, errors: [...result.errors, ...stated] };
+  };
+}
+
 export function register(entry: BrokerEntry): void {
-  registry.push(entry);
+  registry.push({
+    ...entry,
+    formats: entry.formats.map((f) =>
+      f.convert === undefined ? f : { ...f, convert: checked(f.convert) },
+    ),
+  });
 }
 
 /** Brokers that have at least one format with a convert function (for upload dropdown). */

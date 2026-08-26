@@ -6,6 +6,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/txtype"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -145,6 +146,73 @@ func ValidateTxs(txs []*apiv1.Tx) []*apiv1.ValidationError {
 	var errs []*apiv1.ValidationError
 	for i, tx := range txs {
 		errs = append(errs, ValidateTx(tx, int32(i))...)
+	}
+	return errs
+}
+
+// validateStatedIdentifiers reports the identity claims one upload cannot all
+// hold.
+//
+// Every identifier in one upload is stated as of one vintage -- the export date
+// the file carries, which ingestParams holds for the whole batch -- so no reading
+// of the validity intervals reconciles two of them that disagree. They are
+// offered together, as of one moment. The artefact is faulty, and nothing in it
+// says which half is right, so the upload is rejected rather than half of it
+// believed. See docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+//
+// The check is on the subject -- the type and, where it has one, the domain --
+// rather than on the type alone, because a ticker under two domains names two
+// listings and a security quoted in two places states both legitimately.
+//
+// One description is one security: it is the key resolution caches on, so two
+// values for one subject under one description are two securities where the file
+// names one. The converse is not looked for. Two descriptions naming one
+// identifier is a broker writing a security several ways -- a statement, a
+// confirmation, a tax document -- and they resolve to one instrument, which is
+// the point of storing the mapping.
+//
+// The converter checks this before upload and this checks it again. Not because
+// the converters are doubted, but because what makes an upload acceptable has to
+// hold wherever it arrives from: the extension has converters of its own, and the
+// ingestion API is reachable without either.
+//
+// rowIdx maps each posting to the row the source numbered it, so an archive
+// window reports against the file rather than against the window.
+func validateStatedIdentifiers(txs []*apiv1.Tx, txHints [][]identifier.Identifier, rowIdx []int) []*apiv1.ValidationError {
+	type stated struct {
+		value string
+		row   int
+	}
+	seen := make(map[string]stated)
+	var errs []*apiv1.ValidationError
+	for i, tx := range txs {
+		desc := tx.GetInstrumentDescription()
+		if desc == "" {
+			continue
+		}
+		for _, h := range txHints[i] {
+			if h.Value == "" {
+				continue
+			}
+			key := desc + "\x00" + h.Type + "\x00" + h.Domain
+			first, ok := seen[key]
+			if !ok {
+				seen[key] = stated{value: h.Value, row: rowIdx[i]}
+				continue
+			}
+			if first.value == h.Value {
+				continue
+			}
+			// Reported against the first value stated, which is arbitrary and
+			// says so: nothing in the file makes one of them the right one, which
+			// is the whole reason the upload is refused rather than resolved.
+			errs = append(errs, &apiv1.ValidationError{
+				RowIndex: int32(rowIdx[i]),
+				Field:    "identifier_hints",
+				Message: fmt.Sprintf("%s is %s %s here and %s on row %d; one file states one identity, so nothing says which is right",
+					desc, h.Type, h.Value, first.value, first.row),
+			})
+		}
 	}
 	return errs
 }

@@ -112,9 +112,21 @@ describe("convertIbkrOfx", () => {
     expect(option(buildOfx(EUREX_BUY, EUREX_SEC_LIST)).identifierHints).toHaveLength(0);
   });
 
-  it("states no OCC where the record disagrees with the symbol it prints", () => {
-    // The same symbol, against a strike that is not the one it encodes. Nothing
-    // here can say which of the two the file meant, so it states neither.
+  it("refuses a file where the record disagrees with the symbol it prints", () => {
+    // The same symbol, against a strike that is not the one it encodes. Both are
+    // stated at the one vintage the file carries, so nothing in it says which of
+    // the two the file meant -- and it used to state neither and carry on, which
+    // left the contract identified by broker text while the faulty file stayed in
+    // circulation. See docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+    const result = convertIbkrOfx(buildOfx(US_BUY, usSecList("480")));
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.field).toBe("identifier_hints");
+    // Both symbols named: the reader has to see what disagreed with what.
+    expect(result.errors[0]!.message).toContain("BRKB260918P00470000");
+    expect(result.errors[0]!.message).toContain("BRKB260918P00480000");
+
+    // And no identifier is stated, as before. A refused file states nothing.
     expect(option(buildOfx(US_BUY, usSecList("480"))).identifierHints).toHaveLength(0);
   });
 

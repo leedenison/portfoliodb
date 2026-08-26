@@ -105,6 +105,8 @@ The extension does not paper over this. If conversion yields no transactions it 
 
 A converter rejects rows it cannot map -- most commonly a broker transaction type absent from the converter's type map. The extension **uploads anyway** and warns prominently.
 
+A file that contradicts itself about identity is a different matter and is not the extension's to catch. The SPA's converters refuse such a file before upload; the extension's recipes report converter errors as dropped rows and upload regardless, so the rejection arrives from the server, which checks the same rule (see [identifiers.md](identifiers.md#identifying-instruments)). The run log records it with the job's other validation errors, which is step 9 above. Nothing is stored either way -- the whole upload is rejected -- so the difference is where the message comes from rather than what happens to the data.
+
 This is a deliberate trade-off. Because ingestion replaces the period wholesale, a dropped row is not merely skipped: any previously stored copy of it inside the window is deleted and not replaced. Uploading regardless keeps the sync usable when a broker introduces a new transaction type, at the cost of temporarily losing those rows until the converter is updated.
 
 The warning must therefore be hard to miss, and the run log must record enough to fix the converter:

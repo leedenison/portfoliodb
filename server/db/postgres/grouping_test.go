@@ -31,7 +31,7 @@ func newGroupingFixture(t *testing.T, sub string) *groupingFixture {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GRP-" + sub, Domain: "FIDELITY"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

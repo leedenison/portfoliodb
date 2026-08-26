@@ -394,14 +394,14 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 		Return("", nil) // not found
 
 	// The key assertion: EnsureInstrument must receive "FX" and "EUR".
-	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "FX", "EUR", "", "", "",
-			namesDated{want: []db.IdentifierInput{{
-				Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "EURGBP", Domain: ""},
-				Canonical: true,
-			}}},
-			gomock.Any(),
-			"", nil).
+	database.EXPECT().EnsureInstrument(
+		gomock.Any(), "FX", "EUR", "", "", "",
+		namesDated{want: []db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "FX_PAIR", Value: "EURGBP", Domain: ""},
+			Canonical: true,
+		}}},
+		gomock.Any(),
+		"", nil, gomock.Any()).
 		Return("inst-eurgbp", "listing-id", nil)
 	// No exported_at, so the vintage is now.
 	database.EXPECT().
@@ -494,16 +494,15 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 		Return("inst-nvda", "STOCK", []string{"USD"}, nil)
 
 	// EnsureInstrument must receive the underlying ID and option fields.
-	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", "USD", "", "", "",
-			namesDated{want: []db.IdentifierInput{{
-				Ref:       db.InstrumentRef{Type: "OCC", Value: "NVDA240315P00510000", Domain: ""},
-				Canonical: true,
-			}}},
-			gomock.Any(),
-			// The request states USD, so the option delivers NVDA's USD line,
-			// which the blanket EnsureListing stub above names.
-			"inst-nvda:USD", gomock.Not(gomock.Nil())).
+	database.EXPECT().EnsureInstrument(
+		gomock.Any(), "OPTION", "USD", "", "", "",
+		namesDated{want: []db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "OCC", Value: "NVDA240315P00510000", Domain: ""},
+			Canonical: true,
+		}}},
+		gomock.Any(),
+
+		"inst-nvda:USD", gomock.Not(gomock.Nil()), gomock.Any()).
 		Return("inst-opt", "listing-id", nil)
 	// No exported_at on the request, so the supplied OCC is taken at face value
 	// as current and the vintage is now.
@@ -558,19 +557,18 @@ func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "NVDA").
 		Return("inst-nvda", "STOCK", []string{"USD"}, nil)
-	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "OPTION", "USD", "", "", "",
-			namesDated{
-				want: []db.IdentifierInput{{
-					Ref:       db.InstrumentRef{Type: "OCC", Value: "NVDA240315P00510000", Domain: ""},
-					Canonical: true,
-				}},
-				from: db.VintageDate(&exportedAt),
-			},
-			gomock.Any(),
-			// The request states USD, so the option delivers NVDA's USD line,
-			// which the blanket EnsureListing stub above names.
-			"inst-nvda:USD", gomock.Not(gomock.Nil())).
+	database.EXPECT().EnsureInstrument(
+		gomock.Any(), "OPTION", "USD", "", "", "",
+		namesDated{
+			want: []db.IdentifierInput{{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: "NVDA240315P00510000", Domain: ""},
+				Canonical: true,
+			}},
+			from: db.VintageDate(&exportedAt),
+		},
+		gomock.Any(),
+
+		"inst-nvda:USD", gomock.Not(gomock.Nil()), gomock.Any()).
 		Return("inst-opt", "listing-id", nil)
 
 	database.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)

@@ -166,6 +166,11 @@ func main() {
 
 	telemetryDB := postgres.NewTelemetry(sqlx.NewDb(telemetryConn, "postgres"),
 		logger.WithCategory(serverLogger, "server/db/telemetry"))
+	// The store records the merges it decides, which is the one telemetry row no
+	// caller can write: which instruments an identifier set landed on, and whether
+	// a claim admitted joining them, is settled inside one transaction and is
+	// invisible from above.
+	database.WithTelemetry(telemetryDB)
 
 	// Google ID token verifier
 	googleClientID := os.Getenv("GOOGLE_OAUTH_CLIENT_ID")

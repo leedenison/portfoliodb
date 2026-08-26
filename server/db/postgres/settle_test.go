@@ -139,11 +139,11 @@ func TestSettle(t *testing.T) {
 	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, usd := balanceSeed(t, p, "sub|settle")
-	aapl, _, err := p.EnsureInstrument(ctx, "STOCK", "AAPL", "USD", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "TICKER", Value: "AAPL"},
-			Canonical: true,
-		}}, nil, "", nil)
+	aapl, _, err := p.EnsureInstrument(ctx, "STOCK", "AAPL", "USD", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "TICKER", Value: "AAPL"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure AAPL: %v", err)
 	}
@@ -409,11 +409,11 @@ func priceRoundingSeed(t *testing.T, sub, qty, price, cash string) string {
 	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	userID, usd := balanceSeed(t, p, sub)
 	ctx := context.Background()
-	inst, _, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "INRG", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "INRG", Domain: "F"},
-			Canonical: false,
-		}}, nil, "", nil)
+	inst, _, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "INRG", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "INRG", Domain: "F"},
+		Canonical: false,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

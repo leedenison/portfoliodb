@@ -211,6 +211,44 @@ func (t *Telemetry) WriteIdentifierClaim(ctx context.Context, c db.TelemetryIden
 	}
 }
 
+// WriteMerge implements db.TelemetryDB.
+//
+// The instrument ids are parsed rather than passed through as text, so a caller
+// that lost one to a bad parse writes nothing here instead of a row a panel
+// cannot join. Both are NOT NULL in the schema: a decision about two instruments
+// that cannot name them both is not a decision worth recording.
+func (t *Telemetry) WriteMerge(ctx context.Context, m db.TelemetryMerge) {
+	runID, ok := t.parent(ctx, m.RunID, m.RunID, "write merge")
+	if !ok {
+		return
+	}
+	a, err := uuid.Parse(m.AInstrument)
+	if err != nil {
+		t.fail(ctx, m.RunID, "write merge", err)
+		return
+	}
+	b, err := uuid.Parse(m.BInstrument)
+	if err != nil {
+		t.fail(ctx, m.RunID, "write merge", err)
+		return
+	}
+	var cType, cDomain, cValue any
+	if m.Collision != nil {
+		cType, cDomain, cValue = m.Collision.Type, nullStr(m.Collision.Domain), m.Collision.Value
+	}
+	if _, err := t.db.ExecContext(ctx, `
+		INSERT INTO telemetry.merge
+			(run_id, outcome, a_type, a_domain, a_value, b_type, b_domain, b_value,
+			 a_instrument_id, b_instrument_id, collision_type, collision_domain, collision_value)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	`, runID, m.Outcome,
+		m.A.Type, nullStr(m.A.Domain), m.A.Value,
+		m.B.Type, nullStr(m.B.Domain), m.B.Value,
+		a, b, cType, cDomain, cValue); err != nil {
+		t.fail(ctx, m.RunID, "write merge", err)
+	}
+}
+
 // WriteCandidatePluginCall implements db.TelemetryDB.
 func (t *Telemetry) WriteCandidatePluginCall(ctx context.Context, c db.TelemetryCandidatePluginCall) string {
 	runID, ok := t.parent(ctx, c.RunID, c.RunID, "write candidate plugin call")

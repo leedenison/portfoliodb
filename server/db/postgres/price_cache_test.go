@@ -42,7 +42,7 @@ func setupInstrument(t *testing.T, p *Postgres, desc string) string {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "TEST"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument %s: %v", desc, err)
 	}
@@ -862,7 +862,7 @@ func setupInstrumentWithCurrency(t *testing.T, p *Postgres, desc, assetClass, cu
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: "TEST"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument %s: %v", desc, err)
 	}

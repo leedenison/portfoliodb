@@ -28,11 +28,11 @@ func TestComputeHoldings_instrumentNameOverTxDescription(t *testing.T) {
 	ts := timestamppb.New(now.Add(-30 * time.Minute))
 
 	// Create a cash instrument with a canonical name "USD".
-	cashID, _, err := p.EnsureInstrument(ctx, "CASH", "USD", "USD", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "CURRENCY", Value: "USD"},
-			Canonical: true,
-		}}, nil, "", nil)
+	cashID, _, err := p.EnsureInstrument(ctx, "CASH", "USD", "USD", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "CURRENCY", Value: "USD"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure cash instrument: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "GOOG", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "FRAC", Domain: "IBKR"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -169,11 +169,11 @@ func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
 	from := timestamppb.New(now.Add(-1 * time.Hour))
 	to := timestamppb.New(now)
 	ts := timestamppb.New(now.Add(-30 * time.Minute))
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "TSCO", Domain: "IBKR"},
-			Canonical: false,
-		}}, nil, "", nil)
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "TSCO", Domain: "IBKR"},
+		Canonical: false,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -208,11 +208,11 @@ func splitStraddlingHolding(t *testing.T, p *Postgres, sub, buyQty, sellQty stri
 	t.Helper()
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, sub, "U", sub+"@u.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SPL" + sub, Domain: "IBKR"},
-			Canonical: false,
-		}}, nil, "", nil)
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SPL" + sub, Domain: "IBKR"},
+		Canonical: false,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -293,11 +293,11 @@ func TestComputeHoldings_closedAcrossInexactSplit(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|split-inexact", "U", "u@si.com")
-	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "REV", Domain: "IBKR"},
-			Canonical: false,
-		}}, nil, "", nil)
+	instID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "REV", Domain: "IBKR"},
+		Canonical: false,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -393,8 +393,8 @@ func TestCountUnattributedHoldings(t *testing.T) {
 	}
 
 	// Quoted in USD, and no posting said the position is on that line.
-	quoted, quotedLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Quoted", "", "",
-		[]db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000101"}, Canonical: true}}, nil, "", nil)
+	quoted, quotedLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Quoted", "", "", []db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000101"}, Canonical: true}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure quoted instrument: %v", err)
 	}
@@ -404,8 +404,8 @@ func TestCountUnattributedHoldings(t *testing.T) {
 	postingOnNoLine(t, p, userID, quoted, "40", "A")
 
 	// Nothing has stated a currency for this one, so it holds no line at all.
-	unquoted, unquotedLine, err := p.EnsureInstrument(ctx, "STOCK", "", "Unquoted", "", "",
-		[]db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000102"}, Canonical: true}}, nil, "", nil)
+	unquoted, unquotedLine, err := p.EnsureInstrument(ctx, "STOCK", "", "Unquoted", "", "", []db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000102"}, Canonical: true}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure unquoted instrument: %v", err)
 	}
@@ -415,8 +415,8 @@ func TestCountUnattributedHoldings(t *testing.T) {
 	postingOnNoLine(t, p, userID, unquoted, "25", "A")
 
 	// A position whose posting names its line is attributed and is not a repair.
-	attributed, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Attributed", "", "",
-		[]db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000103"}, Canonical: true}}, nil, "", nil)
+	attributed, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Attributed", "", "", []db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000103"}, Canonical: true}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure attributed instrument: %v", err)
 	}
@@ -430,8 +430,8 @@ func TestCountUnattributedHoldings(t *testing.T) {
 
 	// A position on no line that was sold down to nothing is not a repair either:
 	// there is no holding left to attribute.
-	closed, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Closed", "", "",
-		[]db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000104"}, Canonical: true}}, nil, "", nil)
+	closed, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Closed", "", "", []db.IdentifierInput{{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000104"}, Canonical: true}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure closed instrument: %v", err)
 	}

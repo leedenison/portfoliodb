@@ -209,7 +209,7 @@ func TestGetPortfolioExternalFlows_SecurityTransferFlowsInShares(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "FIDELITY"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestGetPortfolioExternalFlows_InstrumentFilterSeesTheCashLeg(t *testing.T) 
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "AAPL Corp", Domain: "FIDELITY"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

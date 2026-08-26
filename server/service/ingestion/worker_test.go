@@ -73,11 +73,11 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "UNKNOWN").
 		Return("", nil)
-	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
+	database.EXPECT().EnsureInstrument(
+		gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: "IBKR:test:statement"},
 			Canonical: false,
-		}}, gomock.Any(), "", nil).
+		}}, gomock.Any(), "", nil, gomock.Any()).
 		Return("broker-only-id", "listing-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-1").
@@ -154,11 +154,11 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "CACHED").
 		Return("", nil)
-	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
+	database.EXPECT().EnsureInstrument(
+		gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "CACHED", Domain: "IBKR:test:statement"},
 			Canonical: false,
-		}}, gomock.Any(), "", nil).
+		}}, gomock.Any(), "", nil, gomock.Any()).
 		Return("cached-inst-id", "listing-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-2").
@@ -662,8 +662,8 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 
 			// The assertion.
 			var validFrom []*time.Time
-			database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "USD", "", "", "", gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any()).
-				DoAndReturn(func(_ context.Context, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields) (string, string, error) {
+			database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "USD", "", "", "", gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields, _ string) (string, string, error) {
 					for _, idn := range idns {
 						validFrom = append(validFrom, idn.ValidFrom)
 					}

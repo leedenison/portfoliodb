@@ -35,62 +35,47 @@ accepted, because blocking it would strand the user behind an admin over a
 corporate action neither knew about. A transaction fault rejects the whole
 upload, so holdings stay describable as valid up to the last accepted import.
 
-The surface a recorded contradiction lands on is the one **M21** is scoped for
-and **0127** repairs from, and the one 0142 needs for users who disagree.
+A recorded contradiction is read rather than worked: it is a telemetry row, and
+both Grafana and the admin UI may read the telemetry schema. It is not the
+attention surface **M21** builds and **0127** repairs from -- what needs a person
+is a separate question from what happened.
 
 ## The record
 
-An admitted association is never stored. That two identifiers denote one security
-is recorded only by both rows carrying one `instrument_id` -- co-location, not an
-edge. A recorded claim is the case that cannot express, because its two
-identifiers sit on *different* instruments precisely because nothing joined them.
-So this is the one place in the schema where an association is a row of its own.
+A run-scoped telemetry row, not an operational queue. These contradictions are
+rare and the system settles each of them on its own; what is missing is not a
+queue somebody works but the answer to what happened and how often. A queue
+commits us to the conflict-resolution UI the handling rules were designed to
+avoid needing. See adr/0080-a-contradiction-is-logged-not-queued.md.
 
-One table, shared with the hypotheses 0143 raises, on a `kind` discriminator: a
-claim awaiting a person and a claim awaiting an identifier plugin are the same
-shape, and adr/0062 asks for one surface rather than two. It holds:
+The run framing carries it unchanged. `telemetry.run` already covers the
+corporate event cycle and the price fetch cycle beside the three import kinds, so
+the merges taken outside instrument resolution have a parent, and four of the five
+sites already write a row with a closed-vocabulary outcome. What is missing is the
+evidence behind the count rather than the count.
 
-- Both endpoints as **whole triples** rather than instrument ids. Instruments are
-  merged away and deleted; a triple survives both, so the claim outlives whatever
-  it currently resolves to. The instrument ids are carried too, as a cache to be
-  re-resolved rather than as the claim itself.
-- The **mediator** triple, where a chain produced the claim, and null for a plain
-  contradiction. Without it an admin sees a refusal with no reason attached.
-- The **owner**, the ingestion source and the file's vintage. Owner is what lets
-  0142's sweep count distinct users who reached the same claim; source is what
-  makes a systematically wrong converter read as a cluster rather than as
-  scattered rows; vintage is what separates a restatement from a contradiction.
-- **State**, and what settled it -- an identifier plugin call, a promotion, or an
-  admin. Three routes in, so the row has to say which was taken.
-- **first_seen and last_seen.** Re-uploading a statement must not raise a
-  duplicate: natural key on the endpoints, the mediator and the owner, and a
-  repeat bumps `last_seen`.
+Two grains:
 
-## Confirmed and refuted are not symmetrical
+- **`telemetry.merge`**, one decision about whether two identifiers denote one
+  security: both endpoints as whole triples, the instruments they resolved to, and
+  an outcome of `merged` or one of four refusals. Nothing recorded a merge at all
+  before -- the decision is taken inside the database layer, where there was no run
+  to hang a row off, so a merge, a refusal and a name silently dropped looked
+  identical from outside.
+- **`telemetry.identity_conflict`**, the two triples behind a
+  `discarded_inconsistent`, a `conflicting_hints` or an ambiguous identifier.
 
-A **confirmed** claim is deleted. The merge it authorises is the record, and
-nothing re-derives the claim afterwards because the identifiers are now
-co-located, so resolution finds one instrument without needing the chain. That a
-merge rested on a broker's word and an identifier plugin's confirmation is a run-scoped fact
-and belongs in telemetry (adr/0053), not in an operational table.
+A file that contradicts itself at one vintage records nothing: the artefact is
+faulty and the upload is rejected, which is a validation error rather than a
+diagnostic.
 
-A **refuted** claim is kept permanently, and this is the part that does not fit
-the "queue of unsettled work" reading. Nothing in the schema can say two
-identifiers are *not* one instrument -- `instrument_identifiers` records only
-co-location -- so a refutation has no other home. Delete it and the next upload of
-the same statement re-derives the claim, re-raises it, and pays for the same
-identifier plugin call again.
+Nothing functional reads either table. That is what makes the retention window
+safe, and it is what this gives up: a pair an identifier plugin has refuted is
+asked about again on the next upload of the same statement, because a purged row
+cannot stop it and reading telemetry to make an operational decision would invert
+the dependency. Quota rather than correctness.
 
-It follows that resolution reads this table. Not to decide what a value denotes,
-which stays co-location's job, but to avoid asking a question already answered.
-A refutation is a belief like any other, just a negative one.
-
-**Superseded** is not terminal. It means an instrument moved underneath the claim
-and it needs re-resolving, which puts it back in the queue.
-
-Open: whether the queue and the refutations want one table or two. They have
-different readers -- an admin surface and the sweep against resolution -- different
-lifecycles and different growth. Two tables make the belief half honest about
-being a belief; one buys a single natural key and a single surface.
-
-See adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+The three routes out of a claim -- an identifier plugin, a promotion, an admin --
+were properties of the queue and go with it. **0142**'s promotion and **0143**'s
+hypothesis both parked on the surface this was going to build, and both need
+re-scoping.

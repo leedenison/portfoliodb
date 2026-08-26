@@ -198,7 +198,7 @@ func TestEnsureInstrument_ALearnedCurrencyMintsTheLine(t *testing.T) {
 	// A broker-description-only instrument: no canonical identifier, no currency.
 	instID, _, err := p.EnsureInstrument(ctx, "", "", "Some Security", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME SECURITY", Domain: "test"}, Canonical: false},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure description-only: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestEnsureInstrument_ALearnedCurrencyMintsTheLine(t *testing.T) {
 	same, _, err := p.EnsureInstrument(ctx, "STOCK", "GBX", "Some Security", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME SECURITY", Domain: "test"}, Canonical: false},
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00LISTING08"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("complete description-only: %v", err)
 	}
@@ -360,7 +360,7 @@ func ensureListedInstrument(t *testing.T, p *Postgres, idType, value, currency s
 	t.Helper()
 	id, _, err := p.EnsureInstrument(context.Background(), "STOCK", currency, "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: idType, Value: value}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument %s %s: %v", idType, value, err)
 	}
@@ -399,10 +399,9 @@ func TestEnsureInstrument_StoresIdentifiersAtTheirGrain(t *testing.T) {
 	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00GRAIN001"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "GRN", Domain: "XNAS"}, Canonical: true},
-		// Listing-grain without a domain, which is the case a rule reading the
-		// domain instead of the declared grain would file in the wrong table.
+
 		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BGRAIN1"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -447,7 +446,7 @@ func TestListingIdentifiers_OverlapExcludedAcrossListings(t *testing.T) {
 	instID, gbp, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00OVERLAP1"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "DUP", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -483,7 +482,7 @@ func TestListingVenues_DerivedFromTickers(t *testing.T) {
 	ctx := context.Background()
 	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VEN", Domain: "XNAS"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -542,7 +541,7 @@ func TestListingVenues_UnknownMICIsDropped(t *testing.T) {
 	ctx := context.Background()
 	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00UNKMIC01"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -574,7 +573,7 @@ func TestRecomputeInstrumentName_ReadsBothGrains(t *testing.T) {
 	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SOME EQUITY", Domain: "test"}, Canonical: false},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "NAMED", Domain: "XNAS"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -596,7 +595,7 @@ func TestRecomputeInstrumentName_PrefersANameOnALine(t *testing.T) {
 	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00PRIMARY1"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "KNOWN", Domain: "XNAS"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -630,7 +629,7 @@ func TestMergeInstruments_MovesListingIdentifiersByCurrencyFamily(t *testing.T) 
 	// Quoted in pence by one source.
 	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "GBX", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "FAMILY", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
@@ -638,7 +637,7 @@ func TestMergeInstruments_MovesListingIdentifiersByCurrencyFamily(t *testing.T) 
 	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00FAMILY01"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BFAMILY"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
@@ -681,7 +680,7 @@ func TestEnsureInstrument_ANameWithNoCurrencyNamesNoLine(t *testing.T) {
 	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED1"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNPL", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -717,14 +716,14 @@ func TestMergeInstruments_CarriesNamesThatNameNoLine(t *testing.T) {
 	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED2"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNPM", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
 	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "CUSIP", Value: "037833100"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BUNPLM2"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
@@ -754,7 +753,7 @@ func TestListingIdentifiers_UnplacedSurvivesAListingDelete(t *testing.T) {
 	ctx := context.Background()
 	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00UNPLACED3"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -787,7 +786,7 @@ func TestMergeInstruments_UnionsListingContents(t *testing.T) {
 	ctx := context.Background()
 	loser, loserUSD, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "UNION", Domain: "XNAS"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
@@ -800,7 +799,7 @@ func TestMergeInstruments_UnionsListingContents(t *testing.T) {
 	survivor, survivorUSD, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US00UNION001"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "CUSIP", Value: "00UNION01"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
@@ -883,14 +882,14 @@ func TestMergeInstruments_CarriesDeclarations(t *testing.T) {
 
 	loser, loserLine, err := p.EnsureInstrument(ctx, "STOCK", "GBX", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "DECL", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
 	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00DECL0001"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "SEDOL", Value: "BDECL01"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
@@ -937,7 +936,7 @@ func TestEnsureListing_ALineClaimsThePostingsThatStatedIt(t *testing.T) {
 	// can name none.
 	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "C", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0001"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -979,7 +978,7 @@ func TestEnsureListing_ALineClaimsOnlyWhatStatedIt(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|claim-other", "U", "u@claim-other.com")
 	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "O", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0002"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -1018,7 +1017,7 @@ func TestEnsureListing_ASoleLineClaimsTheNamesThatNamedNone(t *testing.T) {
 	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0003"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "CLAM", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -1057,7 +1056,7 @@ func TestEnsureListing_ASecondLineClaimsNoName(t *testing.T) {
 	ctx := context.Background()
 	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00CLAIM0004"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}

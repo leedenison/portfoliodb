@@ -349,6 +349,55 @@ anything is written.
 and never asked again. `upsert_failed` is our database rather than the provider's API, and
 is a separate member for the reason transport failure is separate from `not_identified`.
 
+### merge
+
+One decision about whether two identifiers denote one security, and what was done about
+it.
+
+| column | notes |
+| --- | --- |
+| `run_id` | the run, directly: a merge is also taken by the corporate event cycle, which has no resolution key to hang off |
+| `outcome` | `merged`, `refused_uncorroborated`, `refused_unmediated`, `refused_disjoint`, `refused_collision` |
+| `a_type`, `a_domain`, `a_value` | one endpoint, as a whole triple |
+| `b_type`, `b_domain`, `b_value` | the other |
+| `a_instrument_id`, `b_instrument_id` | what the two endpoints resolved to when the decision was taken |
+| `collision_type`, `collision_domain`, `collision_value` | the triple both instruments hold, for `refused_collision` alone |
+
+The pair is the grain, not the resolution: a set of identifiers landing on three
+instruments asks the question twice and can answer it differently each time, so one row
+per resolution would force one outcome onto two answers. A resolution whose identifiers
+all name the security already holding them asks nothing and writes nothing, so the table
+grows with contested identity rather than with traffic.
+
+The endpoints are whole triples rather than instrument ids because a triple outlives the
+merge and an instrument does not -- the loser is deleted, so an id alone leaves a reader a
+year later with nothing to look up. The ids are recorded beside them for a panel grouping
+by security, on the terms `price_gap` records its instrument: not foreign keys, because
+telemetry outlives the work it describes. A merged pair need not contain the survivor,
+which is picked over the whole group rather than per pair.
+
+The four refusals are separate members because they need different fixes.
+`refused_uncorroborated` is the resolver having assembled a set nobody asserted, and wants
+a plugin that returns both names; it is what a plugin set whose identifier vocabularies do
+not overlap produces all day. `refused_unmediated` is a type that reassigns its values
+routinely and is working as intended. `refused_disjoint` is two names that were never
+correct at one time, which may be a vintage recorded wrongly. `refused_collision` is the
+one that is neither noise nor design: both instruments hold one triple over overlapping
+intervals, so two claims cannot both hold and nothing in the data says which is right.
+See adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+
+Nothing recorded a merge before this table. The decision is taken inside the database
+layer, which has no run to hang a row off and no logger, so a merge that happened, a merge
+that was refused, and a name silently dropped on the way through were indistinguishable
+from outside. The collision case was the worst of the three: the merge dropped the
+colliding name and deleted the instrument that held it, leaving nothing to look at
+afterwards.
+
+There is deliberately no mediator column. adr/0061's chain runs through the two stored
+rows rather than through a third value, so every decision recorded here names two
+endpoints and a column for a third would be null on every row. Transitivity is visible as
+several rows under one run.
+
 ### Views
 
 One view per table, each flattening its parents in and never fanning out into its
@@ -371,6 +420,8 @@ outcome list into a dashboard. They are:
 | `had_call` | price gap | the gap reached at least one `FetchPrices` call |
 | `transport_failed` | price call | the call did not complete |
 | `write_failed` | price call | our own upsert failed, not the provider |
+| `is_refusal` | merge | the two identifiers were not merged |
+| `is_contradiction` | merge | the refusal was a collision, which is the one a person has to look at |
 
 `reached_plugins` is the denominator for identification failure rate. Using all attempts
 instead makes the rate fall as the instrument table fills, because more resolutions
@@ -410,7 +461,8 @@ come back every cycle. `had_call` separates a gap that never asked from one that
 was told nothing -- filters, fetch blocks, missing identifiers and existing coverage each
 return before `FetchPrices`, so no call is ordinary rather than a fault.
 
-`v_run` also carries `key_count`, `key_tx_count`, `description_call_count` and `gap_count`. These are
+`v_run` also carries `key_count`, `key_tx_count`, `description_call_count`, `gap_count` and
+`merge_count`. These are
 scalar subqueries, one per child table, and they are the only sanctioned way for a view
 to reach into a second child. The rule above forbids a view *fanning out* into two
 sibling grains, because that repeats the parent once per child and makes counting it
@@ -431,6 +483,10 @@ role, both by design.
 because the instrument is what a hole in a valuation is traced back to;
 `v_price_gap.days_outstanding` carries the other measure at the grain that owns it. It is
 zero for every other run kind, as `key_count` is for a cycle.
+
+`merge_count` is zero for almost every run, and that is what makes it worth carrying: a
+merge is only asked about where one resolution's identifiers reached more than one
+instrument, so a non-zero count is itself the signal rather than a volume to normalise.
 
 ### Naming an instrument
 

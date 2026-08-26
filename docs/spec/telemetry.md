@@ -49,7 +49,7 @@ One activation of one subsystem. Created before its children and stamped when it
 | column | notes |
 | --- | --- |
 | `id` | referenced by every event row |
-| `kind` | `tx_import`, `user_archive_import`, `system_archive_import`, `grouping_cycle`, `transfer_match_cycle`, `corporate_event_cycle`, `price_fetch_cycle`, `inflation_cycle` |
+| `kind` | `tx_import`, `user_archive_import`, `system_archive_import`, `grouping_cycle`, `transfer_match_cycle`, `corporate_event_cycle`, `price_fetch_cycle`, `inflation_cycle`, `promotion_cycle` |
 | `job_id` | `ingestion_jobs.id` when the run is a job; null for a cycle |
 | `user_id`, `broker`, `source` | null for cycles |
 | `started_at`, `ended_at` | |

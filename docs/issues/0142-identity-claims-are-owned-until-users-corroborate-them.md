@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Identity claims are owned until users corroborate them
 milestone: M24
 dependencies: [0139]

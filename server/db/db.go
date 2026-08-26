@@ -79,6 +79,40 @@ type DB interface {
 	TransferMatchDB
 	GroupingDB
 	SettingsDB
+	PromotionDB
+}
+
+// PromotionResult is what one promotion sweep did.
+//
+// AlreadyHeld is separate from Promoted because the two say different things
+// about the instance. A promotion is a mapping the instance did not hold and now
+// does; an already-held one is a claim a system-authoritative source overtook
+// while it sat there, and the sweep is tidying rather than deciding. Counting
+// them together would report a busy sweep on an instance learning nothing new.
+type PromotionResult struct {
+	Promoted      int
+	AlreadyHeld   int
+	ClaimsCleared int
+}
+
+// PromotionDB is the sweep that turns identity claims enough users hold into
+// facts the instance holds. See
+// docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
+type PromotionDB interface {
+	// PromoteCorroboratedIdentifiers promotes every user-owned mapping that
+	// threshold distinct users hold and that nothing contradicts, and deletes
+	// the rows it promoted from. Where users hold conflicting mappings for one
+	// triple it promotes neither and leaves both in place, each still resolving
+	// for its own owner: which is right is a person's decision.
+	//
+	// A threshold below one is an error rather than a clamp. It would promote a
+	// mapping nobody holds, and the sweep must not substitute a number the admin
+	// did not choose.
+	PromoteCorroboratedIdentifiers(ctx context.Context, threshold int) (PromotionResult, error)
+	// CountUnpromotableClaims counts the triples more than one user holds with
+	// more than one answer. It decides nothing; it is what says a sweep that
+	// promoted little is leaving work behind rather than having none.
+	CountUnpromotableClaims(ctx context.Context) (int, error)
 }
 
 // Settings key vocabulary. One member per row seeded in the settings table:
@@ -2604,6 +2638,7 @@ const (
 	TelemetryRunCorporateEventCycle = "corporate_event_cycle"
 	TelemetryRunPriceFetchCycle     = "price_fetch_cycle"
 	TelemetryRunInflationCycle      = "inflation_cycle"
+	TelemetryRunPromotionCycle      = "promotion_cycle"
 )
 
 // Run outcomes. TelemetryOutcomeIncomplete means the run died, and is stamped by

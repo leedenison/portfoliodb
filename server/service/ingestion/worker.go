@@ -61,6 +61,12 @@ type WorkerOptions struct {
 	// have supplied a leg that belongs with one stored months ago. nil disables
 	// grouping nudging.
 	GroupingTrigger chan<- struct{}
+	// PromotionTrigger is fired alongside them, for a reason of the same shape:
+	// this import may have carried the mapping that takes one another user
+	// already held over the threshold, and waiting for the next cadence would
+	// leave it resolving for one of them and not the other. nil disables
+	// promotion nudging.
+	PromotionTrigger chan<- struct{}
 	// Workers is the per-process worker status registry shown in the admin
 	// UI; nil disables status reporting.
 	Workers *worker.Registry
@@ -169,6 +175,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			// whose first side arrived months ago.
 			pluginutil.Trigger(opts.TransferMatchTrigger)
 			pluginutil.Trigger(opts.GroupingTrigger)
+			pluginutil.Trigger(opts.PromotionTrigger)
 		}
 	case db.JobTypeSystemArchive:
 		res := processSystemImport(ctx, ingestDeps{
@@ -221,6 +228,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 		if res.txsStored {
 			pluginutil.Trigger(opts.TransferMatchTrigger)
 			pluginutil.Trigger(opts.GroupingTrigger)
+			pluginutil.Trigger(opts.PromotionTrigger)
 		}
 		if res.txsStored || res.declarationsStored {
 			if err := recalcAfterIngestion(ctx, opts.DB, res.userID); err != nil {

@@ -392,6 +392,11 @@ service ApiService {
   // A cycle derives the partition from stored evidence and reports how it differs
   // from the one stored; it writes nothing until the converters are retired.
   rpc TriggerGrouping(TriggerGroupingRequest) returns (TriggerGroupingResponse);
+  // Trigger a promotion sweep (admin-only). Returns immediately; the pass runs
+  // async. For use by an external cron job or CLI, and after an admin changes
+  // the threshold. A sweep reads every user-owned identifier rather than a
+  // window, so an instance whose claims have all been promoted costs one query.
+  rpc TriggerPromotionSweep(TriggerPromotionSweepRequest) returns (TriggerPromotionSweepResponse);
 
   // Corporate event import / export. Mirrors the price import/export RPCs:
   // import is async via the job queue, export streams every event with the
@@ -1347,6 +1352,10 @@ message SetSettingResponse {
 message TriggerTransferMatchRequest {}
 
 message TriggerTransferMatchResponse {}
+
+message TriggerPromotionSweepRequest {}
+
+message TriggerPromotionSweepResponse {}
 
 // Unhandled corporate events.
 

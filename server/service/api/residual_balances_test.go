@@ -290,6 +290,41 @@ func TestTriggerTransferMatch_NilTrigger(t *testing.T) {
 	}
 }
 
+func TestTriggerPromotionSweep_RequiresAdmin(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := authCtx("user-1", "sub|user")
+	_, err := srv.TriggerPromotionSweep(ctx, &apiv1.TriggerPromotionSweepRequest{})
+	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
+}
+
+func TestTriggerPromotionSweep_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	trigger := make(chan struct{}, 1)
+	srv := NewServer(ServerConfig{DB: mockDB, PromotionTrigger: trigger})
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerPromotionSweep(ctx, &apiv1.TriggerPromotionSweepRequest{}); err != nil {
+		t.Fatalf("TriggerPromotionSweep: %v", err)
+	}
+	select {
+	case <-trigger:
+	default:
+		t.Error("expected a signal on the trigger channel")
+	}
+}
+
+// A no-op rather than an error where no worker is wired, matching the other
+// trigger endpoints.
+func TestTriggerPromotionSweep_NilTrigger(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerPromotionSweep(ctx, &apiv1.TriggerPromotionSweepRequest{}); err != nil {
+		t.Fatalf("TriggerPromotionSweep with nil trigger should succeed: %v", err)
+	}
+}
+
 func TestTriggerGrouping_RequiresAdmin(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|user")

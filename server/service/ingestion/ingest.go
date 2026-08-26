@@ -192,6 +192,15 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 	for i, tx := range txs {
 		txHints[i] = identifierHintsFromTx(ctx, tx)
 	}
+	// Before anything is paid for. A key whose own names disagree is about to
+	// reject the upload, so proposing identifiers for it buys a plugin call that
+	// is thrown away. The check runs here rather than in ValidateTxs above
+	// because it reads the hints, which are decoded once at this point and shared
+	// by both passes below.
+	if errs := validateStatedIdentifiers(txs, txHints, rowIdx); len(errs) > 0 {
+		rep.Errs(errs)
+		return out, errBatchRejected
+	}
 	pre, err := proposeCandidates(ctx, deps, p.Source, p.Broker, txs, txHints)
 	if err != nil {
 		rep.Errf(-1, "txs", err.Error())

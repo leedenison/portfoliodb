@@ -64,7 +64,7 @@ type Result struct {
 	// constrains what the security is, not which security it is, and belongs on
 	// the Instrument where confirmedFields already grades it.
 	//
-	// See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md
+	// See adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md
 	// and adr/0065-a-plugin-declares-what-it-claims-a-call-records-what-it-claimed.md.
 	Filtered  []Identifier
 	Telemetry Telemetry

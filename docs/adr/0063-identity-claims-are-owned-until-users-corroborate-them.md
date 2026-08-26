@@ -3,11 +3,15 @@
 [0062](0062-a-user-mediated-claim-is-a-lead-not-a-write.md) leaves a broker
 trusted for its own contract identifiers and descriptions because nothing else
 can supply them, while the channel carrying that trust is a file a user handed
-us. The bound on that is scope: a claim arriving through a regular user is
+us. The bound on that is ownership: a claim arriving through a regular user is
 **owned by that user** until other users agree with it.
 
-`instrument_identifiers` gains an owner. Null means system-owned, which is what
-an identifier plugin writes and what everything reads today. A broker-scoped
+`instrument_identifiers` gains an owner. It is where the fact-or-claim
+distinction of
+[0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md) is
+recorded: null means system-owned -- a fact, written by a system-authoritative
+source or corroborated by one -- which is what an identifier plugin writes and
+what everything reads today. A broker-scoped
 identifier or a broker-description association from a regular user's upload is
 written owned by them, and resolves for them alone -- lookups are owner-scoped
 with a system fallback.

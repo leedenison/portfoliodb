@@ -233,7 +233,7 @@ The rows under one `call_id` are what one identifier plugin said in one answer, 
 is that grouping rather than the plugin's identity that decides whether an association between
 two of them may be acted on: identifiers arriving together are a claim somebody made,
 and the same identifiers gathered from separate calls are a set the resolver assembled.
-See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md.
+See adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md.
 
 Recording it here closes an inversion. `candidate_field` carries the value, the field
 and the confidence for every field a candidate plugin proposed -- full detail on claims

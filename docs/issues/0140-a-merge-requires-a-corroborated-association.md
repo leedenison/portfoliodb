@@ -34,5 +34,5 @@ returning a field it did not, or when an admin enables an identifier plugin or
 pays for a richer tier, so the periodic re-identification already specified is
 where it is asked again.
 
-See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md and
+See adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md and
 adr/0061-transitivity-needs-a-non-reassigned-identifier.md.

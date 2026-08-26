@@ -8,7 +8,7 @@ it returns, which of them it returns together, and **which it strictly filters o
 is a static property of the plugin, alongside its precedence and config.
 
 **A record** says which claims one call actually made. It is what
-[0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md) needs to
+[0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md) needs to
 tell a corroborated association from a manufactured one.
 
 The record is the enforcement surface because a declaration is an unenforced promise.
@@ -21,7 +21,7 @@ gating it on a comment.
 A provider that answers "no identifier found" when its filter matches nothing has
 asserted the filtered value denotes the security it described, whether or not that
 value comes back in the payload
-([0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md)). So
+([0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md)). So
 *filtered on* is graded equally with *returned*.
 
 Both surfaces need it and for different reasons. The declaration needs it because

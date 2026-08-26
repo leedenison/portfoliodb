@@ -31,9 +31,6 @@ func TestPropsCoversProtoVocabulary(t *testing.T) {
 			t.Errorf("%s: no entry in idTypes", name)
 			continue
 		}
-		if p.Scope == ScopeUnknown {
-			t.Errorf("%s: scope not declared", name)
-		}
 		if p.Reassignment == ReassignUnknown {
 			t.Errorf("%s: reassignment not declared", name)
 		}
@@ -224,37 +221,64 @@ func TestKnown(t *testing.T) {
 	}
 }
 
+// CorroboratesSecurity is what merge admission turns on, and it reads Lines
+// rather than the grain alone: a type that named no security cannot have named
+// the one another result described. Pinned per type here rather than reached
+// only through identification.corroborated.
+func TestCorroboratesSecurity(t *testing.T) {
+	for _, tt := range []struct {
+		typ  string
+		want bool
+	}{
+		{"ISIN", true},
+		{"CUSIP", true},
+		{"OPENFIGI_SHARE_CLASS", true},
+		// Routine reassignment does not disqualify a type here. Two results
+		// resolving now from one contract symbol both mean today's contract.
+		{"OCC", true},
+		{"CURRENCY", true},
+		// Names a line rather than the security above it, and agreement about
+		// the line is not evidence about the security (adr/0078).
+		{"MIC_TICKER", false},
+		{"SEDOL", false},
+		{"OPENFIGI_COMPOSITE", false},
+		// Security grain, and still no security: two securities can wear one
+		// description, so agreeing on the text is agreeing about the text.
+		{"BROKER_DESCRIPTION", false},
+		{"CONID", false},
+	} {
+		if got := CorroboratesSecurity(tt.typ); got != tt.want {
+			t.Errorf("CorroboratesSecurity(%q) = %v, want %v", tt.typ, got, tt.want)
+		}
+	}
+}
+
 func TestMayMediate(t *testing.T) {
 	tests := []struct {
-		name        string
-		typ         string
-		systemOwned bool
-		want        bool
+		name string
+		typ  string
+		want bool
 	}{
-		{"rarely reassigned FIGI mediates", "OPENFIGI_SHARE_CLASS", true, true},
-		{"rarely reassigned ISIN mediates", "ISIN", true, true},
-		{"CUSIP mediates", "CUSIP", true, true},
-		{"routinely reused ticker does not", "MIC_TICKER", true, false},
-		{"contract symbol does not", "OCC", true, false},
-		{"description does not", "BROKER_DESCRIPTION", true, false},
-		{"currency does not", "CURRENCY", true, false},
-		// Ownership is the condition an implementation reading only the type
-		// property would miss, and an ISIN is exactly where it would be missed.
-		{"user-owned ISIN does not", "ISIN", false, false},
-		{"user-owned FIGI does not", "OPENFIGI_COMPOSITE", false, false},
+		{"rarely reassigned FIGI mediates", "OPENFIGI_SHARE_CLASS", true},
+		{"rarely reassigned ISIN mediates", "ISIN", true},
+		{"CUSIP mediates", "CUSIP", true},
+		{"routinely reused ticker does not", "MIC_TICKER", false},
+		{"contract symbol does not", "OCC", false},
+		{"description does not", "BROKER_DESCRIPTION", false},
+		{"currency does not", "CURRENCY", false},
 		// Listing grain is not the question MayMediate asks. Both of these name
 		// a line and both are still rarely reassigned, which is the only
 		// property that decides this.
-		{"listing-grain composite mediates", "OPENFIGI_COMPOSITE", true, true},
-		{"listing-grain SEDOL mediates", "SEDOL", true, true},
+		{"listing-grain composite mediates", "OPENFIGI_COMPOSITE", true},
+		{"listing-grain SEDOL mediates", "SEDOL", true},
 		// A type outside the vocabulary fails closed rather than reading as the
 		// zero value of Reassignment.
-		{"unknown type does not", "CONID", true, false},
+		{"unknown type does not", "CONID", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := MayMediate(tt.typ, tt.systemOwned); got != tt.want {
-				t.Errorf("MayMediate(%q, %v) = %v, want %v", tt.typ, tt.systemOwned, got, tt.want)
+			if got := MayMediate(tt.typ); got != tt.want {
+				t.Errorf("MayMediate(%q) = %v, want %v", tt.typ, got, tt.want)
 			}
 		})
 	}

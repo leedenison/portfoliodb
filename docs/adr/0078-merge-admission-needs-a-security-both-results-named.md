@@ -15,7 +15,7 @@ may never have been about.
 **A losing result is admitted only where something named the security both
 results describe: one identifier of security grain that each of them named,
 by returning it or by strictly filtering on it
-([0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md)).**
+([0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md)).**
 Where nothing does, the loser contributes nothing -- no identifiers of either
 grain, no filled fields, no claim.
 

@@ -648,12 +648,22 @@ type JobDB interface {
 // holding a timestamp truncates it. See
 // docs/adr/0055-identifier-validity-is-an-interval.md.
 //
-// Those two fields are the whole difference between this and [InstrumentRef],
+// Owner is who vouched for the association. Empty means system-owned -- a fact,
+// from a source carrying system authority -- which is what an identifier plugin
+// and an admin's archive write. A user id makes the row that user's claim, which
+// is what a broker-scoped identifier or a broker-description association
+// arriving in their transaction upload is. It is per row rather than per call
+// because one resolution writes both: the identifiers a plugin returned are
+// facts, and the broker description appended beside them is not. See
+// docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
+//
+// Those three fields are the whole difference between this and [InstrumentRef],
 // and they are why what a plugin is handed is a separate type: a plugin must not
 // be able to read them, let alone act on them.
 type IdentifierInput struct {
 	Ref         InstrumentRef
 	Canonical   bool // default true when not set for backward compat
+	Owner       string
 	ValidFrom   *time.Time
 	ValidBefore *time.Time
 }
@@ -1747,7 +1757,14 @@ type InstrumentDB interface {
 	// there rather than returned. A caller asserting no claim passes an empty
 	// one: with nothing asserted the identifiers cannot reach two instruments,
 	// so there is no decision to take and none to record.
-	EnsureInstrument(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, optionFields *OptionFields, runID string) (instrumentID, listingID string, err error)
+	// owner is the user this resolution is being carried out for, and it scopes
+	// every lookup with a system fallback. It is empty for a caller with no user
+	// to speak for -- an archive import, a price fetch -- which sees the
+	// instance's facts alone. What is written carries each identifier's own
+	// owner rather than this one: one resolution stores the names a plugin
+	// returned as facts and the broker description appended beside them as that
+	// user's claim.
+	EnsureInstrument(ctx context.Context, owner, assetClass, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, optionFields *OptionFields, runID string) (instrumentID, listingID string, err error)
 	// EnsureArchiveInstrument is EnsureInstrument for a caller that states a
 	// security's whole listing set rather than one currency of it: the archive.
 	//
@@ -1768,8 +1785,16 @@ type InstrumentDB interface {
 	// It states no currency of its own: listings carries every line the file
 	// names, so there is no single one left for the caller to name.
 	EnsureArchiveInstrument(ctx context.Context, assetClass, name, cik, sicCode string, identifiers []IdentifierInput, listings ListingSet, claims []IdentityClaim, underlyingListingID string, optionFields *OptionFields, runID string) (instrumentID, listingID string, err error)
-	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
-	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
+	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type,
+	// domain, value). Returns "" if not found. Use empty domain for no domain.
+	//
+	// owner scopes the answer with a system fallback: the user's own claim wins
+	// where they hold one, and what the instance holds as a fact answers where
+	// they do not. Empty sees system-owned rows alone, which is what a caller
+	// with no user to speak for must ask for -- reference data resolves facts
+	// and never claims. The same rule governs every lookup below that takes one.
+	// See docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
+	FindInstrumentByIdentifier(ctx context.Context, owner, identifierType, domain, value string) (string, error)
 	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but
 	// also returns the security's asset class and the currencies of the lines the
 	// identifier reaches, in one query.
@@ -1783,9 +1808,9 @@ type InstrumentDB interface {
 	//
 	// No venue comes back at either grain. See
 	// docs/adr/0077-a-venue-set-is-what-we-know-not-what-exists.md.
-	FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (instrumentID, assetClass string, currencies []string, err error)
+	FindInstrumentWithMetaByIdentifier(ctx context.Context, owner, identifierType, domain, value string) (instrumentID, assetClass string, currencies []string, err error)
 	// FindInstrumentByTypeAndValue looks up instrument_id by (identifier_type, value) with any domain. Returns "" if not found or if multiple instruments match (ambiguous).
-	FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error)
+	FindInstrumentByTypeAndValue(ctx context.Context, owner, identifierType, value string) (string, error)
 	// FindInstrumentByTickerIgnoringSeparators looks up instrument_id by a
 	// MIC_TICKER value compared with split-ticker separators removed on both
 	// sides. An OCC root spells a multi-class ticker without its separator --
@@ -1794,20 +1819,28 @@ type InstrumentDB interface {
 	// if not found or if several instruments match.
 	FindInstrumentByTickerIgnoringSeparators(ctx context.Context, value string) (string, error)
 	// FindInstrumentBySourceDescription looks up instrument_id by (source, NULL domain, instrument_description). Returns "" if not found.
-	FindInstrumentBySourceDescription(ctx context.Context, source, description string) (string, error)
+	FindInstrumentBySourceDescription(ctx context.Context, owner, source, description string) (string, error)
 	// FindDescriptionOnlyInstrument is the same lookup narrowed to an instrument
 	// carrying no canonical identifier -- one that is nothing but the broker's
 	// text for a security. It returns "" for a description naming an instrument
 	// that has since been identified, which is a different thing entirely: that
 	// instrument has an identity, and a description is not allowed to associate
 	// it with another one.
+	//
+	// Deliberately not owner-scoped, unlike the lookups above. It answers only
+	// about an instrument that is nothing but a broker's text for a security,
+	// and two users holding one description cannot disagree about which of those
+	// it names -- the description is the whole of the instrument. Scoping it
+	// would mint one instrument per user for a single description, and the
+	// promotion sweep would then read two identical claims as a conflict about
+	// which instrument the mapping names and promote neither.
 	FindDescriptionOnlyInstrument(ctx context.Context, source, description string) (string, error)
 	// GetInstrument returns an instrument by ID with its identifiers, or nil if not found.
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.
 	ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*InstrumentRow, error)
 	// ListInstrumentsForExport returns all instruments that have at least one
-	// identifier with canonical = true, plus the underlying of every derivative
+	// system-owned identifier with canonical = true, plus the underlying of every derivative
 	// among them whether or not the filters would have selected it -- an archive
 	// naming an underlying it does not carry is invalid. If assetClasses is
 	// non-empty, filter to those classes; otherwise return every class,

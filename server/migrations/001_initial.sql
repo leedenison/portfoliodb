@@ -437,6 +437,18 @@ CREATE INDEX idx_instruments_underlying_listing_id ON instruments (underlying_li
 -- canonical = false only for BROKER_DESCRIPTION identifiers; canonical = true for standard identifiers.
 -- Surrogate PK so domain can be NULL (PostgreSQL PK columns are NOT NULL).
 --
+-- owner is who vouched for the association. NULL means system-owned: a fact,
+-- written by a source carrying system authority -- an identifier plugin,
+-- reference data, an admin's archive -- or corroborated by one. A row owned by a
+-- user is a claim: a broker-scoped identifier or a broker-description
+-- association that arrived in that user's transaction upload, unauthenticated
+-- and impossible to re-interrogate, and it resolves for that user alone.
+-- Lookups are owner-scoped with a system fallback, and the promotion sweep makes
+-- a claim enough users hold into a fact. See
+-- docs/adr/0062-a-user-mediated-claim-is-a-lead-not-a-write.md,
+-- docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md and
+-- docs/adr/0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md.
+--
 -- valid_from is the point in market time the name became correct for the
 -- instrument: the vintage of the source that supplied it, or the ex_date of the
 -- split that minted it. A NULL valid_before means it is the name the instrument
@@ -452,20 +464,31 @@ CREATE TABLE instrument_identifiers (
   domain          TEXT,
   value           TEXT NOT NULL,
   canonical       BOOLEAN NOT NULL DEFAULT true,
+  owner           UUID REFERENCES users (id) ON DELETE CASCADE,
   valid_from      DATE,
   valid_before    DATE,
   CONSTRAINT chk_instrument_identifiers_interval CHECK (
     valid_from IS NULL OR valid_before IS NULL OR valid_from < valid_before
   ),
-  -- One name denotes one instrument at a time. This replaces the global unique
-  -- index on (identifier_type, domain, value), which cannot survive retained
-  -- history: a forward split halves every strike, so one option's new OCC symbol
-  -- is character-for-character another's old one whenever the strike ladder
-  -- overlaps itself.
+  -- One name denotes one instrument at a time, per owner, with system rows as
+  -- the shared case. This replaces the global unique index on (identifier_type,
+  -- domain, value), which cannot survive retained history: a forward split
+  -- halves every strike, so one option's new OCC symbol is character-for-
+  -- character another's old one whenever the strike ladder overlaps itself.
   --
-  -- The COALESCE is load-bearing. A GIST 'WITH =' on a NULL never conflicts,
+  -- Both COALESCEs are load-bearing. A GIST 'WITH =' on a NULL never conflicts,
   -- which is the opposite of what the partial unique indexes on a NULL domain
-  -- achieved.
+  -- achieved, and a bare 'owner WITH =' would stop two system rows conflicting
+  -- with each other and so destroy the invariant it is here to keep.
+  --
+  -- Owning the key weakens that invariant deliberately. A user-owned row and a
+  -- system row for one triple no longer collide, so a user may hold a mapping
+  -- that contradicts the instance's; lookups resolve owner-first, so their
+  -- transactions follow their own file. That is the user override the spec
+  -- already describes, arriving by a new route. Two users holding conflicting
+  -- mappings for one triple is likewise no longer rejected at insert, which is
+  -- what lets the disagreement exist to be surfaced and resolved rather than
+  -- being refused at the point nobody can see it.
   --
   -- Being global, it also covers per-instrument uniqueness for overlapping rows
   -- while still allowing one instrument to hold a value over disjoint intervals.
@@ -473,6 +496,7 @@ CREATE TABLE instrument_identifiers (
     identifier_type WITH =,
     COALESCE(domain, '') WITH =,
     value WITH =,
+    COALESCE(owner, '00000000-0000-0000-0000-000000000000'::uuid) WITH =,
     daterange(valid_from, valid_before) WITH &&
   )
 );
@@ -485,6 +509,9 @@ CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identi
 -- exclusion constraint replaced. GIST answers equality far worse than btree, so
 -- the constraint's index is not a substitute for this one.
 CREATE INDEX idx_instrument_identifiers_lookup_domain ON instrument_identifiers (identifier_type, domain, value);
+-- The promotion sweep reads every user-owned row and nothing else, and deleting
+-- a user cascades to the claims they vouched for. Both want the owner alone.
+CREATE INDEX idx_instrument_identifiers_owner ON instrument_identifiers (owner) WHERE owner IS NOT NULL;
 
 -- currency_family collapses a minor-unit currency onto the unit it is a prefix
 -- of. GBX is pence sterling: the same currency as GBP under a different prefix,

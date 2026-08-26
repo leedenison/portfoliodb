@@ -179,7 +179,7 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	ctx := context.Background()
 
 	// Create instrument with both ISIN (priority 3) and MIC_TICKER (priority 1).
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Apple", "", "", []db.IdentifierInput{
+	instID, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "Apple", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
@@ -326,7 +326,7 @@ func TestListPricesForExport_OrdersByDomain(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	xlon, _, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "VOD", "", "", []db.IdentifierInput{
+	xlon, _, err := p.EnsureInstrument(ctx, "", "STOCK", "GBP", "VOD", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XLON"},
 			Canonical: true,
@@ -334,7 +334,7 @@ func TestListPricesForExport_OrdersByDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure XLON instrument: %v", err)
 	}
-	xnas, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "VOD", "", "", []db.IdentifierInput{
+	xnas, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "VOD", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "VOD", Domain: "XNAS"},
 			Canonical: true,
@@ -434,7 +434,7 @@ func TestListPrices_Pagination(t *testing.T) {
 // the export's identifier precedence prefers.
 func setupTickerInstrument(t *testing.T, p *Postgres, ticker string) string {
 	t.Helper()
-	id, _, err := p.EnsureInstrument(context.Background(), "STOCK", "USD", ticker, "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(context.Background(), "", "STOCK", "USD", ticker, "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: ticker, Domain: "XNAS"},
 			Canonical: true,

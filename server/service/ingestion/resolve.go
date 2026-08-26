@@ -469,7 +469,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// reads it from there. Storing it in the column as well would be a
 		// user-supplied value for a field no authority has answered, which the
 		// completion would then have to discard (adr/0079).
-		instID, _, ensureErr := database.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+		instID, _, ensureErr := database.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 			Canonical: false,
 		}}, nil, "", nil, "")
@@ -561,7 +561,7 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 // associates nothing with anything, and the trigger deriving the display name
 // reads the description off the identifier.
 func ensureDescriptionOnly(ctx context.Context, database db.DB, source, instrumentDescription string) (string, error) {
-	id, _, err := database.EnsureInstrument(ctx, "", "", "", "", "",
+	id, _, err := database.EnsureInstrument(ctx, "", "", "", "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 			Canonical: false,

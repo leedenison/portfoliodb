@@ -65,11 +65,21 @@ export async function resetData(): Promise<void> {
       validation_errors,
       ingestion_jobs,
       txs,
+      tx_groups,
+      transfer_matches,
       portfolio_filters,
-      portfolios,
-      users
+      portfolios
     CASCADE
   `);
+  // Users are deleted rather than truncated with the rest. instrument_identifiers
+  // carries an owner referencing users, so TRUNCATE ... CASCADE reaches it and
+  // empties the whole table -- the seeded currency and FX names included, which
+  // every fixture that routes a counterparty then fails to find. A DELETE
+  // cascades row by row instead, so it reaches exactly the claims these users
+  // owned and leaves the instance's own names alone. tx_groups and
+  // transfer_matches are named above for the same reason: they used to be
+  // emptied by that cascade rather than on their own account.
+  await c.query(`DELETE FROM users`);
   // Delete non-seed instruments (CASCADE removes identifiers, prices, etc).
   // asset_class IS NULL covers broker-description-only instruments created
   // when identification fails (EnsureInstrument stores NULL asset_class).

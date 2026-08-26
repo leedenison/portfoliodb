@@ -196,12 +196,12 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 				value = compact
 			}
 		}
-		id, ac, curs, err := database.FindInstrumentWithMetaByIdentifier(ctx, h.Type, h.Domain, value)
+		id, ac, curs, err := database.FindInstrumentWithMetaByIdentifier(ctx, "", h.Type, h.Domain, value)
 		if err != nil {
 			return nil, err
 		}
 		if id == "" && h.Domain == "" {
-			id, err = database.FindInstrumentByTypeAndValue(ctx, h.Type, value)
+			id, err = database.FindInstrumentByTypeAndValue(ctx, "", h.Type, value)
 			if err != nil {
 				return nil, err
 			}
@@ -268,12 +268,12 @@ func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hint
 				value = compact
 			}
 		}
-		id, err := database.FindInstrumentByIdentifier(ctx, h.Type, h.Domain, value)
+		id, err := database.FindInstrumentByIdentifier(ctx, "", h.Type, h.Domain, value)
 		if err != nil {
 			return nil, err
 		}
 		if id == "" && h.Domain == "" {
-			id, err = database.FindInstrumentByTypeAndValue(ctx, h.Type, value)
+			id, err = database.FindInstrumentByTypeAndValue(ctx, "", h.Type, value)
 			if err != nil {
 				return nil, err
 			}
@@ -1659,7 +1659,7 @@ func ResolveWithPlugins(
 		// identifiers follow the same routing, so it is passed on rather than
 		// discarded; carrying it out of Resolve to the caller is 0147's third
 		// step.
-		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields, tel.RunID)
+		id, listingID, err := database.EnsureInstrument(ctx, "", inst.AssetClass, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields, tel.RunID)
 		if err != nil {
 			return ResolveResult{}, err
 		}

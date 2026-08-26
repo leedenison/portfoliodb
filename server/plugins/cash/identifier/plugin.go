@@ -55,7 +55,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if code == "" {
 		return notIdentified(), identifier.ErrNotIdentified
 	}
-	instrumentID, err := p.database.FindInstrumentByIdentifier(ctx, "CURRENCY", "", code)
+	instrumentID, err := p.database.FindInstrumentByIdentifier(ctx, "", "CURRENCY", "", code)
 	if err != nil {
 		return identifier.Result{Telemetry: identifier.Telemetry{Outcome: identifier.OutcomeError}}, err
 	}

@@ -71,10 +71,10 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		Return(nil)
 	// Resolve for "UNKNOWN": DB miss, nil candRegistry -> extraction failed, EnsureInstrument broker-only
 	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "UNKNOWN").
+		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "UNKNOWN").
 		Return("", nil)
 	database.EXPECT().EnsureInstrument(
-		gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
+		gomock.Any(), gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: "IBKR:test:statement"},
 			Canonical: false,
 		}}, gomock.Any(), "", nil, gomock.Any()).
@@ -152,10 +152,10 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		SetJobTotalCount(gomock.Any(), "job-2", int32(2)).
 		Return(nil)
 	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "CACHED").
+		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "CACHED").
 		Return("", nil)
 	database.EXPECT().EnsureInstrument(
-		gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
+		gomock.Any(), gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "CACHED", Domain: "IBKR:test:statement"},
 			Canonical: false,
 		}}, gomock.Any(), "", nil, gomock.Any()).
@@ -231,7 +231,7 @@ func TestProcessBulk_StatedCashOnStockInstrumentFails(t *testing.T) {
 	// Both txs share the same (source, description); the description is
 	// already linked to a STOCK instrument from a prior upload.
 	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "MICROSOFT INC").
+		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "MICROSOFT INC").
 		Return("msft-stock-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-contradict").
@@ -302,7 +302,7 @@ func TestProcessBulk_SpecificHintMeansWhatItSays(t *testing.T) {
 		SetJobTotalCount(gomock.Any(), "job-stock-etf", int32(1)).
 		Return(nil)
 	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "SPY").
+		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "SPY").
 		Return("spy-etf-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-stock-etf").
@@ -369,7 +369,7 @@ func TestProcessBulk_CoarseHintAdmitsItsLeaf(t *testing.T) {
 		SetJobTotalCount(gomock.Any(), "job-etf", int32(1)).
 		Return(nil)
 	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "SPY").
+		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "SPY").
 		Return("spy-etf-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-etf").
@@ -433,7 +433,7 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 		SetJobTotalCount(gomock.Any(), "job-mf", int32(1)).
 		Return(nil)
 	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "VFIAX").
+		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "VFIAX").
 		Return("vfiax-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-mf").
@@ -497,7 +497,7 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 		SetJobTotalCount(gomock.Any(), "job-transfer-cash", int32(1)).
 		Return(nil)
 	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "USD CASH").
+		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "USD CASH").
 		Return("cash-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-transfer-cash").
@@ -554,7 +554,7 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 		SetJobTotalCount(gomock.Any(), "job-transfer-stock", int32(1)).
 		Return(nil)
 	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "MSFT").
+		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "MSFT").
 		Return("msft-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-transfer-stock").
@@ -618,9 +618,9 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			})
 			// The underlying short-circuits out of the instrument table, and the
 			// contract's USD strike names the line of it the option delivers.
-			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 				Return("underlying-id", "STOCK", []string{"USD"}, nil).AnyTimes()
-			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("underlying-id", nil).AnyTimes()
+			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").Return("underlying-id", nil).AnyTimes()
 			database.EXPECT().EnsureListing(gomock.Any(), "underlying-id", "USD").Return("underlying-line-id", nil).AnyTimes()
 
 			payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
@@ -653,17 +653,17 @@ func TestProcessTx_DatesTheNameFromTheUploadVintageNotTheTradeDate(t *testing.T)
 			//
 			// The hint reaches every lookup as the file spelled it: nothing
 			// rewrites an OCC on its way to a provider or to the instrument table.
-			database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "OCC", "", occ).Return("", nil)
+			database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "OCC", "", occ).Return("", nil)
 			database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "IBKR:test:statement", "AAPL 250117C00760000").Return("", nil)
-			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", occ).Return("", "", nil, nil)
-			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "OCC", occ).Return("", nil).AnyTimes()
+			database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "OCC", "", occ).Return("", "", nil, nil)
+			database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "OCC", occ).Return("", nil).AnyTimes()
 			database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 				Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10}}, nil)
 
 			// The assertion.
 			var validFrom []*time.Time
-			database.EXPECT().EnsureInstrument(gomock.Any(), "OPTION", "USD", "", "", "", gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields, _ string) (string, string, error) {
+			database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), "OPTION", "USD", "", "", "", gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields, _ string) (string, string, error) {
 					for _, idn := range idns {
 						validFrom = append(validFrom, idn.ValidFrom)
 					}
@@ -712,7 +712,7 @@ func TestProposeCandidates_HintedKeyIsLookedUpByItsIdentifiers(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	// No FindInstrumentBySourceDescription expectation: calling it fails the test.
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("aapl-id", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "ISIN", "", "US0378331005").Return("aapl-id", nil)
 
 	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"})}
 	txHints := [][]identifier.Identifier{{{Type: "ISIN", Value: "US0378331005"}}}
@@ -746,8 +746,8 @@ func TestProposeCandidates_HintedKeyFallsBackToTheDescription(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "ISIN", "US0378331005").Return("", nil)
 	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("desc-only-id", nil)
 
 	txs := []*apiv1.Tx{hintedTx("APPLE INC", &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"})}
@@ -780,10 +780,10 @@ func TestProposeCandidates_ConflictIsRecordedNotRaised(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0000000001").Return("inst-a", nil)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "CUSIP", "", "000000001").Return("inst-b", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "ISIN", "", "US0000000001").Return("inst-a", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "CUSIP", "", "000000001").Return("inst-b", nil)
 	// The second key is still looked up, which is the point.
-	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), "SRC", "OTHER CO").Return("other-id", nil)
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "SRC", "OTHER CO").Return("other-id", nil)
 
 	txs := []*apiv1.Tx{
 		hintedTx("AMBIGUOUS",
@@ -823,7 +823,7 @@ func TestProposeCandidates_ResolvedDescriptionIsNotProposedFor(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), "SRC", "APPLE INC").Return("aapl-id", nil)
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "SRC", "APPLE INC").Return("aapl-id", nil)
 
 	txs := []*apiv1.Tx{tx("APPLE INC")}
 	txHints := [][]identifier.Identifier{nil}
@@ -873,8 +873,8 @@ func TestProposeCandidates_AStatedIsinWithNoVenueIsCompleted(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "ISIN", "US0378331005").Return("", nil)
 	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 	database.EXPECT().ValidateMIC(gomock.Any(), "XNAS").Return(true, nil)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XNAS").Return("XNAS", nil)
@@ -924,8 +924,8 @@ func TestProposeCandidates_AnISINAndACurrencyAreNotCompleted(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "ISIN", "US0378331005").Return("", nil)
 	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 
 	plugin := &fakeDescPlugin{
@@ -959,7 +959,7 @@ func TestProposeCandidates_AStatedVenueIsNotCompleted(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("", nil)
 	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 
 	plugin := &fakeDescPlugin{
@@ -995,8 +995,8 @@ func TestProposeCandidates_AnArchiveDoesNotCompleteAPartialIdentity(t *testing.T
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "ISIN", "", "US0378331005").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "ISIN", "US0378331005").Return("", nil)
 	database.EXPECT().FindDescriptionOnlyInstrument(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 
 	plugin := &fakeDescPlugin{
@@ -1028,7 +1028,7 @@ func TestProposeCandidates_AnArchiveStillProposesForADescriptionAlone(t *testing
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), "SRC", "APPLE INC").Return("", nil)
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "SRC", "APPLE INC").Return("", nil)
 	database.EXPECT().ValidateMIC(gomock.Any(), "XNAS").Return(true, nil)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), "XNAS").Return("XNAS", nil)
 	expectCandidateConfig(database)
@@ -1059,8 +1059,8 @@ func TestProposeCandidates_AConflictIsNotCompleted(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0000000001").Return("inst-a", nil)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "CUSIP", "", "000000001").Return("inst-b", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "ISIN", "", "US0000000001").Return("inst-a", nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "CUSIP", "", "000000001").Return("inst-b", nil)
 
 	plugin := &fakeDescPlugin{
 		acceptable:    map[string]bool{identifier.SecurityTypeHintStock: true},

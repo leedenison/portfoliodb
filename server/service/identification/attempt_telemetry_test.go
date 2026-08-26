@@ -99,7 +99,7 @@ func TestAttemptDBShortCircuit(t *testing.T) {
 	tel := mock.NewMockTelemetryDB(ctrl)
 	spy := newAttemptSpy(t, tel)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("inst-1", "STOCK", []string{"USD"}, nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(),
@@ -141,9 +141,9 @@ func TestAttemptNoEligiblePlugins(t *testing.T) {
 
 	registry := identifier.NewRegistry()
 	registry.Register("cash-only", &cashOnlyPlugin{})
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("", "", nil, nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "cash-only", Precedence: 10}}, nil)
@@ -213,9 +213,9 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 		outcome: identifier.OutcomeIdentified,
 	})
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("", "", nil, nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
@@ -224,7 +224,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 			{PluginID: "odd", Precedence: 10},
 			{PluginID: "lone", Precedence: 5},
 		}, nil)
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -296,9 +296,9 @@ func TestPluginTransportOutcomePassesThrough(t *testing.T) {
 		outcome: identifier.OutcomeSkippedExpired,
 		err:     identifier.ErrNotIdentified,
 	})
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("", "", nil, nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "expired", Precedence: 10}}, nil)
@@ -343,9 +343,9 @@ func TestPluginCallCountsRetries(t *testing.T) {
 		outcome:   identifier.OutcomeNotIdentified,
 		err:       identifier.ErrNotIdentified,
 	})
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("", "", nil, nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "flaky", Precedence: 10}}, nil)
@@ -388,18 +388,18 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 		outcome: identifier.OutcomeIdentified,
 	})
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", "AAPL240315C00100000").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "OCC", "", "AAPL240315C00100000").
 		Return("", "", nil, nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "OCC", "AAPL240315C00100000").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "OCC", "AAPL240315C00100000").Return("", nil)
 	// The underlying resolves straight from the instrument table, which is a
 	// second attempt that short-circuits.
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("underlying-id", "STOCK", []string{"USD"}, nil)
 	// The derivative's currency names the line of the underlying it delivers.
 	database.EXPECT().EnsureListing(gomock.Any(), "underlying-id", gomock.Any()).Return("underlying-line-id", nil)
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "opt", Precedence: 10}}, nil)
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any(), gomock.Any()).
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any(), gomock.Any()).
 		Return("opt-id", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -463,9 +463,9 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 	// Answered and had nothing, so it asserted nothing.
 	registry.Register("quiet", &telPlugin{outcome: identifier.OutcomeNotIdentified, err: identifier.ErrNotIdentified})
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("", "", nil, nil)
-	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
+	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").Return("", nil)
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
@@ -473,7 +473,7 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 			{PluginID: "odd", Precedence: 20},
 			{PluginID: "quiet", Precedence: 10},
 		}, nil)
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,

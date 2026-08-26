@@ -65,7 +65,7 @@ func declarationPart(sts ...*archivev1.Statement) *archivev1.DeclarationPart {
 // line the file names on the security it resolves to.
 func expectResolve(database *mock.MockDB, value, instrumentID string) {
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", value).
+		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", value).
 		Return(instrumentID, nil)
 	database.EXPECT().
 		FindListing(gomock.Any(), instrumentID, "USD").
@@ -288,7 +288,7 @@ func TestDeclarationPart_RejectsACurrencyTheSecurityIsNotQuotedIn(t *testing.T) 
 	database, rep := newPartTest(t)
 	expectStartDate(t, database)
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-a", nil)
 	database.EXPECT().
 		FindListing(gomock.Any(), "inst-a", "USD").
@@ -312,7 +312,7 @@ func TestDeclarationPart_ARefWithNoCurrencyLandsOnNoLine(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectStartDate(t, database)
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-a", nil)
 	unplaced := held("Z1", "inst-a")
 	unplaced.ListingID = ""

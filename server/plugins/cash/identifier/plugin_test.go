@@ -23,7 +23,7 @@ func TestPlugin_Identify_CurrencyFound(t *testing.T) {
 	hints := []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}}
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "CURRENCY", "", "USD").
+		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "CURRENCY", "", "USD").
 		Return("inst-uuid-usd", nil)
 	database.EXPECT().
 		GetInstrument(gomock.Any(), "inst-uuid-usd").
@@ -60,7 +60,7 @@ func TestPlugin_Identify_CurrencyNotFound_ReturnsErrNotIdentified(t *testing.T) 
 	hints := []identifier.Identifier{{Type: "CURRENCY", Value: "XXX"}}
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "CURRENCY", "", "XXX").
+		FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), "CURRENCY", "", "XXX").
 		Return("", nil)
 
 	res, err := p.Identify(ctx, nil, "", "", "", identifier.Identity{Stated: hints, Hints: identifier.Hints{}})

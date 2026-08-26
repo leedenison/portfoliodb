@@ -108,7 +108,7 @@ func findArchiveInstrument(ctx context.Context, database db.DB, ref *archivev1.I
 		rep.Errf(idx, "instrument", "group names no instrument")
 		return ""
 	}
-	id, err := database.FindInstrumentByIdentifier(ctx, ref.GetType().String(), ref.GetDomain(), ref.GetValue())
+	id, err := database.FindInstrumentByIdentifier(ctx, "", ref.GetType().String(), ref.GetDomain(), ref.GetValue())
 	if err != nil {
 		rep.Errf(idx, "instrument", fmt.Sprintf("%s %s: %v", ref.GetType(), ref.GetValue(), err))
 		return ""

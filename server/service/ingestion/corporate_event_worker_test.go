@@ -113,7 +113,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 	// Resolution: one cache miss for the group, and the coverage pass reuses
 	// it rather than resolving the same instrument a second time.
 	database.EXPECT().
-		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "STOCK", []string{"USD"}, nil)
 
 	database.EXPECT().UpsertStockSplits(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -191,7 +191,7 @@ func TestProcessCorporateEventImport_CoverageWithNoEvents(t *testing.T) {
 	g.Coverage = []*archivev1.DateInterval{{From: "2014-01-01", Before: "2025-01-01"}}
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "STOCK", []string{"USD"}, nil)
 	database.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), "inst-aapl", db.CorporateEventProviderImport,
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -221,7 +221,7 @@ func TestProcessCorporateEventImport_RejectsBadSplitRatio(t *testing.T) {
 	g.Events = []*archivev1.CorporateEvent{splitEvent(&archivev1.Split{ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "0"})}
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-aapl", "STOCK", []string{"USD"}, nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-aapl", "STOCK", []string{"USD"}, nil)
 
 	// No upserts and no recompute (no valid splits landed).
 
@@ -258,7 +258,7 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 	g.Events = []*archivev1.CorporateEvent{dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "0.75", Currency: "USD"})}
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).Return(nil, nil)
 	// Critically: NO RecomputeSplitAdjustments call.
 
@@ -287,7 +287,7 @@ func TestProcessCorporateEventImport_UnattributableDividendIsQueuedAndReported(t
 	g.Events = []*archivev1.CorporateEvent{dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "0.75", Currency: "CAD"})}
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
 			return divs, nil
@@ -333,7 +333,7 @@ func TestProcessCorporateEventImport_OneUnattributableDividendDoesNotUnsetPersis
 	}
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
 			return divs[1:], nil
@@ -365,7 +365,7 @@ func TestProcessCorporateEventImport_RejectsBadCoverageDate(t *testing.T) {
 	g.Coverage = []*archivev1.DateInterval{{From: "2024-13-01", Before: "2025-01-01"}} // invalid month
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "STOCK", []string{"USD"}, nil)
 
 	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)
@@ -398,7 +398,7 @@ func TestProcessCorporateEventImport_EmptyCoverageInterval(t *testing.T) {
 	g.Coverage = []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-01-01"}}
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "STOCK", []string{"USD"}, nil)
 
 	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)
@@ -432,7 +432,7 @@ func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
 	g.Events = []*archivev1.CorporateEvent{dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "0.1", Currency: "USD"})}
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, divs []db.CashDividend) ([]db.CashDividend, error) {
 			if divs[0].Amount != "0.1" {
@@ -464,7 +464,7 @@ func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
 	g.Events = []*archivev1.CorporateEvent{dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "abc", Currency: "USD"})}
 	part := eventPart(g)
 
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", []string{"USD"}, nil)
 
 	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)
 	if err != nil {
@@ -495,7 +495,7 @@ func TestProcessCorporateEventImport_RejectsHintDiff(t *testing.T) {
 	part := eventPart(g)
 
 	// Instrument found but has asset class ETF, not STOCK.
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "ETF", []string{"USD"}, nil)
 
 	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)

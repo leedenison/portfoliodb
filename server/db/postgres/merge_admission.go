@@ -29,32 +29,89 @@ import (
 // docs/adr/0061-transitivity-needs-a-non-reassigned-identifier.md.
 
 // endpoint is one end of a candidate merge: an instrument, reached through one
-// stored identifier row, and what that row says about when the name was correct.
+// stored identifier row, what that row says about when the name was correct, and
+// who vouched for it.
 //
-// The type and the interval are the row's rather than the caller's. A caller
-// naming a value states what it believes today; whether that belief reaches the
-// instrument holding the value is what the stored row decides.
+// The type, the interval and the owner are the row's rather than the caller's. A
+// caller naming a value states what it believes today; whether that belief
+// reaches the instrument holding the value is what the stored row decides.
+//
+// owner is empty for a system-owned row -- a fact -- and a user id for a claim.
+// A listing-grain row is always a fact: nothing user-mediated is stored at that
+// grain, so instrument_listing_identifiers carries no owner column.
 type endpoint struct {
 	instrument uuid.UUID
 	typ        string
+	owner      string
 	from       *time.Time
 	before     *time.Time
 }
 
-// findHolder returns the instrument holding one identifier, and the interval the
-// row that holds it was written with.
+// findHolder returns the instrument holding one identifier for one owner, the
+// interval the row that holds it was written with, and who vouched for it.
 //
 // The type says which table to ask, as FindInstrumentByIdentifier's dispatch
 // does, and the ordering is that function's: the name in force wins and the most
 // recently closed one is the fallback, so a value two instruments held over
 // disjoint intervals answers with its current holder. FindInstrumentByIdentifier
 // delegates here rather than restating the query, so the two cannot come to
-// disagree about which row a value resolves to.
-func findHolder(ctx context.Context, q queryable, ref db.InstrumentRef) (endpoint, bool, error) {
-	table := "instrument_identifiers"
+// disagree about which instrument a value resolves to.
+//
+// owner scopes the answer, with a system fallback ordered ahead of the validity
+// ordering: the caller's own claim wins outright where they hold one, and what
+// the instance holds as a fact answers where they do not. An empty owner is a
+// caller with no user to speak for -- a price fetch, an archive import, a
+// reference-data lookup -- and sees system-owned rows alone, because reference
+// data resolves facts and never claims. This is the hottest path in ingestion
+// and the predicate is paid on every row. See
+// docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
+func findHolder(ctx context.Context, q queryable, owner string, ref db.InstrumentRef) (endpoint, bool, error) {
 	if identifier.NamesAListing(ref.Type) {
-		table = "instrument_listing_identifiers"
+		return findListingHolder(ctx, q, ref)
 	}
+	where, args := "domain IS NULL", []any{ref.Type, ref.Value}
+	if ref.Domain != "" {
+		where, args = "domain = $3", []any{ref.Type, ref.Value, ref.Domain}
+	}
+	scope := "owner IS NULL"
+	if owner != "" {
+		scope = fmt.Sprintf("(owner IS NULL OR owner = $%d)", len(args)+1)
+		args = append(args, owner)
+	}
+	var (
+		id           uuid.UUID
+		rowOwner     sql.NullString
+		from, before sql.NullTime
+	)
+	err := q.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT instrument_id, owner, valid_from, valid_before
+		FROM instrument_identifiers
+		WHERE identifier_type = $1 AND value = $2 AND %s AND %s
+		ORDER BY owner IS NULL, valid_before IS NULL DESC, valid_before DESC
+		LIMIT 1
+	`, where, scope), args...).Scan(&id, &rowOwner, &from, &before)
+	if err == sql.ErrNoRows {
+		return endpoint{}, false, nil
+	}
+	if err != nil {
+		return endpoint{}, false, fmt.Errorf("find identifier holder: %w", err)
+	}
+	e := endpoint{instrument: id, typ: ref.Type, owner: rowOwner.String}
+	if from.Valid {
+		e.from = &from.Time
+	}
+	if before.Valid {
+		e.before = &before.Time
+	}
+	return e, true, nil
+}
+
+// findListingHolder is findHolder for a listing-grain name. It asks no owner
+// because there is none to ask: every row on instrument_listing_identifiers is a
+// fact, so the answer is the same for every caller. Nothing user-mediated is
+// stored at that grain -- a broker file states a description and, once 0123
+// lands, a contract number, and both name the security.
+func findListingHolder(ctx context.Context, q queryable, ref db.InstrumentRef) (endpoint, bool, error) {
 	where, args := "domain IS NULL", []any{ref.Type, ref.Value}
 	if ref.Domain != "" {
 		where, args = "domain = $3", []any{ref.Type, ref.Value, ref.Domain}
@@ -65,11 +122,11 @@ func findHolder(ctx context.Context, q queryable, ref db.InstrumentRef) (endpoin
 	)
 	err := q.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT instrument_id, valid_from, valid_before
-		FROM %s
+		FROM instrument_listing_identifiers
 		WHERE identifier_type = $1 AND value = $2 AND %s
 		ORDER BY valid_before IS NULL DESC, valid_before DESC
 		LIMIT 1
-	`, table, where), args...).Scan(&id, &from, &before)
+	`, where), args...).Scan(&id, &from, &before)
 	if err == sql.ErrNoRows {
 		return endpoint{}, false, nil
 	}
@@ -197,7 +254,7 @@ func collidingIdentifier(ctx context.Context, q queryable, a, b uuid.UUID) (db.I
 // named together is one, whether it was admitted or refused, because the refusal
 // is as much the finding as the merge: counting how often each reason fires is
 // what says whether the enabled plugin set can corroborate anything.
-func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db.IdentityClaim, held map[string]endpoint) ([]uuid.UUID, []mergeDecision, error) {
+func (p *Postgres) mergeGroup(ctx context.Context, owner string, anchor uuid.UUID, claims []db.IdentityClaim, held map[string]endpoint) ([]uuid.UUID, []mergeDecision, error) {
 	var decisions []mergeDecision
 	seenDecision := make(map[string]bool)
 	record := func(d mergeDecision) {
@@ -227,7 +284,7 @@ func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db
 			e, ok := held[refKey(ref)]
 			if !ok {
 				var err error
-				e, ok, err = findHolder(ctx, p.q, ref)
+				e, ok, err = findHolder(ctx, p.q, owner, ref)
 				if err != nil {
 					return nil, nil, err
 				}

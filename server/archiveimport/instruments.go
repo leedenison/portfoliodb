@@ -88,7 +88,7 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 			underlyingIDByIndex[i] = ensuredIDs[j]
 			continue
 		}
-		found, err := database.FindInstrumentByIdentifier(ctx, typev1.IdentifierType_name[int32(ref.GetType())], ref.GetDomain(), ref.GetValue())
+		found, err := database.FindInstrumentByIdentifier(ctx, "", typev1.IdentifierType_name[int32(ref.GetType())], ref.GetDomain(), ref.GetValue())
 		if err != nil {
 			rep.Errf(i, "underlying", err.Error())
 			rep.Advance(ctx, 1)

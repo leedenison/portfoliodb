@@ -153,6 +153,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			Telemetry:         tel,
 			RunID:             runID,
 			RunKind:           kind,
+			UserID:            detail.UserID,
 		}, j, detail.UserID); ok {
 			outcome = db.TelemetryOutcomeSuccess
 			if err := recalcAfterIngestion(ctx, opts.DB, detail.UserID); err != nil {
@@ -197,6 +198,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			Telemetry:         tel,
 			RunID:             runID,
 			RunKind:           kind,
+			UserID:            detail.UserID,
 		}
 		res := processUserImport(ctx, deps, j)
 		if !res.failed {
@@ -420,7 +422,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 		seen[key] = true
 
 		if len(txHints[i]) > 0 {
-			matches, err := identification.ResolveIDsByHintsDBOnly(ctx, database, txHints[i])
+			matches, err := identification.ResolveIDsByHintsDBOnly(ctx, database, deps.UserID, txHints[i])
 			if err != nil {
 				return fail(err)
 			}
@@ -474,7 +476,7 @@ func proposeCandidates(ctx context.Context, deps ingestDeps, source, broker stri
 				continue
 			}
 		} else {
-			id, err := database.FindInstrumentBySourceDescription(ctx, "", source, desc)
+			id, err := database.FindInstrumentBySourceDescription(ctx, deps.UserID, source, desc)
 			if err != nil {
 				return fail(err)
 			}
@@ -531,7 +533,7 @@ func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source str
 	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
 		rowIndex := int32(originalIndices[i])
-		r, err := Resolve(ctx, deps.DB, deps.Registry, broker, source, desc, HintsFromTx(tx), txHints[i], pre, rowIndex, exportedAt, keys)
+		r, err := Resolve(ctx, deps.DB, deps.Registry, deps.UserID, broker, source, desc, HintsFromTx(tx), txHints[i], pre, rowIndex, exportedAt, keys)
 		if err != nil {
 			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}

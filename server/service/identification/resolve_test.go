@@ -37,7 +37,7 @@ func TestResolveByHintsDBOnly_ExactMatch(t *testing.T) {
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "OPENFIGI_TICKER", "US", "AAPL").
 		Return("inst-1", "", nil, nil)
 
-	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, "", []identifier.Identifier{
 		{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"},
 	})
 	if err != nil {
@@ -62,7 +62,7 @@ func TestResolveByHintsDBOnly_FallbackByTypeAndValue(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("inst-1", nil)
 
-	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, "", []identifier.Identifier{
 		{Type: "MIC_TICKER", Domain: "", Value: "AAPL"},
 	})
 	if err != nil {
@@ -79,7 +79,7 @@ func TestResolveByHintsDBOnly_SkipsEmptyTypeAndValue(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	// No DB calls expected for empty hints
 
-	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, "", []identifier.Identifier{
 		{Type: "", Value: "AAPL"},
 		{Type: "MIC_TICKER", Value: ""},
 	})
@@ -104,7 +104,7 @@ func TestResolveByHintsDBOnly_Deduplicates(t *testing.T) {
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "ISIN", "", "US0378331005").
 		Return("inst-1", "", nil, nil)
 
-	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, "", []identifier.Identifier{
 		{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"},
 		{Type: "ISIN", Value: "US0378331005"},
 	})
@@ -126,7 +126,7 @@ func TestResolveByHintsDBOnly_NormalizesOCCToCompact(t *testing.T) {
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "OCC", "", "NVDA240315P00420000").
 		Return("inst-1", "", nil, nil)
 
-	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, "", []identifier.Identifier{
 		{Type: "OCC", Value: "NVDA  240315P00420000"},
 	})
 	if err != nil {
@@ -176,7 +176,7 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("existing-id", nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -217,7 +217,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "USD", "Apple Inc.", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("new-id", "listing-id", nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -270,7 +270,7 @@ func TestResolveWithPlugins_DatesNamesOnPluginSuccess(t *testing.T) {
 			return "new-id", "listing-id", nil
 		}).Times(1)
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -319,7 +319,7 @@ func TestResolveWithPlugins_DatesNamesFromTheHintVintage(t *testing.T) {
 			return "new-id", "listing-id", nil
 		}).Times(1)
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}},
 		false, nil, Attempt{}, nil, 0, &validAt); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -349,7 +349,7 @@ func TestResolveWithPlugins_NoDatedNameOnFallback(t *testing.T) {
 	// this path writes a name rather than leaving it to the fallback.
 
 	fallback := func(_ context.Context, _ db.DB) (string, error) { return "fallback-id", nil }
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "src", "desc", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		true, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -387,7 +387,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 		return "fallback-id", nil
 	}
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}}, Hints: identifier.Hints{}},
 		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -433,7 +433,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 		return "fallback-id", nil
 	}
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "SLOW"}}, Hints: identifier.Hints{}},
 		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -468,7 +468,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -519,7 +519,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 			return "id", "listing-id", nil
 		})
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"IBKR", source, desc, identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: desc}}, Hints: identifier.Hints{}},
 		true, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -556,7 +556,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 		return "fallback-id", nil
 	}
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BAD"}}, Hints: identifier.Hints{}},
 		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -826,7 +826,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 			return "id", "listing-id", nil
 		})
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1102,7 +1102,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 			return "id", "listing-id", nil
 		})
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1183,7 +1183,7 @@ func TestResolveWithPlugins_TwoVenuesOfOneCurrencyMerge(t *testing.T) {
 			return "id", "listing-id", nil
 		})
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "VOD"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1261,7 +1261,7 @@ func TestResolveWithPlugins_UncorroboratedLoserContributesNothing(t *testing.T) 
 			return "id", "listing-id", nil
 		})
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "VOD"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1478,7 +1478,7 @@ func TestResolveWithPlugins_HintMatchPrefersLowerPrecedence(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "GBX", "BAE Systems", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("id-bae", "listing-id", nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1529,7 +1529,7 @@ func TestResolveWithPlugins_NoHintMatch_FallsBackToPrecedence(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("id-apple", "listing-id", nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "GBX"}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1576,7 +1576,7 @@ func TestResolveWithPlugins_NoHints_PurePrecedence(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("id-apple", "listing-id", nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1620,7 +1620,7 @@ func TestResolveWithPlugins_AllMatch_HighestPrecedenceWins(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "GBX", "BAE Systems A", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("id-bae-a", "listing-id", nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1666,7 +1666,7 @@ func TestResolveWithPlugins_SparseResultDoesNotVacuouslyMatch(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "USD", "Apple", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("id-apple", "listing-id", nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}, Hints: identifier.Hints{Currency: "GBX"}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1696,7 +1696,7 @@ func TestResolveByHintsDBOnly_OCCRootReachesSplitTicker(t *testing.T) {
 		FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "BRKB").
 		Return("inst-brk", nil)
 
-	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, "", []identifier.Identifier{
 		{Type: "MIC_TICKER", Value: "BRKB"},
 	})
 	if err != nil {
@@ -1719,7 +1719,7 @@ func TestResolveByHintsDBOnly_ExactMatchSkipsSeparatorFallback(t *testing.T) {
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("inst-aapl", "STOCK", []string{"USD"}, nil)
 
-	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, "", []identifier.Identifier{
 		{Type: "MIC_TICKER", Value: "AAPL"},
 	})
 	if err != nil {
@@ -1802,7 +1802,7 @@ func TestResolveWithPlugins_WinnerBlanksFilledFromConsistentLoser(t *testing.T) 
 		gomock.Any(), gomock.Any(), "STOCK", "USD", "BERKSHIRE HATHAWAY INC-CL B", "0001067983", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("new-id", "listing-id", nil)
 
-	result, err := ResolveWithPlugins(context.Background(), database, registry,
+	result, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -1844,7 +1844,7 @@ func TestResolveWithPlugins_WinnerValuesNotOverwrittenByLoser(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "GBP", "Winner Plc", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("new-id", "listing-id", nil)
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1882,7 +1882,7 @@ func TestResolveWithPlugins_InconsistentLoserFillsNothing(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "GBP", "Winner Plc", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("new-id", "listing-id", nil)
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "WIN"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1934,7 +1934,7 @@ func TestResolveWithPlugins_ForeignVenueContradictsTheWinnersMarket(t *testing.T
 			return "new-id", "listing-id", nil
 		})
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -1976,7 +1976,7 @@ func TestResolveWithPlugins_VenueInsideTheMarketIsAdopted(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "USD", "BERKSHIRE HATHAWAY INC-CL B", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("new-id", "listing-id", nil)
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -2042,7 +2042,7 @@ func TestResolveWithPlugins_ProposalNeverSatisfiesTheDBLookup(t *testing.T) {
 		Proposed: []identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}},
 		Hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 	}
-	res, err := ResolveWithPlugins(context.Background(), database, registry,
+	res, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", ident, false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -2090,7 +2090,7 @@ func TestResolveWithPlugins_ProposalIsNeverPersisted(t *testing.T) {
 		Proposed: []identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}},
 		Hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 	}
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", ident, false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -2154,7 +2154,7 @@ func resolveWinnerTiers(t *testing.T, ident identifier.Identity) string {
 			return "id", "listing-id", nil
 		})
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", ident, false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -2235,7 +2235,7 @@ func TestResolveWithPlugins_ProposalDoesNotPromoteAResultContradictingTheSource(
 			return "id", "listing-id", nil
 		})
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{
 			Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
 			Hints:    identifier.Hints{Currency: "GBP"},
@@ -2370,7 +2370,7 @@ func TestResolveWithPlugins_AStatedKeyIsNotSubjectToTheRoundTrip(t *testing.T) {
 		t.Fatal("the fallback ran: a stated key was subjected to the round-trip gate")
 		return "", nil
 	}
-	got, err := ResolveWithPlugins(context.Background(), database, registry, "", "", "",
+	got, err := ResolveWithPlugins(context.Background(), database, registry, "", "", "", "",
 		identifier.Identity{
 			Stated:   []identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}},
 			Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "X"}},
@@ -2421,7 +2421,7 @@ func TestResolveWithPlugins_AGuessedVenueDoesNotNarrowTheLookup(t *testing.T) {
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("price-first-id", nil)
 
-	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "",
+	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "", "",
 		identifier.Identity{
 			Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
 			Hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
@@ -2446,7 +2446,7 @@ func TestResolveWithPlugins_AStatedVenueDoesNarrowTheLookup(t *testing.T) {
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "XNYS", "AAPL").
 		Return("stated-id", "STOCK", []string{"USD"}, nil)
 
-	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "",
+	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "", "",
 		identifier.Identity{
 			Stated: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "AAPL"}},
 		}, false, nil, Attempt{}, nil, 0, nil)
@@ -2524,7 +2524,7 @@ func TestResolveWithPlugins_ADatabaseHitLeavesProposalsUnused(t *testing.T) {
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("known-id", "STOCK", []string{"USD"}, nil)
 
-	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "",
+	got, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "", "", "", "",
 		identifier.Identity{Proposed: []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -2702,7 +2702,7 @@ func claimsFromResolve(t *testing.T, a, b identifier.Plugin, onStore ...func([]d
 	registry.Register("pluginA", a)
 	registry.Register("pluginB", b)
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -3118,7 +3118,7 @@ func TestResolveWithPlugins_AVenueSilentResultSuppliesTheCurrency(t *testing.T) 
 		gomock.Any(), gomock.Any(), "STOCK", "GBP", "Apple Inc", "0000320193", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("new-id", "listing-id", nil)
 
-	res, err := ResolveWithPlugins(context.Background(), database, registry,
+	res, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -3159,7 +3159,7 @@ func TestResolveWithPlugins_AVenuePicksTheLineWhenItPicksOnlyOne(t *testing.T) {
 		Return("inst-id", "", nil)
 	database.EXPECT().ListingForVenue(gomock.Any(), "inst-id", "XNAS").Return("usd-line", nil)
 
-	res, err := ResolveWithPlugins(context.Background(), database, registry,
+	res, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "ETC"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -3197,7 +3197,7 @@ func TestResolveWithPlugins_ABareMICMatchingTwoLinesNamesNone(t *testing.T) {
 		Return("inst-id", "", nil)
 	database.EXPECT().ListingForVenue(gomock.Any(), "inst-id", "XLON").Return("", nil)
 
-	res, err := ResolveWithPlugins(context.Background(), database, registry,
+	res, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "ETC"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
@@ -3236,7 +3236,7 @@ func TestResolveWithPlugins_ACurrencyNamesTheLineWithoutTheVenue(t *testing.T) {
 		gomock.Any(), gomock.Any(), "STOCK", "GBP", "Some ETC", "", "", gomock.Any(), gomock.Any(), "", nil, gomock.Any()).
 		Return("inst-id", "gbp-line", nil)
 
-	res, err := ResolveWithPlugins(context.Background(), database, registry,
+	res, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "ETC"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {

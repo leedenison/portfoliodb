@@ -358,7 +358,7 @@ func proposedIdentifiers(ps []candidate.Proposal) []identifier.Identifier {
 // When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not persisted
 // to the DB as a BROKER_DESCRIPTION identifier (though results are still cached in the in-memory batch cache).
 // hints are optional (exchange, currency, MIC, security type).
-func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, pre prePass, rowIndex int32, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
+func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, owner, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, pre prePass, rowIndex int32, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
 	cache, conflicts, proposedHintsCache := pre.resolved, pre.conflicts, pre.proposed
 	key := cacheKeyWithHints(source, instrumentDescription, identifierHints)
 	if cache != nil {
@@ -413,7 +413,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 				"stated", identification.HintsSummary(identifierHints),
 				"instruments", instrumentsSummary(matches))
 			keys.conflictingHints(ctx, key, matches)
-			id, ensureErr := ensureDescriptionOnly(ctx, database, source, instrumentDescription)
+			id, ensureErr := ensureDescriptionOnly(ctx, database, owner, source, instrumentDescription)
 			if ensureErr != nil {
 				return resolveResult{}, ensureErr
 			}
@@ -451,7 +451,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// They are passed apart from the stated ones and stay that way: they
 		// choose between the listings the stated identifier produced, and
 		// introduce none of their own. See adr/0057.
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Proposed: proposedIdentifiers(proposedHintsCache[key].Proposals), Hints: hints}, cache, key, rowIndex, descOnly != "", hintsValidAt, keys, db.TelemetryPurposePrimary)
+		return resolveWithIdentifierPlugins(ctx, database, registry, owner, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Proposed: proposedIdentifiers(proposedHintsCache[key].Proposals), Hints: hints}, cache, key, rowIndex, descOnly != "", hintsValidAt, keys, db.TelemetryPurposePrimary)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.
@@ -469,9 +469,14 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// reads it from there. Storing it in the column as well would be a
 		// user-supplied value for a field no authority has answered, which the
 		// completion would then have to discard (adr/0079).
-		instID, _, ensureErr := database.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{
+		// Owned by whoever uploaded the file. Nothing here came from a plugin,
+		// so there is no fact among these identifiers to be the instance's --
+		// the description is the whole of what this instrument is called, and it
+		// is one user's claim about a security until others hold it too.
+		instID, _, ensureErr := database.EnsureInstrument(ctx, owner, "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 			Canonical: false,
+			Owner:     owner,
 		}}, nil, "", nil, "")
 		if ensureErr != nil {
 			return resolveResult{}, ensureErr
@@ -500,8 +505,8 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// is real work against real plugins, and calling them mismatch_check is
 		// what stops them inflating the denominator of a failure rate over primary
 		// attempts.
-		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Proposed: tickerHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
-		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Proposed: figiHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, owner, broker, source, instrumentDescription, identifier.Identity{Proposed: tickerHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, owner, broker, source, instrumentDescription, identifier.Identity{Proposed: figiHints, Hints: hints}, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
 		idByTicker := resultByTicker.InstrumentID
 		idByFigi := resultByFigi.InstrumentID
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
@@ -522,7 +527,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	// The (source, description) binding is always stored when one is ensured,
 	// which is exactly why the refusal matters: the binding is canonical and no
 	// later upload re-examines it.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, identifier.Identity{Proposed: hintsToUse, Hints: hints}, cache, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
+	return resolveWithIdentifierPlugins(ctx, database, registry, owner, broker, source, instrumentDescription, identifier.Identity{Proposed: hintsToUse, Hints: hints}, cache, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
 }
 
 // hintDiffsSummary formats hint diffs as a readable string (e.g. "Currency: USD->EUR, ISIN: US037->US038").
@@ -560,11 +565,15 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 // canonical and never re-examined. No name and no claim -- one description
 // associates nothing with anything, and the trigger deriving the display name
 // reads the description off the identifier.
-func ensureDescriptionOnly(ctx context.Context, database db.DB, source, instrumentDescription string) (string, error) {
-	id, _, err := database.EnsureInstrument(ctx, "", "", "", "", "", "",
+// The description is owned by whoever uploaded the file, for the reason the
+// extraction-failure path above gives: nothing identified this security, so
+// there is no fact here for the instance to hold.
+func ensureDescriptionOnly(ctx context.Context, database db.DB, owner, source, instrumentDescription string) (string, error) {
+	id, _, err := database.EnsureInstrument(ctx, owner, "", "", "", "", "",
 		[]db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 			Canonical: false,
+			Owner:     owner,
 		}},
 		nil, "", nil, "")
 	return id, err
@@ -586,16 +595,16 @@ func instrumentsSummary(ms []identification.HintMatch) string {
 // purpose names the attempt this call records. Only the primary one stamps the
 // key: the mismatch-check probes run against the same key and would otherwise
 // stamp it with their own answer before the resolution that decides it.
-func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, ident identifier.Identity, cache map[string]resolveResult, key string, rowIndex int32, bindSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
+func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, owner, broker, source, instrumentDescription string, ident identifier.Identity, cache map[string]resolveResult, key string, rowIndex int32, bindSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
 	// Ingestion-specific fallback: broker-description-only instrument.
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		// The listing is dropped rather than returned: a broker description is
 		// security-grain, so this instrument's line is its unknown one and
 		// nothing here has learned a currency to name it with.
-		return ensureDescriptionOnly(ctx, database, source, instrumentDescription)
+		return ensureDescriptionOnly(ctx, database, owner, source, instrumentDescription)
 	}
 
-	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, ident, bindSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
+	result, err := identification.ResolveWithPlugins(ctx, database, registry, owner, broker, source, instrumentDescription, ident, bindSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
 	if err != nil {
 		return resolveResult{}, err
 	}

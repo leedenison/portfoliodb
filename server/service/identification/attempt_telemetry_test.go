@@ -256,6 +256,27 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 			t.Errorf("call for %q = %+v, want it under the attempt and the run", id, got[0])
 		}
 	}
+
+	// The outcome says a plugin contradicted the winner; the mismatch says what
+	// about. Without it the disagreement is rediscovered and re-logged on every
+	// upload of the same file while nothing accumulates. See adr/0080.
+	odd := spy.calls["odd"][0]
+	if odd.Mismatch == nil {
+		t.Fatal("odd was discarded as inconsistent and the row does not say what it argued about")
+	}
+	if odd.Mismatch.Subject != "Currency" || odd.Mismatch.Winner != "USD" || odd.Mismatch.Other != "EUR" {
+		t.Errorf("mismatch = %+v, want Currency USD against EUR", odd.Mismatch)
+	}
+	if odd.Mismatch.WinnerPlugin != "high" {
+		t.Errorf("mismatch winner plugin = %q, want high", odd.Mismatch.WinnerPlugin)
+	}
+	// Every other outcome leaves it empty, which is what the schema's CHECK
+	// requires: the columns are the detail of one outcome, not of the row.
+	for _, id := range []string{"high", "mid", "lone"} {
+		if m := spy.calls[id][0].Mismatch; m != nil {
+			t.Errorf("call for %q carries a mismatch %+v and was not discarded as inconsistent", id, m)
+		}
+	}
 }
 
 // TestPluginTransportOutcomePassesThrough pins the half of the vocabulary the

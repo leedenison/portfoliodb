@@ -539,3 +539,54 @@ func TestResolutionKeys_NoCallMeansNoFieldRows(t *testing.T) {
 		})
 	keys.end(ctx, key, db.TelemetryResolutionIdentified, "inst-1")
 }
+
+// A key whose stated identifiers named more than one instrument records which
+// name reached which. The key's own outcome already says conflicting_hints; this
+// is what it was, and without it the row says a file disagreed with the security
+// master and nothing says how.
+func TestConflictingHintsRecordEachNameAndWhatItReached(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	tel := mock.NewMockTelemetryDB(ctrl)
+	spy := newKeySpy(t, tel)
+
+	var got []db.TelemetryConflictingHint
+	tel.EXPECT().WriteConflictingHint(gomock.Any(), gomock.Any()).
+		Do(func(_ context.Context, h db.TelemetryConflictingHint) { got = append(got, h) }).AnyTimes()
+
+	source, desc := "SRC", "AMBIGUOUS"
+	hints := []identifier.Identifier{
+		{Type: "ISIN", Value: "US0000000001"},
+		{Type: "CUSIP", Value: "000000001"},
+	}
+	txs := []*apiv1.Tx{tx(desc)}
+	keys := newResolutionKeys(context.Background(), tel, "run-1", source,
+		txs, [][]identifier.Identifier{hints}, prePass{})
+	key := cacheKeyWithHints(source, desc, hints)
+
+	keys.conflictingHints(context.Background(), key, []identification.HintMatch{
+		{Ref: hints[0], Instrument: "inst-a"},
+		{Ref: hints[1], Instrument: "inst-b"},
+	})
+	keys.end(context.Background(), key, db.TelemetryResolutionConflictingHints, "desc-only-id")
+
+	if len(got) != 2 {
+		t.Fatalf("wrote %d conflicting hints, want one per instrument the names reached: %+v", len(got), got)
+	}
+	if got[0].Ref.Type != "ISIN" || got[0].InstrumentID != "inst-a" {
+		t.Errorf("first = %+v, want ISIN -> inst-a", got[0])
+	}
+	if got[1].Ref.Type != "CUSIP" || got[1].InstrumentID != "inst-b" {
+		t.Errorf("second = %+v, want CUSIP -> inst-b", got[1])
+	}
+	for _, h := range got {
+		if h.RunID != "run-1" || h.KeyID == "" {
+			t.Errorf("hint = %+v, want it under the key and the run", h)
+		}
+	}
+	// The key still resolves, to the instrument the row degraded to. Recording a
+	// disagreement is not the same as failing the row.
+	if o := spy.ended[desc]; o.Outcome != db.TelemetryResolutionConflictingHints || o.InstrumentID != "desc-only-id" {
+		t.Errorf("key outcome = %+v, want conflicting_hints against the description-only instrument", o)
+	}
+}

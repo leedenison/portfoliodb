@@ -972,10 +972,11 @@ func TestResolve_SameDescription_DifferentHints_NoCacheConflict(t *testing.T) {
 	}
 }
 
-// A key the pre-pass found to resolve to more than one instrument is raised at
-// the row that carries it, where the row index is known -- the pre-pass records
-// it rather than raising, so one bad key does not stop the lookups for the rest.
-func TestResolve_ConflictingHintsFromThePrePassAreRaised(t *testing.T) {
+// A file whose stated identifiers name different instruments is an identity
+// failure and not a transaction failure. The row degrades to the broker's own
+// description and the upload is accepted; this used to return an error that
+// propagated out of the row and failed the whole job. See adr/0064.
+func TestResolve_ConflictingHintsDegradeRatherThanFailingTheRow(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -983,13 +984,41 @@ func TestResolve_ConflictingHintsFromThePrePassAreRaised(t *testing.T) {
 
 	source := "IBKR:test:statement"
 	desc := "AMBIGUOUS"
-	hints := []identifier.Identifier{{Type: "ISIN", Value: "US0000000001"}}
-	conflicts := map[string]bool{cacheKeyWithHints(source, desc, hints): true}
+	hints := []identifier.Identifier{
+		{Type: "ISIN", Value: "US0000000001"},
+		{Type: "CUSIP", Value: "000000001"},
+	}
+	conflicts := map[string][]identification.HintMatch{
+		cacheKeyWithHints(source, desc, hints): {
+			{Ref: hints[0], Instrument: "inst-a"},
+			{Ref: hints[1], Instrument: "inst-b"},
+		},
+	}
 
-	_, err := Resolve(context.Background(), database, registry, "IBKR", source, desc,
-		identifier.Hints{}, hints, prePass{resolved: map[string]resolveResult{}, conflicts: conflicts, proposed: nil}, 0, nil, nil)
-	if err == nil {
-		t.Fatal("expected an error for conflicting identifier hints")
+	// The description is what it falls back to, and nothing is asked of the
+	// plugins: the names that disagreed are exactly what would be put to them.
+	database.EXPECT().EnsureInstrument(gomock.Any(), "", "", "", "", "",
+		gomock.Any(), gomock.Nil(), "", gomock.Nil(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _ string, idns []db.IdentifierInput, _ []db.IdentityClaim, _ string, _ *db.OptionFields, _ string) (string, string, error) {
+			if len(idns) != 1 || idns[0].Ref.Type != "BROKER_DESCRIPTION" || idns[0].Ref.Value != desc {
+				t.Errorf("ensured %+v, want the broker description alone", idns)
+			}
+			return "desc-only-id", "", nil
+		})
+
+	r, err := Resolve(context.Background(), database, registry, "IBKR", source, desc,
+		identifier.Hints{}, hints, prePass{resolved: map[string]resolveResult{}, conflicts: conflicts, proposed: nil}, 7, nil, nil)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if r.InstrumentID != "desc-only-id" {
+		t.Errorf("InstrumentID = %q, want desc-only-id", r.InstrumentID)
+	}
+	if r.IdErr == nil || r.IdErr.Message != MsgConflictingHints {
+		t.Fatalf("IdErr = %+v, want %q so the user is told why the row did not identify", r.IdErr, MsgConflictingHints)
+	}
+	if r.IdErr.RowIndex != 7 {
+		t.Errorf("IdErr.RowIndex = %d, want 7", r.IdErr.RowIndex)
 	}
 }
 
@@ -1186,7 +1215,7 @@ func TestResolve_PathAPassesProposalsApartFromWhatTheSourceStated(t *testing.T) 
 	key := cacheKeyWithHints("SRC", "APPLE INC", stated)
 	pre := prePass{
 		resolved:  map[string]resolveResult{},
-		conflicts: map[string]bool{},
+		conflicts: map[string][]identification.HintMatch{},
 		proposed: map[string]keyProposals{key: {CallID: "call-1", Proposals: []candpkg.Proposal{{
 			Field:      candpkg.FieldExchange,
 			Identifier: identifier.Identifier{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},

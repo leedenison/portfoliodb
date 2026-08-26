@@ -212,6 +212,31 @@ func (k *resolutionKeys) end(ctx context.Context, key, outcome, instrumentID str
 	k.writeFields(ctx, key)
 }
 
+// conflictingHints records which stated name reached which instrument, for a key
+// whose names named more than one.
+//
+// Written before the key is stamped, because the rows hang off it and the writer
+// skips a child whose parent id is empty. One row per instrument the names
+// reached rather than one per conflict: how many they reached is not fixed, and a
+// panel groups by the key to see the whole disagreement.
+func (k *resolutionKeys) conflictingHints(ctx context.Context, key string, matches []identification.HintMatch) {
+	if k == nil {
+		return
+	}
+	for _, m := range matches {
+		k.tel.WriteConflictingHint(ctx, db.TelemetryConflictingHint{
+			RunID: k.runID,
+			KeyID: k.ids[key],
+			Ref: db.InstrumentRef{
+				Type:   m.Ref.Type,
+				Domain: m.Ref.Domain,
+				Value:  m.Ref.Value,
+			},
+			InstrumentID: m.Instrument,
+		})
+	}
+}
+
 // attempt returns the scope one ResolveWithPlugins call over this key records
 // itself under. A caller with no ledger gets the zero Attempt, which records
 // nothing.

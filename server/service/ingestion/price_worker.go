@@ -380,13 +380,19 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		return result, nil
 	}
 
+	// One hint, so at most one instrument: ResolveByHintsDBOnly looks each name up
+	// once and returns one entry per distinct instrument. There used to be a
+	// branch here for several, reporting "ambiguous" and failing the row, and it
+	// could not be reached.
+	//
+	// The ambiguity it was reaching for is real and lands elsewhere. One triple
+	// can be held by two instruments over disjoint intervals, and the lookup
+	// settles that by taking the name in force and falling back to the most
+	// recently closed one -- which answers "who holds this now" rather than "who
+	// held it on the row's date". Asking the second question is 0122.
 	resolved, err := identification.ResolveByHintsDBOnly(ctx, database, []identifier.Identifier{hint})
 	if err != nil {
 		return identification.ResolveResult{}, fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
-	}
-	if len(resolved) > 1 {
-		keys.end(ctx, key, db.TelemetryResolutionConflictingHints, "")
-		return identification.ResolveResult{}, fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
 	}
 	if len(resolved) == 1 {
 		diffs := identification.CompareDBMeta(hints, resolved[0])

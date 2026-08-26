@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -58,6 +57,10 @@ const (
 	// nothing the source stated agreed with what it resolved to. Distinct from
 	// MsgBrokerDescriptionOnly, which is nobody answering at all.
 	MsgProposalUnconfirmed = "proposed identifier unconfirmed"
+	// The identifiers the row states name different instruments in this
+	// database. Distinct from MsgBrokerDescriptionOnly, which is nobody
+	// answering: here two answers were found and they cannot both be right.
+	MsgConflictingHints = "conflicting identifier hints"
 )
 
 // resolveResult holds the outcome of resolving one (source, instrument_description).
@@ -371,9 +374,44 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// The pre-pass did the lookup: a single match is in the cache and was
 		// returned above, and more than one is recorded here. Asking again would
 		// be the same query for the same answer.
-		if conflicts[key] {
-			keys.end(ctx, key, db.TelemetryResolutionConflictingHints, "")
-			return resolveResult{}, fmt.Errorf("conflicting identifier hints resolve to different instruments")
+		//
+		// A file disagreeing with the database is an identity failure and not a
+		// transaction failure. The transactions were never in doubt; only which
+		// instrument they belong to is. So the posting degrades to the broker's
+		// own description -- exactly as an identifier plugin timeout already makes
+		// it -- the disagreement is recorded, and the upload is accepted.
+		// Rejecting it would strand the user behind an admin over a corporate
+		// action neither of them knew about. This used to return an error, which
+		// propagated out of the row and failed the whole job.
+		//
+		// Nothing is asked of the plugins first. The names the source stated are
+		// exactly what disagreed, so putting them to a provider asks it to settle
+		// a question about our own database, and whichever it answered would
+		// still leave the other name pointing elsewhere.
+		if matches := conflicts[key]; len(matches) > 0 {
+			ingestionLogger().WarnContext(ctx, "instrument resolution: the identifiers this row states name different instruments, using broker description only",
+				"source", source, "instrument_description", instrumentDescription,
+				"stated", identification.HintsSummary(identifierHints),
+				"instruments", instrumentsSummary(matches))
+			keys.conflictingHints(ctx, key, matches)
+			id, ensureErr := ensureDescriptionOnly(ctx, database, source, instrumentDescription)
+			if ensureErr != nil {
+				return resolveResult{}, ensureErr
+			}
+			keys.end(ctx, key, db.TelemetryResolutionConflictingHints, id)
+			r := resolveResult{
+				InstrumentID:  id,
+				FirstRowIndex: rowIndex,
+				IdErr: &db.IdentificationError{
+					RowIndex:              rowIndex,
+					InstrumentDescription: instrumentDescription,
+					Message:               MsgConflictingHints,
+				},
+			}
+			if cache != nil {
+				cache[key] = r
+			}
+			return r, nil
 		}
 		// The identifiers named no instrument, but the description may already
 		// name one that nothing has identified. Binding to it is what stops a
@@ -495,6 +533,35 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 	return out
 }
 
+// ensureDescriptionOnly finds or creates the instrument that is nothing but this
+// source's text for the security.
+//
+// The same shape the plugin fallback below builds, and for the same reason: a
+// blank is visible, repairable and does not propagate, where a wrong binding is
+// canonical and never re-examined. No name and no claim -- one description
+// associates nothing with anything, and the trigger deriving the display name
+// reads the description off the identifier.
+func ensureDescriptionOnly(ctx context.Context, database db.DB, source, instrumentDescription string) (string, error) {
+	id, _, err := database.EnsureInstrument(ctx, "", "", "", "", "",
+		[]db.IdentifierInput{{
+			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
+			Canonical: false,
+		}},
+		nil, "", nil, "")
+	return id, err
+}
+
+// instrumentsSummary renders which stated name reached which instrument, for the
+// log line. The pairing rather than a list of ids: which name led where is what
+// makes the disagreement legible, and an id on its own says nothing.
+func instrumentsSummary(ms []identification.HintMatch) string {
+	parts := make([]string, 0, len(ms))
+	for _, m := range ms {
+		parts = append(parts, m.Ref.String()+"->"+m.Instrument)
+	}
+	return strings.Join(parts, ", ")
+}
+
 // resolveWithIdentifierPlugins delegates to the shared identification package and wraps the result
 // in ingestion-specific resolveResult with cache and error handling.
 // purpose names the attempt this call records. Only the primary one stamps the
@@ -505,15 +572,8 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		// The listing is dropped rather than returned: a broker description is
 		// security-grain, so this instrument's line is its unknown one and
-		// nothing here has learned a currency to name it with. The name is left
-		// empty for the reason the extraction-failed path above gives.
-		id, _, err := database.EnsureInstrument(ctx, "", "", "", "", "",
-			[]db.IdentifierInput{{
-				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
-				Canonical: false,
-			}},
-			nil, "", nil, "")
-		return id, err
+		// nothing here has learned a currency to name it with.
+		return ensureDescriptionOnly(ctx, database, source, instrumentDescription)
 	}
 
 	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, ident, bindSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)

@@ -127,6 +127,37 @@ this grain records whatever the things sharing it are called. `candidate_outcome
 `broker_description_only`: no plugin resolved it and the row's own contents are what
 the instrument was built from, which is that member's shape.
 
+### conflicting_hint
+
+One identifier a source stated and the instrument the database says it names, for a key
+whose stated identifiers named more than one instrument between them.
+
+| column | notes |
+| --- | --- |
+| `resolution_key_id` | the key whose names disagreed |
+| `identifier_type`, `domain`, `value` | the whole triple the source stated |
+| `instrument_id` | what the database says it names |
+
+The key's own outcome already says `conflicting_hints`. This is what it was: the file
+named an ISIN this instance holds on one security and a CUSIP it holds on another, and
+nothing in the data says which is right, because whichever arrived first is the one
+stored. Rows are written only for such a key, so the table is empty on an instance where
+no file has ever disagreed with the security master.
+
+One row per identifier rather than one per conflict, because how many instruments the
+hints reached is not fixed: two is the ordinary case and three is possible. A panel groups
+by `resolution_key_id` to see the whole disagreement and counts distinct keys to see how
+often it happens.
+
+The instrument is not a foreign key, for the reason `run.job_id` is not one: a merge
+deleting one of these instruments must not take the record of the disagreement with it.
+
+This is an identity failure and not a transaction failure. The upload is accepted and the
+posting resolves to a broker-description-only instrument -- the same degradation an
+identifier plugin timeout produces -- because blocking it would strand the user behind an
+admin over a corporate action neither knew about. See
+adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+
 ### candidate_field
 
 One field a candidate plugin proposed for one resolution key, and what became of it.
@@ -204,12 +235,34 @@ One plugin invocation within an attempt.
 | `identification_attempt_id`, `plugin_id` | |
 | `outcome` | `won`, `superseded`, `discarded_inconsistent`, `not_identified`, `rate_limited`, `timeout`, `error`, `skipped_expired` |
 | `retries`, `duration_ms` | |
+| `mismatch_subject` | what the two results argued about: `Currency`, `Venue`, or `Identifier:<type>` |
+| `mismatch_winner`, `mismatch_other` | what each said, an identifier as its whole triple |
+| `mismatch_winner_plugin` | which result it lost to |
 
 The first three are all successes and are decided by the orchestrator after every plugin
 has returned: `superseded` lost to a better hint match despite higher precedence, and
 `discarded_inconsistent` was dropped as contradicting the winner. A plugin cannot know
 either, which is why the plugin returns its transport outcome and the orchestrator
 composes the row.
+
+The four mismatch columns are what `discarded_inconsistent` was dropped over, and are on
+this row rather than in a table of their own because they share its grain exactly: the
+check stops at the first thing the two results argued about, so one call has at most one.
+They are null for every other outcome, as `duration_ms` is null on a price call that made
+none, and a CHECK holds them to that -- a mismatch on a winning call would be a column
+meaning a different thing per row.
+
+`mismatch_subject` is free text rather than a vocabulary because an identifier subject
+spells its own type into it, so the values are open by construction. Whose answer won
+decides nothing about a merge -- every identifier plugin is equally authoritative for a
+global identifier -- but a reader asking why two providers disagree needs to know which
+two, which is what `mismatch_winner_plugin` is for.
+
+Recording them closes the same inversion `identifier_claim` closed. The outcome said a
+plugin contradicted the winner and nothing said what about, so the disagreement was
+rediscovered and re-logged on every upload of the same file while nothing accumulated.
+See adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md and
+adr/0080-a-contradiction-is-logged-not-queued.md.
 
 ### identifier_claim
 

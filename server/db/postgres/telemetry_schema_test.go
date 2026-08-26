@@ -416,13 +416,21 @@ func seedKeyWithOutcome(t *testing.T, p *Postgres, runID, outcome string, txCoun
 // seedIdentifierCall inserts an identifier plugin call under an attempt.
 func seedIdentifierCall(t *testing.T, p *Postgres, attemptID, outcome string) string {
 	t.Helper()
+	// The mismatch columns are the detail of one outcome, and the schema's CHECK
+	// requires them exactly where that outcome is, so the fixture supplies them
+	// for discarded_inconsistent and for nothing else.
+	var subject, winner, other, winnerPlugin any
+	if outcome == "discarded_inconsistent" {
+		subject, winner, other, winnerPlugin = "Currency", "USD", "EUR", "eodhd"
+	}
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
 		INSERT INTO telemetry.identifier_plugin_call
-			(identification_attempt_id, plugin_id, outcome, retries, duration_ms)
-		VALUES ($1::uuid, 'openfigi', $2, 0, 12)
+			(identification_attempt_id, plugin_id, outcome, retries, duration_ms,
+			 mismatch_subject, mismatch_winner, mismatch_other, mismatch_winner_plugin)
+		VALUES ($1::uuid, 'openfigi', $2, 0, 12, $3, $4, $5, $6)
 		RETURNING id
-	`, attemptID, outcome).Scan(&id)
+	`, attemptID, outcome, subject, winner, other, winnerPlugin).Scan(&id)
 	if err != nil {
 		t.Fatalf("seed identifier call %q: %v", outcome, err)
 	}
@@ -1022,5 +1030,91 @@ func TestTelemetryCandidateField_CascadesFromItsParents(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("candidate_field rows = %d, want 0 after the run was deleted", n)
+	}
+}
+
+// The mismatch columns are the detail of one outcome, so the schema requires
+// them exactly where that outcome is. A discarded_inconsistent row with nothing
+// saying what was argued about is the log-line-only state adr/0080 exists to end,
+// and a mismatch on any other outcome is a column meaning a different thing per
+// row.
+func TestTelemetrySchema_MismatchBelongsToOneOutcome(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+	keyID := seedResolutionKey(t, p, runID)
+	attemptID := seedAttempt(t, p, keyID, "primary", "identified", 0)
+
+	insert := func(outcome string, subject any) error {
+		_, err := p.q.ExecContext(ctx, `
+			INSERT INTO telemetry.identifier_plugin_call
+				(identification_attempt_id, plugin_id, outcome, retries, duration_ms, mismatch_subject)
+			VALUES ($1::uuid, 'openfigi', $2, 0, 1, $3)
+		`, attemptID, outcome, subject)
+		return err
+	}
+	if err := insert("discarded_inconsistent", nil); err == nil {
+		t.Error("a result discarded as inconsistent was stored without saying what it argued about")
+	}
+}
+
+// The same rule from the other side, in its own transaction: the first insert
+// above aborts the one it runs in.
+func TestTelemetrySchema_MismatchOnAnotherOutcomeIsRefused(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+	keyID := seedResolutionKey(t, p, runID)
+	attemptID := seedAttempt(t, p, keyID, "primary", "identified", 0)
+
+	_, err := p.q.ExecContext(ctx, `
+		INSERT INTO telemetry.identifier_plugin_call
+			(identification_attempt_id, plugin_id, outcome, retries, duration_ms, mismatch_subject)
+		VALUES ($1::uuid, 'openfigi', 'won', 0, 1, 'Currency')
+	`, attemptID)
+	if err == nil {
+		t.Error("a winning call carries a mismatch, which is a column meaning a different thing per row")
+	}
+}
+
+// A conflicting hint hangs off the key whose names disagreed, and carries the
+// whole triple and the instrument it reached. One row per instrument, so a panel
+// groups by the key for the disagreement and counts keys for how often it
+// happens.
+func TestTelemetryViews_ConflictingHint(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+	keyID := seedResolutionKey(t, p, runID)
+
+	inst := usdInstrument(t, p)
+	for _, h := range []struct{ typ, value string }{
+		{"ISIN", "US0000000001"},
+		{"CUSIP", "000000001"},
+	} {
+		if _, err := p.q.ExecContext(ctx, `
+			INSERT INTO telemetry.conflicting_hint
+				(resolution_key_id, identifier_type, value, instrument_id)
+			VALUES ($1::uuid, $2, $3, $4::uuid)
+		`, keyID, h.typ, h.value, inst); err != nil {
+			t.Fatalf("seed conflicting hint %s: %v", h.typ, err)
+		}
+	}
+
+	var n int
+	var runKind, keySource string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*), min(run_kind), min(key_source)
+		FROM telemetry.v_conflicting_hint WHERE resolution_key_id = $1::uuid
+	`, keyID).Scan(&n, &runKind, &keySource); err != nil {
+		t.Fatalf("select v_conflicting_hint: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("rows = %d, want one per instrument the names reached", n)
+	}
+	// The run and the key are flattened in, so a panel reads the disagreement
+	// without joining back out of the schema.
+	if runKind != "tx_import" || keySource != "FIDELITY_CSV" {
+		t.Errorf("run_kind = %q, key_source = %q; want the parents flattened in", runKind, keySource)
 	}
 }

@@ -2758,6 +2758,45 @@ type TelemetryIdentifierPluginCall struct {
 	Outcome   string
 	Retries   int
 	Duration  time.Duration
+	// Mismatch is what this result and the winner argued about, set only where
+	// Outcome is discarded_inconsistent. It is on the call rather than in a table
+	// of its own because it shares the call's grain exactly: the check stops at
+	// the first disagreement, so one call has at most one.
+	Mismatch *TelemetryMismatch
+}
+
+// TelemetryMismatch is what two identifier plugin results disagreed about, and
+// what each of them said.
+//
+// Subject is free text because an identifier subject spells its own type into it
+// -- "Currency", "Venue", "Identifier:ISIN" -- so the values are open by
+// construction rather than a vocabulary anyone could close. The two values are as
+// each result stated them: an identifier as its whole triple, a currency and a
+// venue as themselves.
+//
+// WinnerPlugin is which result it lost to. Whose answer it was decides nothing
+// about a merge -- every identifier plugin is equally authoritative for a global
+// identifier -- but a reader asking why two providers disagree needs to know
+// which two.
+type TelemetryMismatch struct {
+	Subject      string
+	Winner       string
+	Other        string
+	WinnerPlugin string
+}
+
+// TelemetryConflictingHint is one identifier a source stated and the instrument
+// the database says it names, for a resolution key whose stated identifiers named
+// more than one instrument between them.
+//
+// One row per identifier rather than one per conflict: how many instruments the
+// hints reached is not fixed, two being the ordinary case and three possible. The
+// key's own outcome already says conflicting_hints; these are what it was.
+type TelemetryConflictingHint struct {
+	RunID        string
+	KeyID        string
+	Ref          InstrumentRef
+	InstrumentID string
 }
 
 // TelemetryIdentifierClaim is one identifier an identifier plugin call returned
@@ -2948,6 +2987,9 @@ type TelemetryDB interface {
 	// WriteIdentifierClaim records one identifier a call returned or was
 	// filtered on, against that call.
 	WriteIdentifierClaim(ctx context.Context, c TelemetryIdentifierClaim)
+	// WriteConflictingHint records one of the identifiers a source stated whose
+	// key resolved to more than one instrument, against that key.
+	WriteConflictingHint(ctx context.Context, h TelemetryConflictingHint)
 	// WriteCandidatePluginCall records a finished call and returns its id, which
 	// the fields proposed by that call reference.
 	WriteCandidatePluginCall(ctx context.Context, c TelemetryCandidatePluginCall) string
@@ -3010,6 +3052,8 @@ func (NopTelemetry) WriteIdentifierPluginCall(context.Context, TelemetryIdentifi
 }
 
 func (NopTelemetry) WriteIdentifierClaim(context.Context, TelemetryIdentifierClaim) {}
+
+func (NopTelemetry) WriteConflictingHint(context.Context, TelemetryConflictingHint) {}
 
 func (NopTelemetry) WriteCandidatePluginCall(context.Context, TelemetryCandidatePluginCall) string {
 	return ""

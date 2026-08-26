@@ -704,7 +704,7 @@ func TestConsistentWith_AllMatch(t *testing.T) {
 		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNAS"}, Currency: "USD"}},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) != nil {
 		t.Error("expected consistent")
 	}
 }
@@ -716,7 +716,7 @@ func TestConsistentWith_CurrencyMismatch(t *testing.T) {
 	o := &pluginResult{
 		inst: &identifier.Instrument{Listing: identifier.Listing{Currency: "EUR"}},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) == nil {
 		t.Error("expected inconsistent on currency mismatch")
 	}
 }
@@ -731,7 +731,7 @@ func TestConsistentWith_VenueMismatchWhereNoCurrencyWasStated(t *testing.T) {
 	o := &pluginResult{
 		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XNYS"}}},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) == nil {
 		t.Error("expected inconsistent on venue mismatch")
 	}
 }
@@ -745,7 +745,7 @@ func TestConsistentWith_EmptyFieldsSkipped(t *testing.T) {
 		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: ""}, Currency: ""}},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) != nil {
 		t.Error("expected consistent when other has empty exchange/currency")
 	}
 }
@@ -759,7 +759,7 @@ func TestConsistentWith_IdentifierValueMismatch(t *testing.T) {
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB1234567890"}},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) == nil {
 		t.Error("expected inconsistent on ISIN value mismatch")
 	}
 }
@@ -773,7 +773,7 @@ func TestConsistentWith_IdentifierValueMatch(t *testing.T) {
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) != nil {
 		t.Error("expected consistent when ISIN values match")
 	}
 }
@@ -1339,11 +1339,11 @@ func TestConsistentWith_SegmentVsOperatingMIC(t *testing.T) {
 	// Neither states a currency, so the venue decides and normalization is what
 	// decides the venue.
 	// Without normalizer: different exchanges are inconsistent.
-	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) == nil {
 		t.Error("expected inconsistent without normalizer")
 	}
 	// With normalizer: XNGS and XNAS map to the same operating MIC.
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) != nil {
 		t.Error("expected consistent with normalizer (XNGS -> XNAS)")
 	}
 }
@@ -2726,7 +2726,7 @@ func TestConsistentWith_OneSymbolAtTwoVenuesIsNotAContradiction(t *testing.T) {
 		inst: &identifier.Instrument{AssetClass: "STOCK"},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "AAPL"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) != nil {
 		t.Error("expected one symbol at two venues to be consistent")
 	}
 }
@@ -2743,7 +2743,7 @@ func TestConsistentWith_TwoVenuesWithNoCurrencyAreTwoAnswers(t *testing.T) {
 		inst: &identifier.Instrument{AssetClass: "STOCK", Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XLON"}}},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "AAPL"}},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) == nil {
 		t.Error("expected two venues and no currency to be inconsistent")
 	}
 }
@@ -2760,7 +2760,7 @@ func TestConsistentWith_TwoVenuesQuotingOneCurrencyAreOneLine(t *testing.T) {
 		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XLON"}, Currency: "USD"}},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), testCountryOf) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), testCountryOf) != nil {
 		t.Error("expected two venues quoting one currency to be one line")
 	}
 }
@@ -2771,11 +2771,11 @@ func TestConsistentWith_TwoVenuesQuotingOneCurrencyAreOneLine(t *testing.T) {
 func TestConsistentWith_GBXAndGBPAreOneLine(t *testing.T) {
 	w := &pluginResult{inst: &identifier.Instrument{Listing: identifier.Listing{Currency: "GBX"}}}
 	o := &pluginResult{inst: &identifier.Instrument{Listing: identifier.Listing{Currency: "GBP"}}}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil, nil) != nil {
 		t.Error("expected GBX and GBP to be one line")
 	}
 	u := &pluginResult{inst: &identifier.Instrument{Listing: identifier.Listing{Currency: "USD"}}}
-	if consistentWith(context.Background(), nil, "a", "b", w, u, nil, nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, u, nil, nil) == nil {
 		t.Error("expected GBX and USD to be two lines")
 	}
 }
@@ -2790,7 +2790,7 @@ func TestConsistentWith_TheVenueDecidesWhereNoCurrencyDoes(t *testing.T) {
 	o := &pluginResult{
 		inst: &identifier.Instrument{Listing: identifier.Listing{Venue: identifier.Venue{MIC: "XLON"}, Currency: "GBP"}},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), testCountryOf) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), testCountryOf) == nil {
 		t.Error("expected a foreign venue to be inconsistent where no currency was stated")
 	}
 }
@@ -2810,7 +2810,7 @@ func TestConsistentWith_AWinnerNamingOneSubjectTwiceAcceptsEither(t *testing.T) 
 		inst: &identifier.Instrument{AssetClass: "STOCK"},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "GOOGL"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) != nil {
 		t.Error("expected a winner naming one subject twice to accept either value")
 	}
 }
@@ -2826,11 +2826,11 @@ func TestConsistentWith_ASegmentDomainAndItsOperatingMICAreOneSubject(t *testing
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) != nil {
 		t.Error("expected a segment MIC and its operating MIC to be one subject")
 	}
 	o.ids = []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "MSFT"}}
-	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) == nil {
 		t.Error("expected two symbols on one listing to be inconsistent")
 	}
 }
@@ -2847,7 +2847,7 @@ func TestConsistentWith_AnUndomainedTickerIsNotComparedAgainstAVenuedOne(t *test
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "MSFT"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) != nil {
 		t.Error("expected a bare ticker not to be compared against a venued one")
 	}
 }
@@ -2864,7 +2864,7 @@ func TestConsistentWith_TwoSourcesDescribingOneSecurityAgree(t *testing.T) {
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: "schwab", Value: "APPLE COMPUTER INC"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) != nil {
 		t.Error("expected two sources' descriptions of one security to agree")
 	}
 }
@@ -2884,7 +2884,7 @@ func TestConsistentWith_AWinnerNamingTwoListingsAcceptsEither(t *testing.T) {
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer(), nil) != nil {
 		t.Error("expected a result naming one of the winner's two listings to agree")
 	}
 }

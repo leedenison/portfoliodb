@@ -597,35 +597,17 @@ func isIdentifierConflict(err error) bool {
 // The type says which table holds the row, so this asks one of them rather than
 // searching both. A caller wanting the listing as well as the security asks
 // FindListingByIdentifier directly.
+//
+// The query itself is findHolder's, which answers with the row's validity
+// interval as well as its instrument. Merge admission needs the interval and
+// this does not, and having them read one row the same way is what stops the
+// two coming to disagree about which instrument a value resolves to.
 func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error) {
-	if identifier.NamesAListing(identifierType) {
-		instID, _, err := p.FindListingByIdentifier(ctx, identifierType, domain, value)
-		return instID, err
+	e, ok, err := findHolder(ctx, p.q, db.InstrumentRef{Type: identifierType, Domain: domain, Value: value})
+	if err != nil || !ok {
+		return "", err
 	}
-	var id uuid.UUID
-	var err error
-	if domain == "" {
-		err = p.q.QueryRowContext(ctx, `
-			SELECT instrument_id FROM instrument_identifiers
-			WHERE identifier_type = $1 AND domain IS NULL AND value = $2
-			ORDER BY valid_before IS NULL DESC, valid_before DESC
-			LIMIT 1
-		`, identifierType, value).Scan(&id)
-	} else {
-		err = p.q.QueryRowContext(ctx, `
-			SELECT instrument_id FROM instrument_identifiers
-			WHERE identifier_type = $1 AND domain = $2 AND value = $3
-			ORDER BY valid_before IS NULL DESC, valid_before DESC
-			LIMIT 1
-		`, identifierType, domain, value).Scan(&id)
-	}
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("find instrument by identifier: %w", err)
-	}
-	return id.String(), nil
+	return e.instrument.String(), nil
 }
 
 // FindInstrumentWithMetaByIdentifier implements db.InstrumentDB. It orders by
@@ -1044,14 +1026,15 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // On unique violation (identifier already exists for another instrument), returns the existing instrument ID (eager merge).
 //
 // claims is what the caller's answers actually asserted, kept apart by the
-// answer that produced them. Nothing here reads it yet. The merge below still
-// acts on the flat identifier set, which is the union 0140 replaces: a set the
-// caller assembled from several results is not an association anybody stated,
-// and two results agreeing about a currency and a venue have not said they are
-// the same security. Carrying the partition is 0139; acting on it is 0140.
+// answer that produced them, and it is what decides the merge. A set the caller
+// assembled from several results is not an association anybody stated -- two
+// results agreeing about a currency and a venue have not said they are the same
+// security -- so identifiers landing on two instruments merge them only where
+// one claim named both and the stored rows at each end may carry a chain. A
+// caller with a single identifier and nothing to assert passes none, and never
+// reaches more than one instrument to have to.
 func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
-	_ = claims
-	return p.ensureSecurity(ctx, assetClass, currency, name, cik, sicCode, identifiers, underlyingListingID, optionFields, nil)
+	return p.ensureSecurity(ctx, assetClass, currency, name, cik, sicCode, identifiers, claims, underlyingListingID, optionFields, nil)
 }
 
 // EnsureArchiveInstrument implements db.InstrumentDB.
@@ -1063,7 +1046,6 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, currency, n
 func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, name, cik, sicCode string,
 	identifiers []db.IdentifierInput, listings db.ListingSet, claims []db.IdentityClaim,
 	underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
-	_ = claims
 	all := make([]db.IdentifierInput, 0, len(identifiers))
 	all = append(all, identifiers...)
 	for _, l := range listings.Listings {
@@ -1078,7 +1060,7 @@ func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, name
 	}
 	// No currency: the placement knows every line the file states, so there is no
 	// single one for the core to settle.
-	return p.ensureSecurity(ctx, assetClass, "", name, cik, sicCode, all,
+	return p.ensureSecurity(ctx, assetClass, "", name, cik, sicCode, all, claims,
 		underlyingListingID, optionFields, place)
 }
 
@@ -1152,7 +1134,7 @@ func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, ins
 // currency and its listing-grain names go on the line that currency names, which
 // is EnsureInstrument's whole listing rule; an archive hands in a placement that
 // knows the security's lines one by one.
-func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, underlyingListingID string, optionFields *db.OptionFields, place placeListings) (string, string, error) {
+func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields, place placeListings) (string, string, error) {
 	if len(identifiers) == 0 {
 		return "", "", fmt.Errorf("at least one identifier required")
 	}
@@ -1199,33 +1181,69 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, nam
 	if place == nil {
 		place = oneLine(currency, listingIDs)
 	}
-	// Look up every identifier and collect distinct instrument IDs (no early return).
+	// Look up every identifier and collect distinct instrument IDs (no early
+	// return). What the row holding each one says is kept alongside: merge
+	// admission asks about the stored association rather than about the value,
+	// so the interval the row was written with is part of the question.
 	seen := make(map[uuid.UUID]struct{})
 	var distinctIDs []uuid.UUID
+	held := make(map[string]endpoint, len(identifiers))
 	for _, idn := range identifiers {
-		// FindInstrumentByIdentifier asks the table the type names, so a mixed
-		// set is looked up a row at a time at each row's own grain.
-		existingID, err := p.FindInstrumentByIdentifier(ctx, idn.Ref.Type, idn.Ref.Domain, idn.Ref.Value)
+		// findHolder asks the table the type names, so a mixed set is looked up
+		// a row at a time at each row's own grain.
+		e, ok, err := findHolder(ctx, p.q, idn.Ref)
 		if err != nil {
 			return "", "", fmt.Errorf("lookup instrument: %w", err)
 		}
-		if existingID != "" {
-			parsed, _ := uuid.Parse(existingID)
-			if _, ok := seen[parsed]; !ok {
-				seen[parsed] = struct{}{}
-				distinctIDs = append(distinctIDs, parsed)
-			}
+		if !ok {
+			continue
+		}
+		held[refKey(idn.Ref)] = e
+		if _, dup := seen[e.instrument]; !dup {
+			seen[e.instrument] = struct{}{}
+			distinctIDs = append(distinctIDs, e.instrument)
 		}
 	}
-	// Multiple instruments: merge into one and return survivor.
-	if len(distinctIDs) > 1 {
-		survivor, err := pickSurvivor(ctx, p.q, distinctIDs)
+	// The instruments a claim corroborated as one, anchored on the first entry in
+	// distinctIDs -- which is in caller order, so it is the instrument the
+	// caller's highest-precedence identifier reached: the winner's own answer,
+	// where the caller is a resolution, since the broker description it appends
+	// is last.
+	//
+	// Asked wherever the lookup found anything rather than only where it found
+	// two, because a claim reaches beyond the identifiers the caller supplied. A
+	// value a result was strictly filtered on is corroborated rather than
+	// returned, so it is never written and never in the caller's set, and it
+	// names the association as loudly as a returned value does (adr/0060).
+	var group []uuid.UUID
+	if len(distinctIDs) > 0 {
+		var err error
+		group, err = p.mergeGroup(ctx, distinctIDs[0], claims, held)
+		if err != nil {
+			return "", "", err
+		}
+	}
+	// Merge what the group holds and return the survivor. A group of one is the
+	// refusal: nothing corroborated the instruments this landed on as one, so the
+	// merge loop does nothing, the anchor is what the transaction attaches to,
+	// and every other instrument is left exactly as it was.
+	//
+	// A refusal is not recorded here. This layer has no run to record it against
+	// and no logger to say it out loud, and a durable record attached to the
+	// security is 0141, which reads the same two endpoints this does.
+	//
+	// The refused case deliberately does not complete the anchor in place the way
+	// the single-instrument branch below does. Another instrument holds the
+	// identifiers over an overlapping interval, which is what the exclusion
+	// constraint on instrument_identifiers says cannot be written twice.
+	if len(group) > 1 || len(distinctIDs) > 1 {
+		survivor, err := pickSurvivor(ctx, p.q, group)
 		if err != nil {
 			return "", "", err
 		}
 		var listingID uuid.UUID
 		err = p.runInTx(ctx, func(exec queryable) error {
-			for _, id := range distinctIDs {
+			for _, id := range group {
 				if id == survivor {
 					continue
 				}

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A merge requires a corroborated association
 milestone: M24
 dependencies: [0139]

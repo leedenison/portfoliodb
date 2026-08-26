@@ -362,8 +362,8 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 		t.Fatalf("create match: %v", err)
 	}
 
-	// Naming both identifiers at once is what merges them.
-	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	// One result naming both identifiers is what merges them.
+	merging := []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM1"},
 			Canonical: true,
@@ -371,7 +371,8 @@ func TestTransferMatches_SurviveAnInstrumentMerge(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM1"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}
+	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -578,7 +579,7 @@ func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
 		t.Fatalf("create match: %v", err)
 	}
 
-	survivor, _, err := p.EnsureInstrument(ctx, "", "GBP", "", "", "", []db.IdentifierInput{
+	merging := []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "TM2"},
 			Canonical: true,
@@ -586,7 +587,8 @@ func TestTransferMatches_LinesMoveWithAnInstrumentMerge(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "TM2"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}
+	survivor, _, err := p.EnsureInstrument(ctx, "", "GBP", "", "", "", merging, oneClaim(merging...), "", nil)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}

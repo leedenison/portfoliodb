@@ -646,17 +646,16 @@ func TestMergeInstruments_MovesListingIdentifiersByCurrencyFamily(t *testing.T) 
 		t.Fatal("the two securities are the same row")
 	}
 
-	// One answer naming both: the eager merge follows.
-	merged, _, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "GB00FAMILY01"}, Canonical: true},
-		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "FAMILY", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
-	if err != nil {
-		t.Fatalf("ensure merge: %v", err)
+	// The merge, driven directly as this file's other merge tests are. A ticker
+	// is the only name the loser has, and a chain drawn through one is what
+	// adr/0061 bars, so admitting the merge is a question for the tests that ask
+	// it; this one is about where the loser's line ends up once it is admitted.
+	if err := p.runInTx(ctx, func(exec queryable) error {
+		return mergeInstruments(ctx, exec, uuid.MustParse(survivor), uuid.MustParse(loser))
+	}); err != nil {
+		t.Fatalf("merge: %v", err)
 	}
-	if merged != survivor {
-		t.Fatalf("survivor = %s, want %s", merged, survivor)
-	}
+	merged := survivor
 
 	row, err := p.GetInstrument(ctx, merged)
 	if err != nil || row == nil {

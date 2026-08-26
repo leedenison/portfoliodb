@@ -56,9 +56,10 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
-	// Resolve with identifiers that match both A and B; should merge and return survivor.
+	// Resolve with identifiers that match both A and B, named together by one
+	// result: should merge and return the survivor.
 	brokerDesc := "SomeStock"
-	result, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	merging := []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: brokerDesc},
 			Canonical: false,
@@ -70,7 +71,8 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "1"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}
+	result, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil)
 	if err != nil {
 		t.Fatalf("ensure merge: %v", err)
 	}
@@ -1179,7 +1181,7 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 		t.Fatalf("replace txs: %v", err)
 	}
 
-	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	merging := []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "W1"},
 			Canonical: true,
@@ -1187,7 +1189,8 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "W1"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}
+	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -1575,6 +1578,18 @@ func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
 	}
 }
 
+// oneClaim is a single result naming the given identifiers together, which is
+// what admits a merge between the instruments they land on. A test that means to
+// merge says so with this; passing nil claims is a caller asserting nothing, and
+// nothing is what it merges.
+func oneClaim(idns ...db.IdentifierInput) []db.IdentityClaim {
+	c := db.IdentityClaim{Identifiers: make([]db.ClaimedIdentifier, 0, len(idns))}
+	for _, idn := range idns {
+		c.Identifiers = append(c.Identifiers, db.ClaimedIdentifier{Ref: idn.Ref, Role: db.ClaimRoleReturned})
+	}
+	return []db.IdentityClaim{c}
+}
+
 // day is a midnight-UTC date bound, the form every identifier validity interval
 // takes (see docs/adr/0018-half-open-date-intervals.md).
 func day(y int, m time.Month, d int) *time.Time {
@@ -1773,9 +1788,9 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 		t.Fatal("survivor and loser should be different instruments")
 	}
 
-	// Naming both instruments at once merges them; the survivor is the row
+	// One result naming both instruments merges them; the survivor is the row
 	// holding more identifiers.
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{
+	merging := []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000002"},
 			Canonical: true,
@@ -1783,7 +1798,8 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "000000001"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil)
 	if err != nil {
 		t.Fatalf("merging ensure: %v", err)
 	}

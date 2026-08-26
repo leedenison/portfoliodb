@@ -27,7 +27,7 @@ covers.
 ## The dividend that names no line
 
 A dividend whose currency matches no line is stored nowhere and goes to
-`unhandled_corporate_events` as an `UNATTRIBUTABLE_DIVIDEND`, beside the special
+`telemetry.unhandled_corporate_event` as an `UNATTRIBUTABLE_DIVIDEND`, beside the special
 dividends already queued there. It is not an error: the payment is real and the
 file that carried it is well formed. What is missing is the one thing that would
 let it be filed, and no rung recovers it -- picking the security's sole line

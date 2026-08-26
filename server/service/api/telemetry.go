@@ -30,3 +30,16 @@ func (s *Server) PurgeTelemetry(ctx context.Context, req *apiv1.PurgeTelemetryRe
 	}
 	return &apiv1.PurgeTelemetryResponse{RunsDeleted: deleted}, nil
 }
+
+// telemetry is the telemetry reader, or one that answers with nothing.
+//
+// A serving path reads telemetry only to show a person what happened, so a
+// deployment without a telemetry pool shows an empty list rather than an error:
+// there is nothing the system needs from it, which is the whole point of the
+// rule that no functional path depends on this schema.
+func (s *Server) telemetry() db.TelemetryDB {
+	if s.telemetryDB == nil {
+		return db.NopTelemetry{}
+	}
+	return s.telemetryDB
+}

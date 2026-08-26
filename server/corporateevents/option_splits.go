@@ -32,7 +32,7 @@ import (
 // There is no clock parameter: the future-dated split cutoff is applied by the
 // query against CURRENT_DATE, so a split fetched by the lookahead is simply not
 // pending until it takes effect.
-func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingID string, log *slog.Logger) []*db.InstrumentRow {
+func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingID string, queue Unhandled, log *slog.Logger) []*db.InstrumentRow {
 	pending, err := database.ListPendingOptionSplits(ctx, underlyingID)
 	if err != nil {
 		if log != nil {
@@ -89,14 +89,14 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 		if unhandled {
 			continue
 		}
-		if applyOptionSplits(ctx, database, p.Option, factors, log) {
+		if applyOptionSplits(ctx, database, p.Option, factors, queue, log) {
 			adjusted = append(adjusted, p.Option)
 		}
 	}
 
 	for _, key := range blockedOrder {
 		b := blocked[key]
-		insertUnhandledUnderlyingSplit(ctx, database, b.split.InstrumentID, b.options, b.split, "non-standard split ratio", log)
+		insertUnhandledUnderlyingSplit(ctx, queue, b.split.InstrumentID, b.options, b.split, "non-standard split ratio")
 	}
 	return adjusted
 }
@@ -130,7 +130,7 @@ type factor struct {
 // Every name is minted, not just the last. Splitting twice in one contract's
 // life is vanishingly rare, but the names in between were real: a file exported
 // in that window states one, and without the row it has nothing to resolve to.
-func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRow, factors []factor, log *slog.Logger) bool {
+func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRow, factors []factor, queue Unhandled, log *slog.Logger) bool {
 	split := factors[len(factors)-1].split // most recent, for unhandled-event context
 
 	if opt.Strike == nil || opt.Expiry == nil || opt.PutCall == nil {
@@ -158,7 +158,7 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 
 	parsed, ok := derivative.ParseOptionTicker(currentOCC)
 	if !ok {
-		insertUnhandledOptionSplit(ctx, database, opt, split, fmt.Sprintf("unparseable OCC identifier %q", currentOCC), log)
+		insertUnhandledOptionSplit(ctx, queue, opt, split, fmt.Sprintf("unparseable OCC identifier %q", currentOCC))
 		return false
 	}
 
@@ -169,7 +169,7 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 		strike := derivative.AdjustStrike(*opt.Strike, f.num, f.den)
 		occ, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, strike)
 		if !ok {
-			insertUnhandledOptionSplit(ctx, database, opt, f.split, fmt.Sprintf("cannot build OCC with adjusted strike %s", strike), log)
+			insertUnhandledOptionSplit(ctx, queue, opt, f.split, fmt.Sprintf("cannot build OCC with adjusted strike %s", strike))
 			return false
 		}
 		mints = append(mints, db.OptionMint{
@@ -211,7 +211,7 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 
 // insertUnhandledUnderlyingSplit inserts a single unhandled event on the
 // underlying instrument, listing all affected option IDs in the JSONB data.
-func insertUnhandledUnderlyingSplit(ctx context.Context, database db.DB, underlyingID string, options []*db.InstrumentRow, split db.StockSplit, reason string, log *slog.Logger) {
+func insertUnhandledUnderlyingSplit(ctx context.Context, u Unhandled, underlyingID string, options []*db.InstrumentRow, split db.StockSplit, reason string) {
 	optionIDs := make([]string, len(options))
 	for i, opt := range options {
 		optionIDs[i] = opt.ID
@@ -234,16 +234,12 @@ func insertUnhandledUnderlyingSplit(ctx context.Context, database db.DB, underly
 		Detail:       fmt.Sprintf("Underlying %s: %s (split %s:%s) affects %d options", underlyingID, reason, split.SplitFrom, split.SplitTo, len(options)),
 		Data:         data,
 	}
-	if err := database.InsertUnhandledCorporateEvent(ctx, event); err != nil {
-		if log != nil {
-			log.ErrorContext(ctx, "option splits: insert unhandled event", "underlying", underlyingID, "err", err)
-		}
-	}
+	u.write(ctx, event)
 }
 
 // insertUnhandledOptionSplit inserts an unhandled event for a single option
 // (used when per-option context matters, e.g. OCC build failure).
-func insertUnhandledOptionSplit(ctx context.Context, database db.DB, opt *db.InstrumentRow, split db.StockSplit, reason string, log *slog.Logger) {
+func insertUnhandledOptionSplit(ctx context.Context, u Unhandled, opt *db.InstrumentRow, split db.StockSplit, reason string) {
 	data, _ := json.Marshal(map[string]string{
 		"split_from":    split.SplitFrom,
 		"split_to":      split.SplitTo,
@@ -262,9 +258,5 @@ func insertUnhandledOptionSplit(ctx context.Context, database db.DB, opt *db.Ins
 		Detail:       fmt.Sprintf("Option %s: %s (split %s:%s on underlying)", opt.ID, reason, split.SplitFrom, split.SplitTo),
 		Data:         data,
 	}
-	if err := database.InsertUnhandledCorporateEvent(ctx, event); err != nil {
-		if log != nil {
-			log.ErrorContext(ctx, "option splits: insert unhandled event", "option", opt.ID, "err", err)
-		}
-	}
+	u.write(ctx, event)
 }

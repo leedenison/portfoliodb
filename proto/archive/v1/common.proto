@@ -72,12 +72,11 @@ enum ArchivePart {
   CORPORATE_EVENTS = 3;
   INFLATION_INDICES = 4;
   FETCH_BLOCKS = 5;
-  UNHANDLED_EVENTS = 6;
-  PLUGIN_CONFIG = 7;
+  PLUGIN_CONFIG = 6;
   // User archive.
-  PREFERENCES = 8;
-  TXS = 9;
-  DECLARATIONS = 10;
+  PREFERENCES = 7;
+  TXS = 8;
+  DECLARATIONS = 9;
 }
 
 // Envelope carries only what cannot differ between two rows of a valid file.

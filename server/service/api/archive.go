@@ -99,9 +99,6 @@ func presentSystemParts(a *archivev1.SystemArchive) []archivev1.ArchivePart {
 	if a.GetFetchBlocks() != nil {
 		parts = append(parts, archivev1.ArchivePart_FETCH_BLOCKS)
 	}
-	if a.GetUnhandledEvents() != nil {
-		parts = append(parts, archivev1.ArchivePart_UNHANDLED_EVENTS)
-	}
 	if a.GetPluginConfig() != nil {
 		parts = append(parts, archivev1.ArchivePart_PLUGIN_CONFIG)
 	}
@@ -152,8 +149,6 @@ func (s *Server) ExportSystemArchive(req *apiv1.ExportSystemArchiveRequest, stre
 			partErr = s.sendInflationPart(ctx, stream)
 		case archivev1.ArchivePart_FETCH_BLOCKS:
 			partErr = s.sendFetchBlockPart(ctx, stream)
-		case archivev1.ArchivePart_UNHANDLED_EVENTS:
-			partErr = s.sendUnhandledEventPart(ctx, stream)
 		case archivev1.ArchivePart_PLUGIN_CONFIG:
 			partErr = s.sendPluginConfigPart(ctx, stream)
 		}
@@ -174,7 +169,6 @@ var (
 		archivev1.ArchivePart_CORPORATE_EVENTS,
 		archivev1.ArchivePart_INFLATION_INDICES,
 		archivev1.ArchivePart_FETCH_BLOCKS,
-		archivev1.ArchivePart_UNHANDLED_EVENTS,
 		archivev1.ArchivePart_PLUGIN_CONFIG,
 	}
 	userPartOrder = []archivev1.ArchivePart{
@@ -392,59 +386,6 @@ func fetchBlockGroups(price, events []db.ExportFetchBlock) []*archivev1.FetchBlo
 	}
 	for _, b := range events {
 		add(b, typev1.PluginCategory_CORPORATE_EVENT)
-	}
-	return out
-}
-
-// sendUnhandledEventPart streams one group per instrument.
-//
-// Resolved and unresolved events both travel: the resolved flag is the
-// irreplaceable half, but these rows are only ever created by a fetch detecting
-// something it could not apply, and an import writes events from the file
-// rather than fetching them. Nothing would re-create the queue.
-func (s *Server) sendUnhandledEventPart(ctx context.Context, stream apiv1.ApiService_ExportSystemArchiveServer) error {
-	rows, err := s.db.ListUnhandledCorporateEventsForExport(ctx)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-	for _, g := range unhandledEventGroups(rows) {
-		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
-			Item: &apiv1.ExportSystemArchiveResponse_UnhandledEventGroup{UnhandledEventGroup: g},
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// unhandledEventGroups turns the flat export rows into one group per
-// instrument. The query orders by identifier, so the grouping is a scan.
-func unhandledEventGroups(rows []db.ExportUnhandledCorporateEvent) []*archivev1.UnhandledEventGroup {
-	var out []*archivev1.UnhandledEventGroup
-	var cur *archivev1.UnhandledEventGroup
-	var curKey db.InstrumentRef
-	for _, r := range rows {
-		k := r.Ref
-		if cur == nil || k != curKey {
-			cur = &archivev1.UnhandledEventGroup{
-				Instrument: archiveRef(r.Ref),
-			}
-			curKey = k
-			out = append(out, cur)
-		}
-		e := &archivev1.UnhandledEvent{
-			EventType:  r.EventType,
-			Detail:     r.Detail,
-			Resolved:   r.Resolved,
-			DetectedAt: timestamppb.New(r.CreatedAt),
-		}
-		if r.ExDate != nil {
-			e.ExDate = proto.String(r.ExDate.Format("2006-01-02"))
-		}
-		if len(r.Data) > 0 {
-			e.DataJson = proto.String(string(r.Data))
-		}
-		cur.Events = append(cur.Events, e)
 	}
 	return out
 }

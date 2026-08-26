@@ -2,6 +2,9 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -274,6 +277,111 @@ func (t *Telemetry) WriteMerge(ctx context.Context, m db.TelemetryMerge) {
 		a, b, cType, cDomain, cValue); err != nil {
 		t.fail(ctx, m.RunID, "write merge", err)
 	}
+}
+
+// WriteUnhandledCorporateEvent implements db.TelemetryDB.
+//
+// ON CONFLICT DO NOTHING against the per-run dedup index: within one run a split
+// is examined for the underlying and again per option, so the same event can be
+// reached twice and recording it twice would say one finding twice. Across runs
+// there is no conflict to hit, which is deliberate -- an event that cannot be
+// applied on every cycle is a different fact from one that failed once.
+func (t *Telemetry) WriteUnhandledCorporateEvent(ctx context.Context, e db.UnhandledCorporateEvent) {
+	runID, ok := t.parent(ctx, e.RunID, e.RunID, "write unhandled corporate event")
+	if !ok {
+		return
+	}
+	instrument, err := uuid.Parse(e.InstrumentID)
+	if err != nil {
+		t.fail(ctx, e.RunID, "write unhandled corporate event", err)
+		return
+	}
+	var data any
+	if e.Data != nil {
+		if !json.Valid(e.Data) {
+			t.fail(ctx, e.RunID, "write unhandled corporate event",
+				fmt.Errorf("data is not valid JSON"))
+			return
+		}
+		data = e.Data
+	}
+	if _, err := t.db.ExecContext(ctx, `
+		INSERT INTO telemetry.unhandled_corporate_event
+			(run_id, instrument_id, event_type, ex_date, detail, data)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (run_id, instrument_id, event_type, ex_date) DO NOTHING
+	`, runID, instrument, e.EventType, nullTime(e.ExDate), e.Detail, data); err != nil {
+		t.fail(ctx, e.RunID, "write unhandled corporate event", err)
+	}
+}
+
+// ListUnhandledCorporateEvents implements db.TelemetryDB.
+//
+// Newest first, which is the order a person reads a list of things that went
+// wrong in. The same event recurring across cycles appears once per run rather
+// than being folded together: how long it has been failing is what the repeated
+// rows say, and folding them would take that away.
+func (t *Telemetry) ListUnhandledCorporateEvents(ctx context.Context, pageSize int32, pageToken string) ([]db.UnhandledCorporateEvent, int32, string, error) {
+	offset := decodePageToken(pageToken)
+
+	var total int32
+	if err := t.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM telemetry.unhandled_corporate_event`).Scan(&total); err != nil {
+		return nil, 0, "", fmt.Errorf("count unhandled corporate events: %w", err)
+	}
+	if total == 0 {
+		return nil, 0, "", nil
+	}
+
+	rows, err := t.db.QueryContext(ctx, `
+		SELECT id, run_id, instrument_id, event_type, ex_date, detail, data, created_at
+		FROM telemetry.unhandled_corporate_event
+		ORDER BY created_at DESC, id
+		LIMIT $1 OFFSET $2
+	`, pageSize+1, offset)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("list unhandled corporate events: %w", err)
+	}
+	defer rows.Close()
+
+	var out []db.UnhandledCorporateEvent
+	for rows.Next() {
+		var e db.UnhandledCorporateEvent
+		var id, runID, instID uuid.UUID
+		var exDate sql.NullTime
+		var data []byte
+		if err := rows.Scan(&id, &runID, &instID, &e.EventType, &exDate, &e.Detail, &data, &e.CreatedAt); err != nil {
+			return nil, 0, "", fmt.Errorf("scan unhandled corporate event: %w", err)
+		}
+		e.ID = id.String()
+		e.RunID = runID.String()
+		e.InstrumentID = instID.String()
+		if exDate.Valid {
+			e.ExDate = &exDate.Time
+		}
+		e.Data = data
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, "", err
+	}
+
+	var nextToken string
+	if int32(len(out)) > pageSize {
+		out = out[:pageSize]
+		nextToken = encodePageToken(offset + int64(pageSize))
+	}
+	return out, total, nextToken, nil
+}
+
+// CountUnhandledCorporateEvents implements db.TelemetryDB.
+func (t *Telemetry) CountUnhandledCorporateEvents(ctx context.Context) (int32, error) {
+	var count int32
+	if err := t.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM telemetry.unhandled_corporate_event`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count unhandled corporate events: %w", err)
+	}
+	return count, nil
 }
 
 // WriteCandidatePluginCall implements db.TelemetryDB.

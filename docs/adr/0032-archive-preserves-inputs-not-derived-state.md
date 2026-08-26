@@ -1,5 +1,13 @@
 # Archives preserve inputs, not derived state
 
+Amended by [0080](0080-a-contradiction-is-logged-not-queued.md), which moved
+unhandled corporate events into the telemetry schema and dropped their `resolved`
+flag, so the archive no longer carries them. The tiering below is unchanged; what
+changed is that an operator's ruling on an unapplied event is no longer recorded
+at all. Two kinds of dividend were tier 1 by this ADR's own test and are now
+carried nowhere, which is
+[0173](../issues/0173-an-unfiled-dividend-has-nowhere-durable-to-live.md).
+
 An archive exists to rebuild an instance on a new server without losing data and
 without re-running expensive external operations -- identifier lookup above all. It
 is therefore neither a general interchange format nor a full database backup: it
@@ -9,7 +17,7 @@ everything the server can recompute to be recomputed on restore.
 **Tier 1, irreplaceable.** External or human input that exists nowhere else: `txs`,
 `holding_declarations`, `portfolios` and `portfolio_filters`,
 `users.display_currency`, `plugin_config`, the `reason` on `price_fetch_blocks` and
-`corporate_event_fetch_blocks`, `unhandled_corporate_events.resolved`, and
+`corporate_event_fetch_blocks`, and
 hand-recovered price rows for instruments no provider still carries.
 
 **Tier 2, expensive to reacquire.** Refetchable in principle, but only through paid,

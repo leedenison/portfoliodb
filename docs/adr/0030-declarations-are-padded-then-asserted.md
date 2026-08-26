@@ -25,7 +25,7 @@ declaration is not enough to know whether it is the pad.
 ## Why the check is computed on read
 
 The three existing surfaces for data problems -- `validation_errors`,
-`identification_errors`, `unhandled_corporate_events` -- are stored rows written
+`identification_errors`, `telemetry.unhandled_corporate_event` -- are stored rows written
 when a problem is detected. An assertion is not like them. Its verdict is a
 function of the current transaction set, which moves under an ingestion, an
 instrument merge, an option split application and a `RecomputeSplitAdjustments`

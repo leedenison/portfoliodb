@@ -10,6 +10,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/archiveimport"
+	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
@@ -129,13 +130,12 @@ func processSystemImport(ctx context.Context, deps ingestDeps, j *JobRequest) sy
 		case archivev1.ArchivePart_PRICES:
 			out.pricesPersisted, partErr = importPricePart(ctx, database, registry, a.GetPrices(), asOf, resolveCache, resolveKeys, rep)
 		case archivev1.ArchivePart_CORPORATE_EVENTS:
-			out.eventsPersisted, partErr = importCorporateEventPart(ctx, database, registry, a.GetCorporateEvents(), asOf, resolveCache, resolveKeys, rep)
+			out.eventsPersisted, partErr = importCorporateEventPart(ctx, database, registry, a.GetCorporateEvents(), asOf, resolveCache, resolveKeys,
+				corporateevents.Unhandled{DB: deps.Telemetry, RunID: deps.RunID}, rep)
 		case archivev1.ArchivePart_INFLATION_INDICES:
 			_, partErr = archiveimport.InflationPart(ctx, database, a.GetInflationIndices(), asOf, rep)
 		case archivev1.ArchivePart_FETCH_BLOCKS:
 			_, partErr = archiveimport.FetchBlockPart(ctx, database, a.GetFetchBlocks(), asOf, rep)
-		case archivev1.ArchivePart_UNHANDLED_EVENTS:
-			_, partErr = archiveimport.UnhandledEventPart(ctx, database, a.GetUnhandledEvents(), asOf, rep)
 		case archivev1.ArchivePart_PLUGIN_CONFIG:
 			_, partErr = archiveimport.PluginConfigPart(ctx, database, a.GetPluginConfig(), rep)
 		default:

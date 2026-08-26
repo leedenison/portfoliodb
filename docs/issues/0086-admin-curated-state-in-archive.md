@@ -8,6 +8,11 @@ dependencies: [0078]
 Export the decisions an admin made by hand: fetch blocks, resolved unhandled
 events, and plugin configuration.
 
+Partly undone by 0141: unhandled corporate events moved into the telemetry
+schema, their `resolved` flag went with them, and the archive no longer carries
+them. Fetch blocks and plugin configuration are unaffected. See
+adr/0080-a-contradiction-is-logged-not-queued.md.
+
 ## Motivation
 
 Each of these is a human judgement stored as a row, and none of them is

@@ -80,21 +80,6 @@ func systemFixture() *archivev1.SystemArchive {
 				}},
 			}},
 		},
-		UnhandledEvents: &archivev1.UnhandledEventPart{
-			Groups: []*archivev1.UnhandledEventGroup{{
-				Instrument: &archivev1.InstrumentRef{
-					Type:   typev1.IdentifierType_MIC_TICKER,
-					Value:  "AAPL",
-					Domain: "XNAS",
-				},
-				Events: []*archivev1.UnhandledEvent{{
-					EventType: "REVERSE_SPLIT",
-					ExDate:    proto.String("2025-04-11"),
-					Detail:    "1:10 reverse split affects 3 options",
-					Resolved:  true,
-				}},
-			}},
-		},
 		FetchBlocks: &archivev1.FetchBlockPart{
 			Groups: []*archivev1.FetchBlockGroup{{
 				Instrument: &archivev1.InstrumentRef{

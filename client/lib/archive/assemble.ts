@@ -9,7 +9,6 @@ import { PluginConfigPartSchema } from "@/gen/archive/v1/plugin_config_pb";
 import { PreferencePartSchema } from "@/gen/archive/v1/preferences_pb";
 import { PricePartSchema } from "@/gen/archive/v1/prices_pb";
 import { TxPartSchema } from "@/gen/archive/v1/txs_pb";
-import { UnhandledEventPartSchema } from "@/gen/archive/v1/unhandled_events_pb";
 import type { ExportSystemArchiveResponse, ExportUserArchiveResponse } from "@/gen/api/v1/api_pb";
 import type { SystemArchive, UserArchive } from "@/gen/archive/v1/archive_pb";
 
@@ -46,9 +45,6 @@ export function assembleSystemArchive(items: ExportSystemArchiveResponse[]): Sys
           case ArchivePart.FETCH_BLOCKS:
             doc.fetchBlocks ??= create(FetchBlockPartSchema, {});
             break;
-          case ArchivePart.UNHANDLED_EVENTS:
-            doc.unhandledEvents ??= create(UnhandledEventPartSchema, {});
-            break;
           case ArchivePart.PLUGIN_CONFIG:
             doc.pluginConfig ??= create(PluginConfigPartSchema, {});
             break;
@@ -68,9 +64,6 @@ export function assembleSystemArchive(items: ExportSystemArchiveResponse[]): Sys
         break;
       case "fetchBlockGroup":
         doc.fetchBlocks?.groups.push(item.item.value);
-        break;
-      case "unhandledEventGroup":
-        doc.unhandledEvents?.groups.push(item.item.value);
         break;
       case "pluginConfig":
         doc.pluginConfig?.configs.push(item.item.value);
@@ -151,10 +144,6 @@ export function systemPartCounts(archive: SystemArchive): { label: string; count
   if (archive.fetchBlocks) {
     const blocks = archive.fetchBlocks.groups.reduce((n, g) => n + g.blocks.length, 0);
     out.push({ label: "fetch blocks", count: blocks });
-  }
-  if (archive.unhandledEvents) {
-    const events = archive.unhandledEvents.groups.reduce((n, g) => n + g.events.length, 0);
-    out.push({ label: "unhandled corporate events", count: events });
   }
   if (archive.pluginConfig) {
     out.push({ label: "plugin config rows", count: archive.pluginConfig.configs.length });

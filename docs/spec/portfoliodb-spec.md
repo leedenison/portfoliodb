@@ -59,6 +59,8 @@ The **transaction description** (`instrument_description` on the Tx proto) is th
 
 The **instrument name** (`name` on the instruments table) is the canonical display name of the instrument resolved from identifiers.  For a cash instrument resolved via a CURRENCY identifier, the name is the currency code (e.g. "USD").
 
+It is derived, in this order: a name-bearing identifier in force -- a ticker, a contract symbol, a currency; failing that, the name a system-authoritative source supplied; failing that, the broker's own description; failing that, the instrument's id.  A broker description ranks below the supplied name rather than above it, so an instrument identified by an ISIN alone wears the name the identifier plugin gave it rather than the statement line it was minted from.  See adr/0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md.
+
 These two values serve different purposes and should not be conflated.  When displaying holdings the instrument name should be preferred over the transaction description, falling back to the transaction description only when the instrument has not yet been resolved or has no name.
 
 ## Identifying Instruments

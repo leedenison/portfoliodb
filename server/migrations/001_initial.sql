@@ -730,6 +730,16 @@ CREATE UNIQUE INDEX idx_prov_listing_ident_unique_no_listing
 -- of them matters. Where a user has to tell two listings apart, the currency is
 -- what tells them apart. See
 -- docs/adr/0069-a-listing-is-named-by-a-security-identifier-and-a-currency.md.
+--
+-- A broker description ranks below the stored name rather than among the
+-- identifiers. An authority's identifier names the security; failing that, the
+-- name an authority supplied; failing that, the broker's own text; failing that,
+-- its id. Ranking the description among the identifiers put it above the stored
+-- name, so an instrument completed by an ISIN alone re-derived the statement line
+-- it was minted with and wore it for good. It costs a user-authoritative
+-- instrument nothing: its stored name is null and the description is what the
+-- third branch answers with. See
+-- docs/adr/0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md.
 CREATE OR REPLACE FUNCTION recompute_instrument_name() RETURNS TRIGGER AS $$
 DECLARE
   instr_id UUID;
@@ -767,7 +777,7 @@ BEGIN
          FROM instrument_identifiers ii
          WHERE ii.instrument_id = instr_id
            AND ii.valid_before IS NULL
-           AND ii.identifier_type IN ('OCC','BROKER_DESCRIPTION','CURRENCY','FX_PAIR')
+           AND ii.identifier_type IN ('OCC','CURRENCY','FX_PAIR')
          UNION ALL
          SELECT li.identifier_type, li.domain, li.value, l.currency
          FROM instrument_listing_identifiers li
@@ -778,10 +788,21 @@ BEGIN
        ) n
        ORDER BY CASE n.identifier_type
          WHEN 'MIC_TICKER' THEN 0 WHEN 'OPENFIGI_TICKER' THEN 1
-         WHEN 'OCC' THEN 2 WHEN 'BROKER_DESCRIPTION' THEN 3
-         WHEN 'CURRENCY' THEN 4 WHEN 'FX_PAIR' THEN 5
+         WHEN 'OCC' THEN 2
+         WHEN 'CURRENCY' THEN 3 WHEN 'FX_PAIR' THEN 4
        END, n.currency IS NULL, n.currency, n.domain, n.value LIMIT 1),
-      NULLIF(instruments.name, ''),
+      -- What an authority supplied, which is what the create path stores and
+      -- what a completion replaces. The id is excluded as well as the empty
+      -- string: a row is inserted before its identifiers are, so every
+      -- instrument wears the id placeholder for the length of one statement,
+      -- and treating that as a stored name would let it outrank the branches
+      -- below for good.
+      NULLIF(NULLIF(instruments.name, ''), instr_id::text),
+      (SELECT ii.value FROM instrument_identifiers ii
+       WHERE ii.instrument_id = instr_id
+         AND ii.valid_before IS NULL
+         AND ii.identifier_type = 'BROKER_DESCRIPTION'
+       ORDER BY ii.domain, ii.value LIMIT 1),
       instr_id::text
     )
   WHERE id = instr_id;

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Unconfirmed metadata is discarded when an authority arrives
 milestone: M24
 dependencies: [0140]

@@ -92,7 +92,7 @@ flowchart TD
 
     DescHit -->|No| RunDescPlugins[Run candidate plugins in series by precedence]
     RunDescPlugins --> DescReturned{Candidate plugin(s) return identifiers?}
-    DescReturned -->|No| NoExtraction[Broker-description-only instrument + description extraction failed (identifier plugins not called)]
+    DescReturned -->|No| NoExtraction[Broker-description-only instrument + not identified (identifier plugins not called)]
     DescReturned -->|Yes| MaybeDbByHints[DB lookup by extracted hints]
     MaybeDbByHints --> ExtHintsOne{Exactly one instrument?}
     ExtHintsOne -->|Yes| DoneWithStore[Use instrument, store source and description on instrument]
@@ -118,9 +118,9 @@ flowchart TD
 |--------------|--------------------|--------------------|---------|
 | Txs with **identifiers** (no description-only path) | Not used | Resolve by hints (DB or plugins) | Canonical instrument or broker-description-only; source/description not stored when resolved by client hints. Where the identifiers name nothing and the description already names an instrument with no identity, resolution binds to that instrument and completes it rather than forking a second one. |
 | Txs with **description + hints only** | Not run if DB hit by (source, description) | Not run if no extracted hints | Re-upload: use cached instrument. |
-| Txs with **description + hints only** | Return **no** identifiers | Not called | Broker-description-only; error "description extraction failed". |
+| Txs with **description + hints only** | Return **no** identifiers | Not called | Broker-description-only; the uploader is told the row was not identified. Which stage gave up is `telemetry.resolution_key`. |
 | Txs with **description + hints only** | Return identifiers | Resolve (DB or plugins) | Canonical instrument; (source, description) stored. |
-| Txs with **description + hints only** | Return identifiers | Do **not** resolve / timeout / unavailable | Broker-description-only; error "broker description only" or "plugin timeout" / "plugin unavailable". |
+| Txs with **description + hints only** | Return identifiers | Do **not** resolve / timeout / unavailable | Broker-description-only; the uploader is told the row was not identified, or that identification was unavailable where a provider did not answer -- the one case a later upload may resolve unchanged. |
 
 Other behaviours (see identifiers.md): conflicting client identifiers → validation error; same (source, description) in batch → resolved once and cached; instrument merge when plugins link two existing instruments.
 

@@ -168,8 +168,11 @@ func TestResolve_NoExtractedHints_ExtractionFailed(t *testing.T) {
 	if r.IdErr == nil {
 		t.Fatal("expected IdErr for extraction failed")
 	}
-	if r.IdErr.Message != MsgExtractionFailed {
-		t.Errorf("IdErr.Message = %q, want %q", r.IdErr.Message, MsgExtractionFailed)
+	// Which stage gave up is telemetry's to say. What the person is told is
+	// that the row did not identify, which is the same thing to act on however
+	// it happened.
+	if r.IdErr.Message != MsgNotIdentified {
+		t.Errorf("IdErr.Message = %q, want %q", r.IdErr.Message, MsgNotIdentified)
 	}
 }
 
@@ -205,8 +208,8 @@ func TestResolve_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if r.IdErr == nil || r.IdErr.Message != MsgBrokerDescriptionOnly {
-		t.Errorf("expected IdErr message %q, got %+v", MsgBrokerDescriptionOnly, r.IdErr)
+	if r.IdErr == nil || r.IdErr.Message != MsgNotIdentified {
+		t.Errorf("expected IdErr message %q, got %+v", MsgNotIdentified, r.IdErr)
 	}
 }
 
@@ -670,8 +673,10 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if r.IdErr == nil || r.IdErr.Message != MsgPluginTimeout {
-		t.Errorf("expected IdErr message %q, got %+v", MsgPluginTimeout, r.IdErr)
+	// A provider that did not answer is the one case a person can do nothing
+	// about, and the one where the same file may identify on a later upload.
+	if r.IdErr == nil || r.IdErr.Message != MsgIdentificationUnavailable {
+		t.Errorf("expected IdErr message %q, got %+v", MsgIdentificationUnavailable, r.IdErr)
 	}
 }
 
@@ -711,8 +716,8 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if r.IdErr == nil || r.IdErr.Message != MsgPluginUnavailable {
-		t.Errorf("expected IdErr message %q, got %+v", MsgPluginUnavailable, r.IdErr)
+	if r.IdErr == nil || r.IdErr.Message != MsgIdentificationUnavailable {
+		t.Errorf("expected IdErr message %q, got %+v", MsgIdentificationUnavailable, r.IdErr)
 	}
 }
 
@@ -1306,8 +1311,8 @@ func TestResolve_ProposedKeyConfirmingNothingIsDropped(t *testing.T) {
 	if r.InstrumentID != "out-id" {
 		t.Errorf("InstrumentID = %q, want the broker-description-only instrument", r.InstrumentID)
 	}
-	if r.IdErr == nil || r.IdErr.Message != MsgProposalUnconfirmed {
-		t.Fatalf("IdErr = %+v, want %q", r.IdErr, MsgProposalUnconfirmed)
+	if r.IdErr == nil || r.IdErr.Message != MsgNotIdentified {
+		t.Fatalf("IdErr = %+v, want %q", r.IdErr, MsgNotIdentified)
 	}
 }
 
@@ -1322,8 +1327,8 @@ func TestResolve_ProposedKeyWithNothingToCheckAgainstIsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if r.IdErr == nil || r.IdErr.Message != MsgProposalUnconfirmed {
-		t.Fatalf("IdErr = %+v, want %q", r.IdErr, MsgProposalUnconfirmed)
+	if r.IdErr == nil || r.IdErr.Message != MsgNotIdentified {
+		t.Fatalf("IdErr = %+v, want %q", r.IdErr, MsgNotIdentified)
 	}
 	if r.InstrumentID != "out-id" {
 		t.Errorf("InstrumentID = %q, want the broker-description-only instrument", r.InstrumentID)

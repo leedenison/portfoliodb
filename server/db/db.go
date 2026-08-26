@@ -215,7 +215,13 @@ type PluginConfigDB interface {
 	ReorderPluginConfigs(ctx context.Context, category string, pluginIDs []string) error
 }
 
-// IdentificationError is stored per job for identification warnings (e.g. broker description only, plugin timeout).
+// IdentificationError is what one of a job's rows is reported to its uploader as,
+// where the row did not identify.
+//
+// Feedback rather than diagnostics: the message is one of three, chosen by what
+// the person can do about it rather than by which stage gave up. Which stage did
+// is telemetry.resolution_key, under the run. See the Msg constants in
+// server/service/ingestion.
 type IdentificationError struct {
 	RowIndex              int32
 	InstrumentDescription string

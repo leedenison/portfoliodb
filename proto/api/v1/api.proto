@@ -587,7 +587,13 @@ message ValidationError {
   string message = 3;
 }
 
-// IdentificationError is recorded when identification fails (e.g. plugin timeout) or broker description only.
+// IdentificationError is one of a job's rows reported to its uploader, where the
+// row did not identify.
+//
+// The message is feedback rather than diagnostics: one of three, chosen by what
+// the reader can do about it -- supply an identifier, upload again later, or look
+// at a disagreement -- rather than by which of the server's stages gave up. That
+// is recorded in full on telemetry.resolution_key.
 message IdentificationError {
   int32 row_index = 1;
   string instrument_description = 2;

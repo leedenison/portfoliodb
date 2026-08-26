@@ -816,7 +816,7 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -865,7 +865,7 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1003,7 +1003,7 @@ func TestApplyOptionSplit(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00150000"},
 			Canonical: true,
-		}}, nil, lineOf(t, p, underlyingID), optFields)
+		}}, nil, lineOf(t, p, underlyingID), optFields, "")
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -1480,7 +1480,7 @@ func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike flo
 			Ref:       db.InstrumentRef{Type: "OCC", Value: occ},
 			Canonical: true,
 			ValidFrom: validFrom,
-		}}, nil, lineOf(t, p, underlyingID), optFields)
+		}}, nil, lineOf(t, p, underlyingID), optFields, "")
 	if err != nil {
 		t.Fatalf("ensure option %s: %v", occ, err)
 	}
@@ -2216,7 +2216,7 @@ func setupDualLineInstrument(t *testing.T, p *Postgres, isin string) (instID, us
 	t.Helper()
 	ctx := context.Background()
 	instID, usdLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "DUAL", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: isin}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: isin}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -2343,12 +2343,12 @@ func TestMergeInstruments_DividendMovesToTheSurvivorsLine(t *testing.T) {
 	ctx := context.Background()
 
 	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "S", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DV1"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DV1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
 	loser, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "L", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DV2"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DV2"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}

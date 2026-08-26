@@ -1735,7 +1735,13 @@ type InstrumentDB interface {
 	// answer. It is what separates an association somebody asserted from a set
 	// the caller assembled, and the merge below does not read it yet: the rule
 	// that does is 0140.
-	EnsureInstrument(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
+	// runID is the run to record merge decisions against. The decision is only
+	// knowable inside the write -- which instruments the identifiers landed on,
+	// and whether a claim admitted joining them -- so it is recorded from in
+	// there rather than returned. A caller asserting no claim passes an empty
+	// one: with nothing asserted the identifiers cannot reach two instruments,
+	// so there is no decision to take and none to record.
+	EnsureInstrument(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []IdentifierInput, claims []IdentityClaim, underlyingID string, optionFields *OptionFields, runID string) (instrumentID, listingID string, err error)
 	// EnsureArchiveInstrument is EnsureInstrument for a caller that states a
 	// security's whole listing set rather than one currency of it: the archive.
 	//
@@ -1755,7 +1761,7 @@ type InstrumentDB interface {
 	// every caller today -- is asking for.
 	// It states no currency of its own: listings carries every line the file
 	// names, so there is no single one left for the caller to name.
-	EnsureArchiveInstrument(ctx context.Context, assetClass, name, cik, sicCode string, identifiers []IdentifierInput, listings ListingSet, claims []IdentityClaim, underlyingListingID string, optionFields *OptionFields) (instrumentID, listingID string, err error)
+	EnsureArchiveInstrument(ctx context.Context, assetClass, name, cik, sicCode string, identifiers []IdentifierInput, listings ListingSet, claims []IdentityClaim, underlyingListingID string, optionFields *OptionFields, runID string) (instrumentID, listingID string, err error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
 	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but
@@ -2009,6 +2015,11 @@ type OptionSplitParams struct {
 	// Every name is written, not just the last: skipping the ones in between
 	// would leave a window in which the contract has no recorded identity.
 	Mints []OptionMint
+	// RunID is the corporate event cycle this restatement runs under, for the
+	// merge it may perform. Empty records nothing. It is on the params rather
+	// than a parameter of its own because this call already takes one struct and
+	// a second argument would be the only thing not in it.
+	RunID string
 }
 
 // CorporateEventDB provides storage for stock splits, cash dividends, fetch
@@ -2633,6 +2644,24 @@ const (
 	TelemetryPluginCallDiscardedUncorroborated = "discarded_uncorroborated"
 )
 
+// Merge outcomes: what was decided about one pair of identifiers that landed on
+// two instruments. One member per branch of mergeVerdict and of the merge loop
+// above it, so the vocabulary is read off the code rather than invented for the
+// chart.
+//
+// The four refusals are kept apart because they need different fixes. An
+// uncorroborated pair wants a plugin that returns both names; an unmediated one
+// is working as intended and is noise; a collision is two authorities
+// contradicting each other and wants a person. See
+// docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+const (
+	TelemetryMerged              = "merged"
+	TelemetryMergeUncorroborated = "refused_uncorroborated"
+	TelemetryMergeUnmediated     = "refused_unmediated"
+	TelemetryMergeDisjoint       = "refused_disjoint"
+	TelemetryMergeCollision      = "refused_collision"
+)
+
 // Price gap outcomes. TelemetryGapSettledEmpty is a success and the mirror of
 // broker_description_only: no prices were stored and the gap is nonetheless
 // finished with, because the instrument did not trade over the range or no plugin
@@ -2746,6 +2775,33 @@ type TelemetryIdentifierClaim struct {
 	CallID string
 	Ref    InstrumentRef
 	Role   string // ClaimRoleReturned or ClaimRoleFiltered
+}
+
+// TelemetryMerge is one decision about whether two identifiers denote one
+// security, and what was done about it.
+//
+// The pair is the unit rather than the resolution: a set of identifiers landing
+// on three instruments asks the question twice and can answer it differently
+// each time. A resolution whose identifiers all name the security already
+// holding them asks nothing and writes none of these.
+//
+// The endpoints are whole refs because a triple outlives the merge and an
+// instrument does not -- the loser is deleted, so an id alone leaves a reader
+// nothing to look up. The ids are carried beside them for a panel that groups by
+// security. A merged pair need not contain the survivor: a group of three is
+// admitted pairwise and the survivor is picked over the whole group.
+//
+// Collision is set only for TelemetryMergeCollision, and is the triple both
+// instruments turned out to hold: the evidence that two claims cannot both hold,
+// which the merge used to discard along with the instrument that held it.
+type TelemetryMerge struct {
+	RunID       string
+	Outcome     string
+	A           InstrumentRef
+	B           InstrumentRef
+	AInstrument string
+	BInstrument string
+	Collision   *InstrumentRef
 }
 
 // TelemetryTokens is the token cost of one candidate plugin call. Nil on a call
@@ -2898,6 +2954,11 @@ type TelemetryDB interface {
 	// WriteCandidateField records one proposed field against its key and its call.
 	WriteCandidateField(ctx context.Context, f TelemetryCandidateField)
 
+	// WriteMerge records one decision about whether two identifiers denote one
+	// security. It hangs directly off the run rather than off a resolution key,
+	// because the corporate event cycle merges too -- a split minting an OCC
+	// symbol another instrument already holds -- and has no key to hang off.
+	WriteMerge(ctx context.Context, m TelemetryMerge)
 	// StartPriceGap creates a price gap and returns its id, for the reason
 	// StartResolutionKey does: its plugin calls reference it, so it must exist
 	// before its own outcome is known.
@@ -2955,6 +3016,8 @@ func (NopTelemetry) WriteCandidatePluginCall(context.Context, TelemetryCandidate
 }
 
 func (NopTelemetry) WriteCandidateField(context.Context, TelemetryCandidateField) {}
+
+func (NopTelemetry) WriteMerge(context.Context, TelemetryMerge) {}
 
 func (NopTelemetry) StartPriceGap(context.Context, TelemetryPriceGap) string { return "" }
 

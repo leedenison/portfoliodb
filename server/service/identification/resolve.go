@@ -1611,7 +1611,7 @@ func ResolveWithPlugins(
 		// identifiers follow the same routing, so it is passed on rather than
 		// discarded; carrying it out of Resolve to the caller is 0147's third
 		// step.
-		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields)
+		id, listingID, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields, tel.RunID)
 		if err != nil {
 			return ResolveResult{}, err
 		}

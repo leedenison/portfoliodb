@@ -224,8 +224,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 			{PluginID: "odd", Precedence: 10},
 			{PluginID: "lone", Precedence: 5},
 		}, nil)
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -379,8 +378,7 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 	database.EXPECT().EnsureListing(gomock.Any(), "underlying-id", gomock.Any()).Return("underlying-line-id", nil)
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "opt", Precedence: 10}}, nil)
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any()).
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any(), gomock.Any()).
 		Return("opt-id", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -454,8 +452,7 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 			{PluginID: "odd", Precedence: 20},
 			{PluginID: "quiet", Precedence: 10},
 		}, nil)
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "listing-id", nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,

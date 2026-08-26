@@ -192,9 +192,13 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 			INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`, survivor, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 		if err != nil {
-			if isIdentifierConflict(err) {
-				continue
-			}
+			// Not skipped. A name the survivor already holds over the same
+			// interval is the collision the caller asked about before starting,
+			// so reaching one here means the merge began on a pair that should
+			// have been refused. Dropping the name instead is what adr/0064
+			// calls the worst of the three responses: it destroys the only
+			// evidence that a contradiction was seen, and the instrument that
+			// held it is deleted a few statements later.
 			return fmt.Errorf("insert identifier: %w", err)
 		}
 	}
@@ -334,11 +338,12 @@ func listingMap(ctx context.Context, exec queryable, survivor, mergedAway uuid.U
 // worked out for the postings -- so the names and the postings on a line end up in
 // the same place, which two independent walks of the listing set could not promise.
 //
-// Delete-then-insert rather than an UPDATE of listing_id, for the reason the
-// security-grain move above has it: the overlap constraint is global, so a name
-// the survivor already holds over the same interval would fail the merge, and
-// skipping it is right -- the survivor holding it already is the two rows saying
-// the same thing.
+// Delete-then-insert rather than an UPDATE of listing_id: the overlap constraint
+// is global, so an UPDATE would collide with the survivor's own row for a name
+// they both hold. Such a name is a collision the caller refuses the merge over
+// rather than something to skip past here -- two rows saying one thing is what
+// it looks like, and what it means is that nothing says which instrument the
+// name denotes. See collidingIdentifier.
 func mergeListingIdentifiers(ctx context.Context, exec queryable, survivor uuid.UUID, from []uuid.UUID, to []uuid.UUID) error {
 	for i, source := range from {
 		target := to[i]
@@ -355,9 +360,10 @@ func mergeListingIdentifiers(ctx context.Context, exec queryable, survivor uuid.
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			`, survivor, target, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
 			if err != nil {
-				if isIdentifierConflict(err) {
-					continue
-				}
+				// Not skipped, for the reason the security-grain move above
+				// gives: the caller has already asked whether the two hold a
+				// name in common, so a collision here is a merge that should
+				// never have been begun.
 				return fmt.Errorf("insert listing identifier: %w", err)
 			}
 		}
@@ -1033,8 +1039,8 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // one claim named both and the stored rows at each end may carry a chain. A
 // caller with a single identifier and nothing to assert passes none, and never
 // reaches more than one instrument to have to.
-func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
-	return p.ensureSecurity(ctx, assetClass, currency, name, cik, sicCode, identifiers, claims, underlyingListingID, optionFields, nil)
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields, runID string) (string, string, error) {
+	return p.ensureSecurity(ctx, assetClass, currency, name, cik, sicCode, identifiers, claims, underlyingListingID, optionFields, nil, runID)
 }
 
 // EnsureArchiveInstrument implements db.InstrumentDB.
@@ -1045,7 +1051,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, currency, n
 // each of those names is then stored is the placement, which files them per line.
 func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, name, cik, sicCode string,
 	identifiers []db.IdentifierInput, listings db.ListingSet, claims []db.IdentityClaim,
-	underlyingListingID string, optionFields *db.OptionFields) (string, string, error) {
+	underlyingListingID string, optionFields *db.OptionFields, runID string) (string, string, error) {
 	all := make([]db.IdentifierInput, 0, len(identifiers))
 	all = append(all, identifiers...)
 	for _, l := range listings.Listings {
@@ -1061,7 +1067,7 @@ func (p *Postgres) EnsureArchiveInstrument(ctx context.Context, assetClass, name
 	// No currency: the placement knows every line the file states, so there is no
 	// single one for the core to settle.
 	return p.ensureSecurity(ctx, assetClass, "", name, cik, sicCode, all, claims,
-		underlyingListingID, optionFields, place)
+		underlyingListingID, optionFields, place, runID)
 }
 
 // placeArchiveListings ensures every line a file states and files that line's own
@@ -1134,7 +1140,7 @@ func (p *Postgres) placeArchiveListings(ctx context.Context, exec queryable, ins
 // currency and its listing-grain names go on the line that currency names, which
 // is EnsureInstrument's whole listing rule; an archive hands in a placement that
 // knows the security's lines one by one.
-func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields, place placeListings) (string, string, error) {
+func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, claims []db.IdentityClaim, underlyingListingID string, optionFields *db.OptionFields, place placeListings, runID string) (string, string, error) {
 	if len(identifiers) == 0 {
 		return "", "", fmt.Errorf("at least one identifier required")
 	}
@@ -1188,6 +1194,10 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, nam
 	seen := make(map[uuid.UUID]struct{})
 	var distinctIDs []uuid.UUID
 	held := make(map[string]endpoint, len(identifiers))
+	// The first of the caller's names to reach each instrument, which is what a
+	// refusal is reported as. Caller order, so it is the name the caller's
+	// highest-precedence answer supplied.
+	reachedBy := make(map[uuid.UUID]db.InstrumentRef, len(identifiers))
 	for _, idn := range identifiers {
 		// findHolder asks the table the type names, so a mixed set is looked up
 		// a row at a time at each row's own grain.
@@ -1202,6 +1212,7 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, nam
 		if _, dup := seen[e.instrument]; !dup {
 			seen[e.instrument] = struct{}{}
 			distinctIDs = append(distinctIDs, e.instrument)
+			reachedBy[e.instrument] = idn.Ref
 		}
 	}
 	// The instruments a claim corroborated as one, anchored on the first entry in
@@ -1216,21 +1227,35 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, nam
 	// returned, so it is never written and never in the caller's set, and it
 	// names the association as loudly as a returned value does (adr/0060).
 	var group []uuid.UUID
+	var decisions []mergeDecision
 	if len(distinctIDs) > 0 {
 		var err error
-		group, err = p.mergeGroup(ctx, distinctIDs[0], claims, held)
+		group, decisions, err = p.mergeGroup(ctx, distinctIDs[0], claims, held)
 		if err != nil {
 			return "", "", err
 		}
+	}
+	// An instrument the caller's names reached that no claim mentioned alongside
+	// the anchor at all. mergeGroup answers only about pairs a claim named
+	// together, so this refusal has no decision of its own and is added here.
+	//
+	// Reported against the anchor because that is the instrument the transaction
+	// attaches to, and this is the pair that was not joined. An instrument some
+	// claim did name is left alone: it already has a decision saying why, and a
+	// second one would count the same refusal twice under two reasons.
+	decisions = append(decisions, uncorroborated(distinctIDs, group, decisions, reachedBy)...)
+	// Recorded on both paths. A decision can be taken where the merge branch is
+	// not entered: a claim may name a value the caller never supplied, so a pair
+	// can be refused while the caller's own identifiers all landed on one
+	// instrument. The branch records its own, because only it knows what a
+	// collision stopped.
+	if len(group) <= 1 && len(distinctIDs) <= 1 {
+		p.recordMerges(ctx, runID, decisions, nil)
 	}
 	// Merge what the group holds and return the survivor. A group of one is the
 	// refusal: nothing corroborated the instruments this landed on as one, so the
 	// merge loop does nothing, the anchor is what the transaction attaches to,
 	// and every other instrument is left exactly as it was.
-	//
-	// A refusal is not recorded here. This layer has no run to record it against
-	// and no logger to say it out loud, and a durable record attached to the
-	// security is 0141, which reads the same two endpoints this does.
 	//
 	// The refused case deliberately does not complete the anchor in place the way
 	// the single-instrument branch below does. Another instrument holds the
@@ -1241,10 +1266,24 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, nam
 		if err != nil {
 			return "", "", err
 		}
+		// The losers a collision stopped, and the triple that stopped each. The
+		// merge does not proceed for those: both instruments stay as they were.
+		collided := make(map[uuid.UUID]db.InstrumentRef)
 		var listingID uuid.UUID
 		err = p.runInTx(ctx, func(exec queryable) error {
 			for _, id := range group {
 				if id == survivor {
+					continue
+				}
+				// Asked before anything is moved. A merge that cannot carry a
+				// name across must not have carried half the loser over by the
+				// time it finds out.
+				coll, bad, cErr := collidingIdentifier(ctx, exec, survivor, id)
+				if cErr != nil {
+					return cErr
+				}
+				if bad {
+					collided[id] = coll
 					continue
 				}
 				if err := mergeInstruments(ctx, exec, survivor, id); err != nil {
@@ -1265,6 +1304,7 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, nam
 		if err != nil {
 			return "", "", err
 		}
+		p.recordMerges(ctx, runID, decisions, collided)
 		return survivor.String(), nilUUIDToString(listingID), nil
 	}
 	// Exactly one instrument: update underlying and option fields, and complete

@@ -1,5 +1,9 @@
 # A claim that cannot hold is flagged, not resolved
 
+Amended by [0080](0080-a-contradiction-is-logged-not-queued.md), which puts the
+record in the telemetry schema rather than in an operational queue. The split
+below is unchanged; only where the record lands is.
+
 Two authorities can contradict each other. Two identifier plugins return
 different ISINs for one security; a broker file names a mapping the database
 already holds differently; a merge finds the two instruments both wearing one

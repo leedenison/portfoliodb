@@ -25,7 +25,7 @@ import (
 // It returns how many instruments were ensured. A problem with one instrument
 // is a validation error rather than a hard failure: an instrument the file
 // describes badly must not cost the rest of the part.
-func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.InstrumentPart, rep *PartReporter) (int32, error) {
+func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.InstrumentPart, rep *PartReporter, runID string) (int32, error) {
 	instruments := part.GetInstruments()
 	rep.Total(ctx, len(instruments))
 	if len(instruments) == 0 {
@@ -59,7 +59,7 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 		if isDerivative(inst.GetAssetClass()) {
 			continue
 		}
-		id := ensureArchiveInstrument(ctx, database, inst, "", i, seenKeys, rep)
+		id := ensureArchiveInstrument(ctx, database, inst, "", i, seenKeys, rep, runID)
 		rep.Advance(ctx, 1)
 		if id == "" {
 			continue
@@ -143,7 +143,7 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 		if !ok {
 			continue // already reported and counted in pass 2
 		}
-		id := ensureArchiveInstrument(ctx, database, inst, underlyingLine, i, seenKeys, rep)
+		id := ensureArchiveInstrument(ctx, database, inst, underlyingLine, i, seenKeys, rep, runID)
 		rep.Advance(ctx, 1)
 		if id == "" {
 			continue
@@ -163,7 +163,7 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 // produced. It returns "" when
 // it reported a problem rather than storing anything.
 func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev1.Instrument,
-	underlyingListingID string, i int, seenKeys map[string]struct{}, rep *PartReporter) string {
+	underlyingListingID string, i int, seenKeys map[string]struct{}, rep *PartReporter, runID string) string {
 	fail := func(msg string) string {
 		rep.Errf(i, "instruments", msg)
 		return ""
@@ -213,7 +213,7 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	// own, and there is nothing above them for one to be the currency of.
 	id, listingID, err := database.EnsureArchiveInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()),
 		inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, set,
-		[]db.IdentityClaim{archiveClaim(claimed)}, underlyingListingID, opts)
+		[]db.IdentityClaim{archiveClaim(claimed)}, underlyingListingID, opts, runID)
 	if err != nil {
 		return fail(err.Error())
 	}

@@ -24,14 +24,14 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	idA, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "1"},
 		Canonical: true,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
 	idB, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "CUSIP", Value: "1"},
 		Canonical: true,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure B: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "1"},
 			Canonical: true,
 		}}
-	result, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil)
+	result, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure merge: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	brokerOnlyID, _, err := p.EnsureInstrument(ctx, "", "", "BrokerOnly", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BRK", Domain: "IBKR"},
 		Canonical: false,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure broker-only: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: "AAPL"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure with canonical: %v", err)
 	}
@@ -187,14 +187,14 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	_, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Nasdaq", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Domain: "XNAS", Value: "N1"},
 		Canonical: true,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure XNAS: %v", err)
 	}
 	_, _, err = p.EnsureInstrument(ctx, "STOCK", "USD", "NYSE", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Domain: "XNYS", Value: "Y1"},
 		Canonical: true,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure XNYS: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestListInstrumentsForExport_ExchangeFilterSkipsAVenuelessSecurity(t *testi
 	_, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "ISIN only", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000001"},
 		Canonical: true,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestEnsureInstrument_WithUnderlying(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestEnsureInstrument_WithUnderlying(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: "AAPL 20250117C200"},
 			Canonical: false,
-		}}, nil, lineOf(t, p, underlyingID), &db.OptionFields{Strike: decf(230), Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+		}}, nil, lineOf(t, p, underlyingID), &db.OptionFields{Strike: decf(230), Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"}, "")
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestEnsureInstrument_LeavesNameDatesAlone(t *testing.T) {
 		Canonical: true,
 		ValidFrom: day(2024, 1, 1),
 	}}
-	id, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Intel", "", "", idns, nil, "", nil)
+	id, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Intel", "", "", idns, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestEnsureInstrument_LeavesNameDatesAlone(t *testing.T) {
 		Canonical: true,
 		ValidFrom: day(2025, 6, 1),
 	}}
-	again, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Intel", "", "", later, nil, "", nil)
+	again, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Intel", "", "", later, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("re-ensure: %v", err)
 	}
@@ -394,7 +394,7 @@ func descriptionOnly(t *testing.T, p *Postgres, source, desc string) string {
 	id, _, err := p.EnsureInstrument(context.Background(), "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source},
 		Canonical: false,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure broker-description-only instrument: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestEnsureInstrument_CompletesADescriptionOnlyInstrument(t *testing.T) {
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00BK5BQT80"}, Canonical: true, ValidFrom: day(2025, 3, 1)},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "VWRP", Domain: "XLON"}, Canonical: true, ValidFrom: day(2025, 3, 1)},
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestEnsureInstrument_CompletionReplacesTheUnconfirmedName(t *testing.T) {
 	again, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Vanguard FTSE All-World UCITS ETF", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00BK5BQT80"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -528,7 +528,7 @@ func TestEnsureInstrument_CompletionDiscardsUnconfirmedMetadata(t *testing.T) {
 	// so nothing here was confirmed by anyone.
 	id, _, err := p.EnsureInstrument(ctx, "ETF", "", "Apple Incorporated", "9999999999", "1111", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestEnsureInstrument_CompletionDiscardsUnconfirmedMetadata(t *testing.T) {
 	again, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Apple Inc.", "0000320193", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("re-ensure: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestEnsureInstrument_LeavesAnIdentifiedInstrumentAlone(t *testing.T) {
 
 	id, _, err := p.EnsureInstrument(ctx, "STOCK", "", "Apple Inc.", "0000320193", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestEnsureInstrument_LeavesAnIdentifiedInstrumentAlone(t *testing.T) {
 	again, _, err := p.EnsureInstrument(ctx, "ETF", "USD", "Apple Incorporated", "9999999999", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("re-ensure: %v", err)
 	}
@@ -625,7 +625,7 @@ func TestEnsureInstrument_CompletionLeavesAStoredNameDateAlone(t *testing.T) {
 	if _, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "OCC", Value: "CSCO250117C00060000"}, Canonical: true, ValidFrom: day(2024, 1, 1)},
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
-	}, nil, "", nil); err != nil {
+	}, nil, "", nil, ""); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 
@@ -634,7 +634,7 @@ func TestEnsureInstrument_CompletionLeavesAStoredNameDateAlone(t *testing.T) {
 	if _, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "OCC", Value: "CSCO250117C00060000"}, Canonical: true, ValidFrom: day(2025, 6, 1)},
 		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
-	}, nil, "", nil); err != nil {
+	}, nil, "", nil, ""); err != nil {
 		t.Fatalf("re-ensure: %v", err)
 	}
 
@@ -723,7 +723,7 @@ func TestMergeInstrumentFromArchive_RestoresNameDates(t *testing.T) {
 			Canonical: true,
 			ValidFrom: day(2024, 6, 10),
 		}}
-	id, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", idns, nil, "", nil)
+	id, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", idns, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -759,7 +759,7 @@ func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: "OPT1"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err == nil {
 		t.Fatal("expected error when OPTION names no underlying line")
 	}
@@ -775,7 +775,7 @@ func TestEnsureInstrument_InvalidAssetClass_Rejected(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "IBKR", Value: "X"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err == nil {
 		t.Fatal("expected error for invalid asset_class")
 	}
@@ -827,7 +827,7 @@ func TestListInstruments_NullAssetClassMatchesUnknown(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "NOCLASS", Domain: "test"},
 			Canonical: false,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure null-class: %v", err)
 	}
@@ -836,7 +836,7 @@ func TestListInstruments_NullAssetClassMatchesUnknown(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US1234567890"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure stock: %v", err)
 	}
@@ -911,14 +911,14 @@ func TestFindInstrumentWithMetaByIdentifier_AnswersAtTheIdentifiersGrain(t *test
 	_, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "TestCo", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US9999999999"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "TEST", Domain: "XNAS"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure USD line: %v", err)
 	}
 	_, _, err = p.EnsureInstrument(ctx, "STOCK", "GBP", "TestCo", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US9999999999"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "TESTL", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure GBP line: %v", err)
 	}
@@ -956,7 +956,7 @@ func TestFindInstrumentWithMetaByIdentifier_UnplacedNameReachesNoLine(t *testing
 	// No currency stated, so the ticker is filed against the security on no line.
 	_, _, err := p.EnsureInstrument(ctx, "STOCK", "", "TestCo", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "TEST", Domain: "XNAS"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -981,7 +981,7 @@ func TestListInstruments_PaginationPastEnd(t *testing.T) {
 			{
 				Ref:       db.InstrumentRef{Type: "ISIN", Value: "TEST" + string(rune('A'+i))},
 				Canonical: true,
-			}}, nil, "", nil)
+			}}, nil, "", nil, "")
 		if err != nil {
 			t.Fatalf("ensure %s: %v", name, err)
 		}
@@ -1070,13 +1070,11 @@ func TestSaveAndFindProviderIdentifiers(t *testing.T) {
 	ctx := context.Background()
 
 	// Create an instrument to attach provider identifiers to.
-	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "AAPL", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
-			Canonical: true,
-		}},
-		nil,
-		"", nil)
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "AAPL", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1157,13 +1155,11 @@ func TestEnsureInstrument_NormalizesSegmentMIC(t *testing.T) {
 	ctx := context.Background()
 
 	// Create instrument with segment MIC XNGS (segment of XNAS).
-	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "AAPL", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNGS"},
-			Canonical: true,
-		}},
-		nil,
-		"", nil)
+	instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "AAPL", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNGS"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1218,13 +1214,11 @@ func TestInsertInstrumentIdentifier_NormalizesSegmentMIC(t *testing.T) {
 	ctx := context.Background()
 
 	// Create instrument with operating MIC.
-	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "AAPL", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
-			Canonical: true,
-		}},
-		nil,
-		"", nil)
+	instID, listingID, err := p.EnsureInstrument(ctx, "STOCK", "USD", "AAPL", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0378331005"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -1262,14 +1256,14 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 	idA, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "ISIN", Value: "W1"},
 		Canonical: true,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
 	idB, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "CUSIP", Value: "W1"},
 		Canonical: true,
-	}}, nil, "", nil)
+	}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure B: %v", err)
 	}
@@ -1302,7 +1296,7 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "W1"},
 			Canonical: true,
 		}}
-	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil)
+	survivor, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -1336,21 +1330,20 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	underlyingID, underlyingListing, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Apple Inc.", "0000320193", "3571",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
-			Canonical: true,
-		}}, nil, "", nil)
+	underlyingID, underlyingListing, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Apple Inc.", "0000320193", "3571", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
 	expiry := time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)
-	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "USD", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL  260116C00150500"},
-			Canonical: true,
-		}}, nil, lineOf(t, p, underlyingID),
-		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: expiry, PutCall: "C"})
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "USD", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL  260116C00150500"},
+		Canonical: true,
+	}}, nil, lineOf(t, p, underlyingID), &db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: expiry, PutCall: "C"}, "")
+
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -1414,20 +1407,19 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 func TestListInstrumentsForExport_PullsInUnderlyingOutsideTheFilter(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	underlyingID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Apple Inc.", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
-			Canonical: true,
-		}}, nil, "", nil)
+	underlyingID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Apple Inc.", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
-	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "USD", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL  260116C00150500"},
-			Canonical: true,
-		}}, nil, lineOf(t, p, underlyingID),
-		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "USD", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL  260116C00150500"},
+		Canonical: true,
+	}}, nil, lineOf(t, p, underlyingID), &db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"}, "")
+
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -1460,19 +1452,19 @@ func TestListInstrumentsForExport_UnfilteredMeansEverything(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	unclassifiedID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "NOCLASS", Domain: "XNAS"},
-			Canonical: true,
-		}}, nil, "", nil)
+	unclassifiedID, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "NOCLASS", Domain: "XNAS"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure unclassified: %v", err)
 	}
-	stockID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
-			Canonical: true,
-		}}, nil, "", nil)
+	stockID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure stock: %v", err)
 	}
@@ -1528,11 +1520,11 @@ func containsInstrument(rows []*db.InstrumentRow, id string) bool {
 func TestMergeInstrumentFromArchive_FillsGapsWithoutOverwriting(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	id, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
-			Canonical: true,
-		}}, nil, "", nil)
+	id, _, err := p.EnsureInstrument(ctx, "", "USD", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
+		Canonical: true,
+	}}, nil, "", nil, "")
+
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -1640,7 +1632,7 @@ func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "BRK.B", Domain: "XNYS"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -1664,7 +1656,7 @@ func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure aapl: %v", err)
 	}
@@ -1682,7 +1674,7 @@ func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "MIC_TICKER", Value: "BRKB", Domain: "XBUE"},
 			Canonical: true,
-		}}, nil, "", nil); err != nil {
+		}}, nil, "", nil, ""); err != nil {
 		t.Fatalf("ensure cedear: %v", err)
 	}
 	if got, err = p.FindInstrumentByTickerIgnoringSeparators(ctx, "BRK.B"); err != nil || got != "" {
@@ -1749,7 +1741,7 @@ func TestInstrumentIdentifiers_OverlapExcluded(t *testing.T) {
 			Ref:         db.InstrumentRef{Type: "OCC", Value: "XYZ250117C00100000"},
 			Canonical:   true,
 			ValidBefore: day(2024, 6, 10),
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
@@ -1757,7 +1749,7 @@ func TestInstrumentIdentifiers_OverlapExcluded(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000001"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure B: %v", err)
 	}
@@ -1801,7 +1793,7 @@ func TestFindInstrumentByIdentifier_PrefersNameInForce(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000003"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure past holder: %v", err)
 	}
@@ -1826,7 +1818,7 @@ func TestFindInstrumentByIdentifier_PrefersNameInForce(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "ISIN", Value: "US0000000004"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure current holder: %v", err)
 	}
@@ -1879,7 +1871,7 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 		{
 			Ref:       db.InstrumentRef{Type: "SEDOL", Value: "0000002"},
 			Canonical: true,
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
@@ -1892,7 +1884,7 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 			Ref:         db.InstrumentRef{Type: "OCC", Value: "OLD250117C00100000"},
 			Canonical:   true,
 			ValidBefore: day(2024, 6, 10),
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
@@ -1911,7 +1903,7 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 			Ref:       db.InstrumentRef{Type: "CUSIP", Value: "000000001"},
 			Canonical: true,
 		}}
-	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil)
+	got, _, err := p.EnsureInstrument(ctx, "", "", "", "", "", merging, oneClaim(merging...), "", nil, "")
 	if err != nil {
 		t.Fatalf("merging ensure: %v", err)
 	}
@@ -1950,7 +1942,7 @@ func TestRecomputeInstrumentName_IgnoresClosedIdentifier(t *testing.T) {
 			Ref:       db.InstrumentRef{Type: "OCC", Value: "NOW250117C00050000"},
 			Canonical: true,
 			ValidFrom: day(2024, 6, 10),
-		}}, nil, "", nil)
+		}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -1973,12 +1965,12 @@ func TestMergeInstruments_PostingsMoveToTheSurvivorsLine(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|merge-line", "U", "u@merge-line.com")
 
 	survivor, survivorLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "S", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SS1"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SS1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
 	loser, loserLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "L", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000LL2"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000LL2"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
@@ -2028,7 +2020,7 @@ func TestMergeInstruments_PostingOnNoLineStaysOnNone(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|merge-line-none", "U", "u@merge-line-none.com")
 
 	survivor, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "S", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SS1"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SS1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
 	}
@@ -2038,7 +2030,7 @@ func TestMergeInstruments_PostingOnNoLineStaysOnNone(t *testing.T) {
 	// Nothing stated a currency for the loser, so it has no line and the posting
 	// below is on none.
 	loser, loserLine, err := p.EnsureInstrument(ctx, "STOCK", "", "L", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000LL2"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000LL2"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure loser: %v", err)
 	}
@@ -2089,7 +2081,7 @@ func TestEnsureInstrument_OptionOnALineThatIsNotThere_Rejected(t *testing.T) {
 	ctx := context.Background()
 
 	underlyingID, line, err := p.EnsureInstrument(ctx, "STOCK", "", "U", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000UN1"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000UN1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
@@ -2098,12 +2090,11 @@ func TestEnsureInstrument_OptionOnALineThatIsNotThere_Rejected(t *testing.T) {
 	}
 	_ = underlyingID
 
-	_, _, err = p.EnsureInstrument(ctx, "OPTION", "USD", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "OCC", Value: "UNKN  260116C00150500"},
-			Canonical: true,
-		}}, nil, uuid.New().String(),
-		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	_, _, err = p.EnsureInstrument(ctx, "OPTION", "USD", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "OCC", Value: "UNKN  260116C00150500"},
+		Canonical: true,
+	}}, nil, uuid.New().String(), &db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"}, "")
+
 	if err == nil {
 		t.Fatal("expected the option to be refused: it names a line that does not exist")
 	}
@@ -2119,7 +2110,7 @@ func TestEnsureInstrument_OptionNamesTheLineItsStrikeIsQuotedIn(t *testing.T) {
 	ctx := context.Background()
 
 	underlyingID, usdLine, err := p.EnsureInstrument(ctx, "STOCK", "USD", "DUAL", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DU1"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000DU1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
@@ -2128,12 +2119,11 @@ func TestEnsureInstrument_OptionNamesTheLineItsStrikeIsQuotedIn(t *testing.T) {
 		t.Fatalf("ensure EUR line: %v", err)
 	}
 
-	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "EUR", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "IBKR", Value: "DUAL 20260116C480"},
-			Canonical: true,
-		}}, nil, eurLine,
-		&db.OptionFields{Strike: decimal.RequireFromString("480"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "EUR", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "IBKR", Value: "DUAL 20260116C480"},
+		Canonical: true,
+	}}, nil, eurLine, &db.OptionFields{Strike: decimal.RequireFromString("480"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"}, "")
+
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -2160,7 +2150,7 @@ func TestSplitFactorAt_ReachesTheOptionThroughItsUnderlyingLine(t *testing.T) {
 	ctx := context.Background()
 
 	underlyingID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "SPLITME", "", "", []db.IdentifierInput{
-		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SP1"}, Canonical: true}}, nil, "", nil)
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0000000SP1"}, Canonical: true}}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
@@ -2168,12 +2158,11 @@ func TestSplitFactorAt_ReachesTheOptionThroughItsUnderlyingLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure EUR line: %v", err)
 	}
-	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "EUR", "", "", "",
-		[]db.IdentifierInput{{
-			Ref:       db.InstrumentRef{Type: "IBKR", Value: "SPLITME 20260116C100"},
-			Canonical: true,
-		}}, nil, eurLine,
-		&db.OptionFields{Strike: decimal.RequireFromString("100"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	optionID, _, err := p.EnsureInstrument(ctx, "OPTION", "EUR", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "IBKR", Value: "SPLITME 20260116C100"},
+		Canonical: true,
+	}}, nil, eurLine, &db.OptionFields{Strike: decimal.RequireFromString("100"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"}, "")
+
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -2220,7 +2209,7 @@ func TestIdentifierJoins_PickPerGrain(t *testing.T) {
 	instID, gbp, err := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00TWOLINES"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "ABCG", Domain: "XLON"}, Canonical: true},
-	}, nil, "", nil)
+	}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -2356,7 +2345,7 @@ func TestIdentifiedMatchesTheStore(t *testing.T) {
 			for j := range ids {
 				ids[j].Ref.Value = fmt.Sprintf("%s-%d", ids[j].Ref.Value, i)
 			}
-			instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", ids, nil, "", nil)
+			instID, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", ids, nil, "", nil, "")
 			if err != nil {
 				t.Fatalf("ensure instrument: %v", err)
 			}

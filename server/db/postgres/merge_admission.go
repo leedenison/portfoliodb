@@ -86,11 +86,93 @@ func findHolder(ctx context.Context, q queryable, ref db.InstrumentRef) (endpoin
 	return e, true, nil
 }
 
+// mergeEnd pairs the identifier a caller named with the stored row it reached.
+// The decision is taken on the endpoint and reported on the ref: a triple
+// outlives the merge where an instrument does not, so what is recorded has to be
+// the name rather than the row.
+type mergeEnd struct {
+	ref db.InstrumentRef
+	ep  endpoint
+}
+
+// mergeDecision is one answer to whether two identifiers denote one security.
+// The pair is the unit, not the resolution: identifiers landing on three
+// instruments ask the question twice and can answer it differently each time.
+type mergeDecision struct {
+	outcome string
+	a, b    mergeEnd
+}
+
+// key identifies a decision by the two names and what was decided, so that two
+// claims reaching the same verdict about one pair record it once. Two claims
+// reaching different verdicts are two findings and both are kept.
+//
+// The two names are ordered here and not in the row: which way round a claim
+// listed them says nothing, so it must not make one finding into two, while the
+// row keeps the order it was built with because an uncorroborated refusal is
+// reported against the anchor and that is worth reading off the row.
+func (d mergeDecision) key() string {
+	a, b := refKey(d.a.ref), refKey(d.b.ref)
+	if a > b {
+		a, b = b, a
+	}
+	return d.outcome + "\x00" + a + "\x00" + b
+}
+
 // refKey identifies an identifier by the triple that names it, so a value looked
 // up once is not looked up again. Domains are normalized to operating MICs
 // before a key is taken, as the lookup itself is.
 func refKey(ref db.InstrumentRef) string {
 	return ref.Type + "\x00" + ref.Domain + "\x00" + ref.Value
+}
+
+// collidingIdentifier returns a triple both instruments hold over overlapping
+// intervals, if there is one.
+//
+// That is a merge that cannot complete. The two claims cannot both hold and
+// nothing in the data says which is right: either two instruments were validly
+// but wrongly identified, or a corporate action nobody knows about would have
+// closed one of the intervals. Carrying the loser's name across would fail the
+// exclusion constraint, and dropping it -- which is what the merge used to do --
+// destroys the only evidence a contradiction was seen. So the merge stops and the
+// collision is recorded. See
+// docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+//
+// Both grains are asked, in the order a name is looked up in. Only the first is
+// returned: one is enough to stop the merge, and a merge that stops has not
+// begun to move anything, so there is no second name to report having lost.
+//
+// Note that the exclusion constraints on both tables are global and say nothing
+// about the instrument, so two instruments holding one triple over overlapping
+// intervals is a state they already forbid and this finds nothing today. It
+// becomes reachable when the owner enters the constraint, which is 0142.
+func collidingIdentifier(ctx context.Context, q queryable, a, b uuid.UUID) (db.InstrumentRef, bool, error) {
+	for _, table := range []string{"instrument_identifiers", "instrument_listing_identifiers"} {
+		var (
+			typ    string
+			domain sql.NullString
+			value  string
+		)
+		err := q.QueryRowContext(ctx, fmt.Sprintf(`
+			SELECT x.identifier_type, x.domain, x.value
+			FROM %[1]s x
+			JOIN %[1]s y
+			  ON y.identifier_type = x.identifier_type
+			 AND COALESCE(y.domain, '') = COALESCE(x.domain, '')
+			 AND y.value = x.value
+			 AND daterange(y.valid_from, y.valid_before) && daterange(x.valid_from, x.valid_before)
+			WHERE x.instrument_id = $1 AND y.instrument_id = $2
+			LIMIT 1
+		`, table), a, b).Scan(&typ, &domain, &value)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return db.InstrumentRef{}, false, fmt.Errorf("find colliding identifier: %w", err)
+		}
+		return db.InstrumentRef{Type: typ, Domain: domain.String, Value: value}, true, nil
+	}
+	return db.InstrumentRef{}, false, nil
 }
 
 // mergeGroup returns the instruments that may be merged into anchor: anchor
@@ -110,7 +192,20 @@ func refKey(ref db.InstrumentRef) string {
 // are looked up here. This runs only where the identifiers landed on more than
 // one instrument, so the extra lookups stay off the path every ordinary
 // resolution takes.
-func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db.IdentityClaim, held map[string]endpoint) ([]uuid.UUID, error) {
+//
+// The decisions it took are returned alongside the group. Every pair a claim
+// named together is one, whether it was admitted or refused, because the refusal
+// is as much the finding as the merge: counting how often each reason fires is
+// what says whether the enabled plugin set can corroborate anything.
+func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db.IdentityClaim, held map[string]endpoint) ([]uuid.UUID, []mergeDecision, error) {
+	var decisions []mergeDecision
+	seenDecision := make(map[string]bool)
+	record := func(d mergeDecision) {
+		if k := d.key(); !seenDecision[k] {
+			seenDecision[k] = true
+			decisions = append(decisions, d)
+		}
+	}
 	linked := make(map[uuid.UUID]map[uuid.UUID]bool)
 	link := func(a, b endpoint) {
 		if linked[a.instrument] == nil {
@@ -123,7 +218,7 @@ func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db
 		linked[b.instrument][a.instrument] = true
 	}
 	for _, c := range claims {
-		ends := make([]endpoint, 0, len(c.Identifiers))
+		ends := make([]mergeEnd, 0, len(c.Identifiers))
 		for _, ci := range c.Identifiers {
 			ref := ci.Ref
 			if ref.Type == "MIC_TICKER" && ref.Domain != "" {
@@ -134,7 +229,7 @@ func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db
 				var err error
 				e, ok, err = findHolder(ctx, p.q, ref)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				held[refKey(ref)] = e
 				if !ok {
@@ -147,14 +242,22 @@ func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db
 			if e.instrument == uuid.Nil {
 				continue
 			}
-			ends = append(ends, e)
+			ends = append(ends, mergeEnd{ref: ref, ep: e})
 		}
 		// One claim, every pair of instruments it reached. The claim names them
 		// together, so it corroborates each pair equally.
+		//
+		// A pair already on one instrument is not a decision: nothing is being
+		// joined, so there is nothing to admit or refuse and nothing to record.
 		for i := range ends {
 			for j := i + 1; j < len(ends); j++ {
-				if ends[i].instrument != ends[j].instrument && mayMerge(ends[i], ends[j]) {
-					link(ends[i], ends[j])
+				if ends[i].ep.instrument == ends[j].ep.instrument {
+					continue
+				}
+				v := mergeVerdict(ends[i].ep, ends[j].ep)
+				record(mergeDecision{outcome: v, a: ends[i], b: ends[j]})
+				if v == db.TelemetryMerged {
+					link(ends[i].ep, ends[j].ep)
 				}
 			}
 		}
@@ -171,11 +274,86 @@ func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db
 			}
 		}
 	}
-	return group, nil
+	return group, decisions, nil
 }
 
-// mayMerge reports whether a claim naming these two endpoints corroborates
-// merging the instruments that hold them.
+// uncorroborated is one refusal for each instrument the caller's names reached
+// that no claim named alongside anything, reported against the anchor.
+//
+// An instrument some claim did name is skipped: mergeGroup has already said why
+// that pair was refused, and a second row would count one refusal twice under
+// two reasons. The anchor itself is skipped for the obvious reason, and so is
+// anything the group swallowed.
+func uncorroborated(distinctIDs, group []uuid.UUID, decided []mergeDecision, reachedBy map[uuid.UUID]db.InstrumentRef) []mergeDecision {
+	if len(distinctIDs) < 2 {
+		return nil
+	}
+	inGroup := make(map[uuid.UUID]bool, len(group))
+	for _, id := range group {
+		inGroup[id] = true
+	}
+	named := make(map[uuid.UUID]bool, len(decided)*2)
+	for _, d := range decided {
+		named[d.a.ep.instrument] = true
+		named[d.b.ep.instrument] = true
+	}
+	anchor := distinctIDs[0]
+	var out []mergeDecision
+	for _, id := range distinctIDs[1:] {
+		if inGroup[id] || named[id] {
+			continue
+		}
+		out = append(out, mergeDecision{
+			outcome: db.TelemetryMergeUncorroborated,
+			a:       mergeEnd{ref: reachedBy[anchor], ep: endpoint{instrument: anchor}},
+			b:       mergeEnd{ref: reachedBy[id], ep: endpoint{instrument: id}},
+		})
+	}
+	return out
+}
+
+// recordMerges writes what was decided, once the writes those decisions
+// authorised have committed.
+//
+// After the transaction rather than inside it, so that a merge rolled back is
+// not reported as one that happened. A refusal in a rolled back transaction is
+// lost with it, which is the right way round: the run carries the failure, and a
+// refusal that never took effect explains nothing.
+//
+// collided repoints an admitted merge that could not complete. The pair was
+// corroborated -- that judgement stands and is not what failed -- so what is
+// recorded is the collision rather than the admission.
+func (p *Postgres) recordMerges(ctx context.Context, runID string, decisions []mergeDecision, collided map[uuid.UUID]db.InstrumentRef) {
+	if runID == "" || len(decisions) == 0 {
+		return
+	}
+	tel := p.telemetry()
+	for _, d := range decisions {
+		outcome := d.outcome
+		var collision *db.InstrumentRef
+		if outcome == db.TelemetryMerged {
+			for _, inst := range []uuid.UUID{d.a.ep.instrument, d.b.ep.instrument} {
+				if c, ok := collided[inst]; ok {
+					c := c
+					outcome, collision = db.TelemetryMergeCollision, &c
+					break
+				}
+			}
+		}
+		tel.WriteMerge(ctx, db.TelemetryMerge{
+			RunID:       runID,
+			Outcome:     outcome,
+			A:           d.a.ref,
+			B:           d.b.ref,
+			AInstrument: d.a.ep.instrument.String(),
+			BInstrument: d.b.ep.instrument.String(),
+			Collision:   collision,
+		})
+	}
+}
+
+// mergeVerdict reports whether a claim naming these two endpoints corroborates
+// merging the instruments that hold them, and where it does not, why.
 //
 // Every condition is asked of both endpoints, because the chain runs through
 // both stored rows and is no stronger than its weaker end. A type that reassigns
@@ -184,6 +362,13 @@ func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db
 // goes for a contract symbol a split has handed down the strike ladder.
 // Non-overlapping intervals say the two rows were never correct at one time, so
 // no claim made at any single moment can reach across them.
+//
+// The reason is kept rather than reduced to a boolean because the two failures
+// want different fixes -- a routinely reassigned type is working as intended,
+// where two names that were never correct at one time may be a vintage recorded
+// wrongly -- and a caller recording what it decided has to say which. Order is
+// not arbitrary: a type that cannot mediate says nothing about the interval, so
+// it is answered first.
 //
 // adr/0061's third condition -- that each association be one the system holds as
 // settled rather than as a user's claim -- is satisfied by construction and so
@@ -196,8 +381,15 @@ func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db
 // not take, for the reason db.IdentityClaim gives: every claim reaching here
 // today carries system authority. What a claim carrying user authority may do
 // instead is 0171 and 0172.
-func mayMerge(a, b endpoint) bool {
-	return identifier.MayMediate(a.typ) && identifier.MayMediate(b.typ) && overlaps(a, b)
+func mergeVerdict(a, b endpoint) string {
+	switch {
+	case !identifier.MayMediate(a.typ) || !identifier.MayMediate(b.typ):
+		return db.TelemetryMergeUnmediated
+	case !overlaps(a, b):
+		return db.TelemetryMergeDisjoint
+	default:
+		return db.TelemetryMerged
+	}
 }
 
 // overlaps reports whether two stored names were both correct at some one time.

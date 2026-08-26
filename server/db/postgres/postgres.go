@@ -36,6 +36,15 @@ type Postgres struct {
 	// Nil stores them as they arrive, one group each, which is what a fixture that
 	// is not about grouping wants. See groupWritten.
 	settler db.Settler
+	// tel records what the write decided, where the decision is only knowable in
+	// here. A merge is the case: which instruments an identifier set landed on,
+	// and whether a claim admitted joining them, is settled inside one
+	// transaction and is invisible from above. Nil records nothing.
+	//
+	// It is db.TelemetryDB rather than a *Telemetry so a test can pass a recorder,
+	// and because the writer holds its own pool and must not join the work's
+	// transaction: a rolled back import has to keep the diagnostics explaining it.
+	tel db.TelemetryDB
 }
 
 // New returns a new Postgres DB implementation.
@@ -54,6 +63,23 @@ func NewWithQueryable(q queryable) *Postgres {
 func (p *Postgres) WithSettler(s db.Settler) *Postgres {
 	p.settler = s
 	return p
+}
+
+// WithTelemetry returns the store with a telemetry writer wired in. Kept off the
+// db.DB interface for the reason WithSettler is: it is wired once where the
+// process is assembled rather than passed in per call.
+func (p *Postgres) WithTelemetry(t db.TelemetryDB) *Postgres {
+	p.tel = t
+	return p
+}
+
+// telemetry is the writer, or one that records nothing. Every caller goes
+// through this so that no site below has to test the field for nil.
+func (p *Postgres) telemetry() db.TelemetryDB {
+	if p.tel == nil {
+		return db.NopTelemetry{}
+	}
+	return p.tel
 }
 
 // Ensure Postgres implements db.DB.

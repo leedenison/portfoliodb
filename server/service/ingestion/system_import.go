@@ -125,7 +125,7 @@ func processSystemImport(ctx context.Context, deps ingestDeps, j *JobRequest) sy
 		var partErr error
 		switch pr.Part {
 		case archivev1.ArchivePart_INSTRUMENTS:
-			_, partErr = archiveimport.InstrumentPart(ctx, database, a.GetInstruments(), rep)
+			_, partErr = archiveimport.InstrumentPart(ctx, database, a.GetInstruments(), rep, deps.RunID)
 		case archivev1.ArchivePart_PRICES:
 			out.pricesPersisted, partErr = importPricePart(ctx, database, registry, a.GetPrices(), asOf, resolveCache, resolveKeys, rep)
 		case archivev1.ArchivePart_CORPORATE_EVENTS:

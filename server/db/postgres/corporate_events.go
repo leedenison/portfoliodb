@@ -746,7 +746,16 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 		}
 	}
 
-	return p.runInTx(ctx, func(tx queryable) error {
+	// The duplicates absorbed on the way through, recorded once the restatement
+	// commits so that a rolled back cycle does not report merges that did not
+	// happen.
+	type absorbedDuplicate struct {
+		holder uuid.UUID
+		ref    db.InstrumentRef
+	}
+	var absorbed []absorbedDuplicate
+
+	if err := p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
 		// Absorb first, before anything is written. A name about to be minted
 		// that another instrument already holds is a duplicate of this contract:
@@ -756,8 +765,12 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 		// restatement back and leave the option pending, and every later cycle
 		// would collide the same way.
 		for _, idn := range mints {
-			if err := absorbDuplicateHolder(ctx, tx, uid, idn); err != nil {
+			holder, err := absorbDuplicateHolder(ctx, tx, uid, idn)
+			if err != nil {
 				return fmt.Errorf("apply option split: %w", err)
+			}
+			if holder != uuid.Nil {
+				absorbed = append(absorbed, absorbedDuplicate{holder: holder, ref: idn.Ref})
 			}
 		}
 		// This call owns the option's OCC history from the first ex_date
@@ -801,7 +814,25 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 			return fmt.Errorf("apply option split: recompute adjustments: %w", err)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// One triple naming two instruments, which is the shape this merge has: the
+	// duplicate wore the name the contract is being restated to, so the pair is
+	// the same ref at both ends and the instruments are what differ. The
+	// restated option is the survivor.
+	tel := p.telemetry()
+	for _, a := range absorbed {
+		tel.WriteMerge(ctx, db.TelemetryMerge{
+			RunID:       params.RunID,
+			Outcome:     db.TelemetryMerged,
+			A:           a.ref,
+			B:           a.ref,
+			AInstrument: params.InstrumentID,
+			BInstrument: a.holder.String(),
+		})
+	}
+	return nil
 }
 
 // absorbDuplicateHolder merges away any other instrument holding the name idn is
@@ -811,18 +842,26 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 // the caller holds its id and the rest of the transaction runs against it, and
 // it is the row carrying the contract's history, where the duplicate holds only
 // what arrived after the split.
-func absorbDuplicateHolder(ctx context.Context, tx queryable, instrumentID uuid.UUID, idn db.IdentifierInput) error {
+// It returns the instrument it absorbed, or uuid.Nil where there was none, so
+// the caller can record the merge against its run once the restatement commits.
+// This is the one merge taken outside instrument resolution, and it was until now
+// the one nothing recorded at all.
+func absorbDuplicateHolder(ctx context.Context, tx queryable, instrumentID uuid.UUID, idn db.IdentifierInput) (uuid.UUID, error) {
 	holder, err := identifierHolder(ctx, tx, idn)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if holder == uuid.Nil || holder == instrumentID {
-		return nil
+		return uuid.Nil, nil
 	}
+	// No collision check, unlike the resolution path. The name being minted is
+	// precisely the one the duplicate holds, and absorbing it is what stops the
+	// insert below failing and rolling the restatement back -- which would leave
+	// the option pending and every later cycle colliding the same way.
 	if err := mergeInstruments(ctx, tx, instrumentID, holder); err != nil {
-		return fmt.Errorf("absorb duplicate %s holding %s: %w", holder, idn.Ref.Value, err)
+		return uuid.Nil, fmt.Errorf("absorb duplicate %s holding %s: %w", holder, idn.Ref.Value, err)
 	}
-	return nil
+	return holder, nil
 }
 
 func insertIdentifierRow(ctx context.Context, tx queryable, instrumentID uuid.UUID, idn db.IdentifierInput) error {

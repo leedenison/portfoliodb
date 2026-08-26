@@ -482,6 +482,88 @@ CREATE TABLE telemetry.price_plugin_call (
 CREATE INDEX idx_telemetry_price_plugin_call_gap
   ON telemetry.price_plugin_call (price_gap_id);
 
+-- One decision about whether two identifiers denote one security, and what was
+-- done about it. The unit of work is the pair, not the resolution: a set of
+-- identifiers landing on three instruments asks the question twice and can
+-- answer it differently each time, so one row per resolution would force one
+-- outcome onto two answers.
+--
+-- Nothing recorded a merge before this table. The decision is taken inside the
+-- database layer, which has no run to hang a row off and no logger, so a merge
+-- that happened, a merge that was refused and a name silently dropped on the way
+-- through all looked identical from outside -- which is to say invisible. See
+-- docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+--
+-- Rows are written only where the identifiers reached more than one instrument.
+-- The ordinary resolution, where every identifier names the security already
+-- holding it, asks nothing and writes nothing.
+--
+-- The endpoints are whole triples rather than instrument ids because a triple
+-- outlives the merge and an instrument does not: the loser is deleted, so an id
+-- alone leaves a reader a year later with nothing to look up. The ids are
+-- recorded beside them for a panel that wants to group by security, on the terms
+-- price_gap records its instrument -- not foreign keys, because telemetry
+-- outlives the work it describes and a deleted instrument must not take the
+-- diagnostics explaining it with it. v_instrument_label is where a panel turns
+-- one into a name.
+--
+-- There is deliberately no mediator column. adr/0061's chain runs through the
+-- two stored rows rather than through a third value, so every decision recorded
+-- here names two endpoints and a column for a third would be null on every row
+-- this code can write. Transitivity is visible as several rows under one run.
+CREATE TABLE telemetry.merge (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id     UUID NOT NULL REFERENCES telemetry.run (id) ON DELETE CASCADE,
+  -- Why the two were merged or left apart, one member per branch of mergeVerdict and
+  -- of the merge loop above it, so the vocabulary is read off the code rather
+  -- than invented for the chart:
+  --
+  --   merged                  a claim named both and both stored rows may carry a chain
+  --   refused_uncorroborated  no claim named both; the identifiers arrived from
+  --                           separate answers and are a set nobody asserted
+  --   refused_unmediated      a claim named both, but a type that reassigns its
+  --                           values routinely cannot carry the chain
+  --   refused_disjoint        a claim named both, but the two stored names were
+  --                           never correct at one time
+  --   refused_collision       the merge was admitted and could not complete: both
+  --                           instruments hold one triple over overlapping
+  --                           intervals, and nothing in the data says which is right
+  --
+  -- The four refusals are kept apart because they need different fixes. An
+  -- uncorroborated pair wants a plugin that returns both names; an unmediated one
+  -- is working as intended and is noise; a collision wants a person.
+  outcome    TEXT NOT NULL CHECK (outcome IN ('merged', 'refused_uncorroborated',
+                                              'refused_unmediated', 'refused_disjoint',
+                                              'refused_collision')),
+  a_type     TEXT NOT NULL,
+  a_domain   TEXT,
+  a_value    TEXT NOT NULL,
+  b_type     TEXT NOT NULL,
+  b_domain   TEXT,
+  b_value    TEXT NOT NULL,
+  -- The instruments the two endpoints resolved to when the decision was taken.
+  -- Neither is the survivor as such: a group of three merges pairwise and the
+  -- survivor is picked over the whole group, so a merged pair need not contain
+  -- it. What a merged row says is that these two ended up as one security.
+  a_instrument_id UUID NOT NULL,
+  b_instrument_id UUID NOT NULL,
+  -- The triple both instruments turned out to hold, for refused_collision alone.
+  -- It is the evidence that two claims cannot both hold, and it is what used to
+  -- be discarded: the merge dropped the colliding name and deleted the instrument
+  -- that held it, leaving nothing to look at afterwards.
+  collision_type   TEXT,
+  collision_domain TEXT,
+  collision_value  TEXT,
+  CONSTRAINT chk_telemetry_merge_collision CHECK (
+    (outcome = 'refused_collision') = (collision_type IS NOT NULL)),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_telemetry_merge_run ON telemetry.merge (run_id);
+-- The panel asking what has ever been merged into, or refused against, one
+-- security. A wrong merge is traced back this way.
+CREATE INDEX idx_telemetry_merge_a_instrument ON telemetry.merge (a_instrument_id);
+
 -- Views.
 --
 -- One per table, each flattening its parents in and never fanning out into its
@@ -538,7 +620,12 @@ SELECT
   -- measure at the grain that owns it. Zero for every other run kind, as
   -- key_count is for this one.
   (SELECT count(*) FROM telemetry.price_gap g
-     WHERE g.run_id = r.id) AS gap_count
+     WHERE g.run_id = r.id) AS gap_count,
+  -- Merge decisions taken during the run. Zero for almost every run: a merge is
+  -- only asked about where one resolution's identifiers reached more than one
+  -- instrument, so a non-zero count is itself the signal.
+  (SELECT count(*) FROM telemetry.merge m
+     WHERE m.run_id = r.id) AS merge_count
 FROM telemetry.run r;
 
 CREATE VIEW telemetry.v_resolution_key AS
@@ -878,6 +965,48 @@ SELECT
 FROM telemetry.price_plugin_call c
 JOIN telemetry.price_gap g ON g.id = c.price_gap_id
 JOIN telemetry.run r ON r.id = g.run_id;
+
+-- One row per merge decision, with its run flattened in. It hangs directly off
+-- the run rather than off a resolution key, because a merge is also taken by the
+-- corporate event cycle -- a split minting an OCC symbol another instrument
+-- already holds -- and that path has no key to hang off.
+--
+-- is_refusal rather than a list of excluded outcomes in each panel, on the terms
+-- v_run states its judgements: the definition is written once in reviewed SQL.
+CREATE VIEW telemetry.v_merge AS
+SELECT
+  m.id,
+  m.outcome,
+  m.outcome <> 'merged' AS is_refusal,
+  -- A collision is the one refusal that says two authorities contradict each
+  -- other rather than that nothing tied them together, and it is the one a
+  -- person has to look at. Separated here so a panel does not have to know which
+  -- member of the vocabulary carries that weight.
+  m.outcome = 'refused_collision' AS is_contradiction,
+  m.a_type,
+  m.a_domain,
+  m.a_value,
+  m.b_type,
+  m.b_domain,
+  m.b_value,
+  m.a_instrument_id,
+  m.b_instrument_id,
+  m.collision_type,
+  m.collision_domain,
+  m.collision_value,
+  m.created_at,
+  r.id         AS run_id,
+  r.kind       AS run_kind,
+  r.job_id     AS run_job_id,
+  r.user_id    AS run_user_id,
+  r.broker     AS run_broker,
+  r.source     AS run_source,
+  r.started_at AS run_started_at,
+  r.outcome    AS run_outcome,
+  r.telemetry_incomplete AS run_telemetry_incomplete,
+  r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
+FROM telemetry.merge m
+JOIN telemetry.run r ON r.id = m.run_id;
 
 -- The one thing here that reads outside the telemetry schema.
 --

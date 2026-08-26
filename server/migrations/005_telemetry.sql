@@ -55,7 +55,7 @@ CREATE TABLE telemetry.run (
                                            'system_archive_import',
                                            'grouping_cycle', 'transfer_match_cycle',
                                            'corporate_event_cycle', 'price_fetch_cycle',
-                                           'inflation_cycle')),
+                                           'inflation_cycle', 'promotion_cycle')),
   -- ingestion_jobs.id when the run is a job; null for a cycle.
   job_id     UUID,
   -- Null for cycles, which run on nobody's behalf.

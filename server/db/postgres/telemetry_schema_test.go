@@ -79,6 +79,7 @@ func TestTelemetryViews_IsImport(t *testing.T) {
 		{"corporate_event_cycle", false},
 		{"price_fetch_cycle", false},
 		{"inflation_cycle", false},
+		{"promotion_cycle", false},
 	}
 	for _, c := range cases {
 		t.Run(c.kind, func(t *testing.T) {

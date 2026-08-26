@@ -49,6 +49,7 @@ import (
 	openfigiexchmap "github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
+	"github.com/leedenison/portfoliodb/server/promotion"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
@@ -303,6 +304,7 @@ func main() {
 	corporateEventTrigger := make(chan struct{}, 1)
 	transferMatchTrigger := make(chan struct{}, 1)
 	groupingTrigger := make(chan struct{}, 1)
+	promotionTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
 	workers := worker.NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -319,6 +321,7 @@ func main() {
 		CorporateEventTrigger: corporateEventTrigger,
 		TransferMatchTrigger:  transferMatchTrigger,
 		GroupingTrigger:       groupingTrigger,
+		PromotionTrigger:      promotionTrigger,
 		Workers:               workers,
 	})
 	go pricefetcher.RunWorker(ctx, database, priceRegistry, telemetryDB, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
@@ -326,6 +329,7 @@ func main() {
 	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, telemetryDB, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
 	go transfermatch.RunWorker(ctx, database, telemetryDB, logger.WithCategory(serverLogger, "server/transfermatch"), transferMatchTrigger, workers)
 	go grouping.RunWorker(ctx, database, telemetryDB, logger.WithCategory(serverLogger, "server/grouping"), groupingTrigger, workers)
+	go promotion.RunWorker(ctx, database, telemetryDB, logger.WithCategory(serverLogger, "server/promotion"), promotionTrigger, workers)
 	// Stamp the runs a previous process left unfinished. This has to happen before
 	// the re-enqueue below, which opens runs of its own that must not be swept, and
 	// it is what lets a run with no outcome mean one running now.
@@ -383,6 +387,7 @@ func main() {
 		CorporateEventTrigger:  corporateEventTrigger,
 		TransferMatchTrigger:   transferMatchTrigger,
 		GroupingTrigger:        groupingTrigger,
+		PromotionTrigger:       promotionTrigger,
 		WorkerRegistry:         workers,
 		EnqueueJob:             api.JobEnqueuer(enqueueJob),
 	}))

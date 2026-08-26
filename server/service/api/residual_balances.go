@@ -142,3 +142,27 @@ func (s *Server) TriggerGrouping(ctx context.Context, req *apiv1.TriggerGrouping
 	}
 	return &apiv1.TriggerGroupingResponse{}, nil
 }
+
+// TriggerPromotionSweep signals the promotion sweep to run a cycle. Admin only.
+// Returns immediately; the pass runs asynchronously.
+//
+// The same shape as the two above and for the same reasons: an external cron job
+// or CLI calls this, the ingestion worker fires the same channel after a tx
+// import, and the channel is buffered to one so a burst of either collapses into
+// a single pass.
+//
+// The one thing worth calling it by hand for is a threshold an admin has just
+// lowered: every mapping that was one user short of the old number is promotable
+// the moment the setting changes, and a sweep is what notices.
+func (s *Server) TriggerPromotionSweep(ctx context.Context, req *apiv1.TriggerPromotionSweepRequest) (*apiv1.TriggerPromotionSweepResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if s.promotionTrigger != nil {
+		select {
+		case s.promotionTrigger <- struct{}{}:
+		default:
+		}
+	}
+	return &apiv1.TriggerPromotionSweepResponse{}, nil
+}

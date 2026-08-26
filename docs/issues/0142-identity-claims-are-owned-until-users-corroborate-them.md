@@ -59,3 +59,9 @@ message shape.
 
 See adr/0062-a-user-mediated-claim-is-a-lead-not-a-write.md and
 adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
+
+Merge admission reads the column, so it lands with it rather than after.
+`mayMerge` passes `systemOwned` as a constant today because every stored row is a
+fact in fact; once a row can be a claim, that constant is a defect.
+
+See adr/0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md.

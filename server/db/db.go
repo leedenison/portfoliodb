@@ -678,14 +678,21 @@ type ClaimedIdentifier struct {
 // somebody asserted, where the same identifiers gathered from separate results
 // are a set the resolver assembled and nobody stated. Which plugin answered is
 // deliberately not here: every identifier plugin is equally authoritative for a
-// global identifier, so attribution decides nothing a merge needs and the
-// partition is the whole requirement.
+// global identifier, so attribution decides nothing a merge needs.
+//
+// The level of authority the claim arrived with is a different question and is
+// not here either, which is a gap rather than a decision: an identifier plugin
+// speaks with system authority and a broker file speaks with user authority, and
+// what a merge may do with the claim turns on which. Every claim reaching this
+// type today comes from a plugin result or an admin's archive, so the level is
+// constant and the field would carry nothing; it stops being constant when a
+// broker file states an association of its own.
 //
 // An archive states one claim holding its instrument's whole identifier block,
 // which is what an admin archive asserting instrument data amounts to. A caller
 // with a single identifier and no association to assert passes none.
 //
-// See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md
+// See adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md
 // and adr/0065-a-plugin-declares-what-it-claims-a-call-records-what-it-claimed.md.
 type IdentityClaim struct {
 	Identifiers []ClaimedIdentifier

@@ -7,26 +7,16 @@ import "strings"
 // question asked twice: a type in one and missing from the other is the drift
 // this exists to prevent.
 //
-// See docs/spec/identifiers.md (Identifier type properties) and
+// Nothing here says who vouched for a value. That is the level of authority the
+// source supplying it carried, any type can arrive at either level, and it is
+// recorded as the row's owner rather than declared per type -- which is why
+// there is no scope property, scope having been the proxy for it. What a value
+// is good for outside the source that stated it is carried by the identifier's
+// own domain, whose role Domain below declares.
+//
+// See docs/spec/identifiers.md (Identifier type properties),
+// adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md and
 // adr/0061-transitivity-needs-a-non-reassigned-identifier.md.
-
-// Scope says who is the authority for a type's values.
-type Scope uint8
-
-const (
-	// ScopeUnknown is the zero value and belongs to no type in the table. A
-	// lookup that misses reads as this rather than as the first real member, so
-	// a type added to the vocabulary and not to the table fails closed.
-	ScopeUnknown Scope = iota
-	// ScopeGlobal is issued by a registry and validated by identifier plugins.
-	ScopeGlobal
-	// ScopeBroker is issued by one broker and means nothing without it, so the
-	// domain names the broker and only that broker can validate the value.
-	ScopeBroker
-	// ScopeDescription is the broker's own text for a security, with the
-	// ingestion source as domain.
-	ScopeDescription
-)
 
 // Reassignment says whether the issuer may give one value to a different
 // instrument over time.
@@ -40,8 +30,10 @@ const (
 type Reassignment uint8
 
 const (
-	// ReassignUnknown is the zero value and belongs to no type in the table,
-	// for the reason ScopeUnknown gives.
+	// ReassignUnknown is the zero value and belongs to no type in the table. A
+	// lookup that misses reads as this rather than as the first real member, so
+	// a type added to the vocabulary and not to the table fails closed. Every
+	// other property's zero value is there for the same reason.
 	ReassignUnknown Reassignment = iota
 	// ReassignRare is reassigned by documented exception rather than as a
 	// practice, or not at all. The two are one member because adr/0061 puts the
@@ -74,7 +66,7 @@ type Grain uint8
 
 const (
 	// GrainUnknown is the zero value and belongs to no type in the table, for
-	// the reason ScopeUnknown gives.
+	// the reason ReassignUnknown gives.
 	GrainUnknown Grain = iota
 	// GrainSecurity names the security itself, however many currencies it
 	// trades in.
@@ -93,7 +85,7 @@ type Domain uint8
 
 const (
 	// DomainUnknown is the zero value and belongs to no type in the table, for
-	// the reason ScopeUnknown gives.
+	// the reason ReassignUnknown gives.
 	DomainUnknown Domain = iota
 	// DomainAbsent carries no domain: the value stands on its own.
 	DomainAbsent
@@ -125,7 +117,7 @@ type Lines uint8
 
 const (
 	// LinesUnknown is the zero value and belongs to no type in the table, for
-	// the reason ScopeUnknown gives.
+	// the reason ReassignUnknown gives.
 	LinesUnknown Lines = iota
 	// LinesOne reaches one line, so a source stating one has said the last thing
 	// that changes where resolution lands.
@@ -144,7 +136,6 @@ const (
 
 // TypeProps are the declared properties of one identifier type.
 type TypeProps struct {
-	Scope        Scope
 	Reassignment Reassignment
 	Grain        Grain
 	Domain       Domain
@@ -166,10 +157,10 @@ var idTypes = map[string]TypeProps{
 	//
 	// Each is globally unique without a domain, and each maps to every line the
 	// security trades in, so naming one leaves which line still to choose.
-	"ISIN":       {ScopeGlobal, ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
-	"CUSIP":      {ScopeGlobal, ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
-	"CINS":       {ScopeGlobal, ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
-	"WERTPAPIER": {ScopeGlobal, ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
+	"ISIN":       {ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
+	"CUSIP":      {ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
+	"CINS":       {ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
+	"WERTPAPIER": {ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
 
 	// A FIGI is retired and never reassigned, so it is the one type that would
 	// clear a guaranteed-never bar. It sits with the exceptions rather than
@@ -185,7 +176,7 @@ var idTypes = map[string]TypeProps{
 	// to go with it -- written when that sentence covered the composite FIGI
 	// too, which really does name one line. adr/0068 took the composite out
 	// from under it and this is what was left.
-	"OPENFIGI_SHARE_CLASS": {ScopeGlobal, ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
+	"OPENFIGI_SHARE_CLASS": {ReassignRare, GrainSecurity, DomainAbsent, LinesMany},
 
 	// Rarely reassigned and listing-grain, which is an uncommon pair. Both still
 	// mediate a transitive association, because MayMediate reads reassignment
@@ -199,8 +190,8 @@ var idTypes = map[string]TypeProps{
 	// globally unique without one, which is why grain here says nothing about
 	// having one, and each names its line outright. See
 	// adr/0068-a-listing-is-a-currency-of-a-security.md.
-	"SEDOL":              {ScopeGlobal, ReassignRare, GrainListing, DomainAbsent, LinesOne},
-	"OPENFIGI_COMPOSITE": {ScopeGlobal, ReassignRare, GrainListing, DomainAbsent, LinesOne},
+	"SEDOL":              {ReassignRare, GrainListing, DomainAbsent, LinesOne},
+	"OPENFIGI_COMPOSITE": {ReassignRare, GrainListing, DomainAbsent, LinesOne},
 
 	// Tickers are reused constantly and across venues. EA passing from
 	// Electronic Arts to whatever holds the symbol now is a live example rather
@@ -210,8 +201,8 @@ var idTypes = map[string]TypeProps{
 	// Both name a listing, and the domain is what says which: AAPL on XNAS and
 	// AAPL on XLON are two things, not one written twice, and a bare AAPL is
 	// every listing of that symbol in the world.
-	"MIC_TICKER":      {ScopeGlobal, ReassignRoutine, GrainListing, DomainScopes, LinesOne},
-	"OPENFIGI_TICKER": {ScopeGlobal, ReassignRoutine, GrainListing, DomainScopes, LinesOne},
+	"MIC_TICKER":      {ReassignRoutine, GrainListing, DomainScopes, LinesOne},
+	"OPENFIGI_TICKER": {ReassignRoutine, GrainListing, DomainScopes, LinesOne},
 
 	// Contract symbols, from the other direction: a forward split hands one
 	// contract's old symbol to the strike below it, and adr/0055 records that
@@ -221,9 +212,9 @@ var idTypes = map[string]TypeProps{
 	// terms, cleared in one place -- however many venues its underlying trades
 	// on, and the symbol carries no venue for a domain to scope. Cleared in one
 	// place is also why the security it names has one line.
-	"OCC":     {ScopeGlobal, ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
-	"OPRA":    {ScopeGlobal, ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
-	"FUT_OPT": {ScopeGlobal, ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
+	"OCC":     {ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
+	"OPRA":    {ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
+	"FUT_OPT": {ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
 
 	// A currency names what a security trades in, not which security it is, so
 	// it fails before reassignment is reached: every instrument denominated in
@@ -232,8 +223,8 @@ var idTypes = map[string]TypeProps{
 	//
 	// The instrument each names is the cash or FX instrument entire, which is
 	// one line by construction.
-	"CURRENCY": {ScopeGlobal, ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
-	"FX_PAIR":  {ScopeGlobal, ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
+	"CURRENCY": {ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
+	"FX_PAIR":  {ReassignRoutine, GrainSecurity, DomainAbsent, LinesOne},
 
 	// Not injective at all -- two securities can wear one description. Its
 	// domain is the source that wrote the text rather than a venue, so two
@@ -241,11 +232,13 @@ var idTypes = map[string]TypeProps{
 	// It states no security, so it leaves the identity as incomplete as it found
 	// it, and a currency stated beside it completes nothing: it would name a
 	// line of whichever security the text turns out to mean.
-	"BROKER_DESCRIPTION": {ScopeDescription, ReassignRoutine, GrainSecurity, DomainBeside, LinesNone},
+	"BROKER_DESCRIPTION": {ReassignRoutine, GrainSecurity, DomainBeside, LinesNone},
 
-	// ScopeBroker has no members yet. A broker's own contract identifier is the
-	// first, and it arrives with 0123, which declares its lines; its domain
-	// names the broker, so it is DomainBeside.
+	// A broker's own contract identifier has no entry yet. It arrives with 0123,
+	// which declares its lines; its domain names the broker, so it is
+	// DomainBeside. Nothing about it says who vouched for the value: the same
+	// number is a fact from a broker feed and a claim from an upload, which is
+	// the owner's question and not this table's.
 }
 
 // Props returns the declared properties of an identifier type. The second
@@ -345,9 +338,12 @@ func NamesTheSecurity(id Identifier) bool {
 // two results agreeing about a line have not said they resolved one security --
 // adr/0060 says exactly this of a currency and a venue.
 //
-// A description is excluded on the other axis. It is not injective, as the table
-// above records, so two results agreeing on the text have agreed about the text
-// rather than about its subject.
+// A description is excluded on the other axis: it names no security at all. Two
+// securities can wear one description, so two results agreeing on the text have
+// agreed about the text rather than about its subject. LinesNone is where the
+// table records that -- a type with no security to speak of has no lines to
+// count -- so it is what this reads, rather than a second property saying the
+// same thing.
 //
 // Routine reassignment does not exclude a type here, though it bars one from
 // mediating a chain (adr/0061). A contract symbol passes to another strike over
@@ -360,18 +356,18 @@ func NamesTheSecurity(id Identifier) bool {
 // See docs/adr/0078-merge-admission-needs-a-security-both-results-named.md.
 func CorroboratesSecurity(t string) bool {
 	p, ok := idTypes[t]
-	return ok && p.Grain == GrainSecurity && p.Scope != ScopeDescription
+	return ok && p.Grain == GrainSecurity && p.Lines != LinesNone
 }
 
 // providerIDTypes is the grain of each provider-specific identifier type.
 //
 // A provider type is a free-form string a plugin invents rather than a member of
 // a controlled vocabulary, so this is a table of the ones that exist rather than
-// of the ones that are permitted, and it declares grain alone. Scope,
-// reassignment, domain and lines are not asked of a provider identifier: it
-// never mediates an association, is never admitted as an identity claim and is
-// never what a source stated, so none of them decides anything and declaring
-// them would be inventing answers.
+// of the ones that are permitted, and it declares grain alone. Reassignment,
+// domain and lines are not asked of a provider identifier: it never mediates an
+// association, is never admitted as an identity claim and is never what a source
+// stated, so none of them decides anything and declaring them would be inventing
+// answers.
 //
 // All three name a listing. A segment MIC and a ticker name one venue's line of
 // a security; an EODHD exchange code names a market, whose venues share a
@@ -394,25 +390,21 @@ var providerIDTypes = map[string]Grain{
 // table, reached from the other direction; namesAListing above holds it.
 func ProviderNamesAListing(t string) bool { return namesAListing(providerIDTypes[t]) }
 
-// MayMediate reports whether an association on this identifier type may mediate
-// a transitive identity claim.
+// MayMediate reports whether a value of this identifier type is stable enough
+// over time to carry a transitive identity claim.
 //
-// systemOwned is the caller's half of the test and has no default: a user-owned
-// association mediates nothing whatever its type, because identifier rows are
-// owner-scoped while instruments are not, so a chain drawn through one would
-// merge instance-global rows on the strength of one unauthenticated file. The
-// two conditions are asked here together rather than in two places, because an
-// implementation that reads them apart will eventually read only one.
+// One of adr/0061's three conditions and the only one a type can answer. The
+// other two are facts about the stored rows: that their validity intervals
+// overlap, and that the association is one the system holds as settled rather
+// than as a user's claim. Neither is here, because two rows of one type differ
+// on both -- the same ISIN is a fact from an identifier plugin and a claim from
+// a broker file -- so the caller asks the rows and asks this in the same breath.
 //
-// The third condition -- that the association's two halves have overlapping
-// validity intervals -- is not here. It is a fact about two rows rather than
-// about a type, so it stays with whoever holds the rows.
-//
-// Nothing calls this until 0140, which is the rule it exists for.
-func MayMediate(t string, systemOwned bool) bool {
-	if !systemOwned {
-		return false
-	}
+// What no question about the source reaches is the case this exists for: two
+// associations an identifier plugin wrote, both settled, chained through a value
+// the issuer handed to something else in between. Only a property of the value
+// catches that.
+func MayMediate(t string) bool {
 	p, ok := idTypes[t]
 	if !ok {
 		return false

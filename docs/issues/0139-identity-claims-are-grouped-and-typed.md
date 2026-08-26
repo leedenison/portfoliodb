@@ -40,5 +40,5 @@ instead of it.
 
 Enabling work for 0140 and 0141, which cannot be attempted before it.
 
-See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md and
+See adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md and
 adr/0061-transitivity-needs-a-non-reassigned-identifier.md.

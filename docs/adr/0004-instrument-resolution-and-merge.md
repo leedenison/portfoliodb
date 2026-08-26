@@ -4,7 +4,7 @@ status: partly superseded by ADR-0055
 
 # Instrument resolution order, caching, and eager merge
 
-Amended by [0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md),
+Amended by [0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md),
 which requires a merge to act on an association a single plugin result stated
 rather than on the identifier set the resolver assembled, and by
 [0064](0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md), which says what
@@ -15,10 +15,10 @@ as found -- there being no stored value there for this to protect, and by
 [0071](0071-listings-merge-by-currency-and-an-unknown-one-splits.md), under
 which the merge unions the survivors' listing sets by currency rather than
 acting on instruments alone, and by
-[0079](0079-an-instrument-carries-the-authority-of-the-channel-that-named-it.md),
+[0079](0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md),
 under which "the identifier is the source of truth for an existing instrument"
 protects a value a system authority wrote: metadata on an instrument named only
-through a user-mediated channel is a claim awaiting confirmation, and is
+by user-authoritative sources is a claim awaiting confirmation, and is
 discarded rather than kept when an authority arrives. The resolution order and
 the batch cache stand.
 

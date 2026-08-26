@@ -1,6 +1,6 @@
 # A user-mediated claim is a lead, not a write
 
-[0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md)
+[0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md)
 makes a broker the authority for claims about its own contract numbers, and
 [0061](0061-transitivity-needs-a-non-reassigned-identifier.md) permits chaining
 through an identifier type its issuer does not reassign. On those two alone a
@@ -10,10 +10,11 @@ says `CONID-X` is `CUSIP-1` and later that `CONID-X` is `ISIN-2`, and if the
 conid is never reassigned then `CUSIP-1` is `ISIN-2`.
 
 It does not follow, because IBKR is not who we heard it from. This is the
-reasoning behind the ownership condition 0061 carries alongside the type
-property, and the reason neither is sufficient by itself.
+reasoning behind the third of 0061's conditions -- that a chain runs through a
+fact and never through a claim -- and the reason the type property is not
+sufficient by itself.
 
-## The channel, not the authority
+## The level of authority is the channel's, not the subject matter's
 
 A broker file reaches us through the user. It is unauthenticated, so nothing
 attests it came from the account it claims; it is a single artefact, so a
@@ -32,6 +33,12 @@ contract identifiers, and their own description strings -- and not with claims
 that lie wholly inside the identifier plugins' domain. `CONID-X` to `ISIN-2` is
 trusted, because no provider can be asked it. `CUSIP-1` to `ISIN-2`, derived
 through it, is not, because a provider can.
+
+Trusted here means kept and acted on for the user who supplied it, not settled.
+Everything arriving this way is a **claim** in the sense
+[0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md)
+gives the word: possibly true, and not yet corroborated by anything carrying
+system authority.
 
 ## What the refused claim becomes
 

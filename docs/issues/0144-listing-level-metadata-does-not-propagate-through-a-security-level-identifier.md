@@ -24,4 +24,4 @@ Security-level metadata is unaffected: name, asset class, CIK and SIC code are
 facts about the security and travel across every identifier corroborated as
 denoting it.
 
-See adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md.
+See adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md.

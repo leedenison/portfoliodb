@@ -5,7 +5,7 @@ milestone: M24
 dependencies: [0140]
 ---
 
-An instrument named only through a user-mediated channel holds metadata nobody
+An instrument named only by user-authoritative sources holds metadata nobody
 verified, and it keeps it after an authority has identified it.
 
 `instruments.name` is the live case. Both broker-description-only creation paths
@@ -35,12 +35,25 @@ and it is worth saying in the code, because the obvious reading -- confirm each
 field against what the plugin returned -- is the expensive one and buys nothing
 here.
 
-Two call sites: completion in place, where the instrument becomes
-system-authoritative under its own id, and the merge, where it is absorbed into
-one that already was. The second is unreachable until a merge can act on such an
-instrument at all, which is why this follows 0140.
+One call site: the completion in place, where the instrument becomes
+system-authoritative under its own id. There is no second one. Merging outright
+needs a claim carrying system authority over associations that are already facts,
+and a user-authoritative instrument holds none, so the survivor of a merge is
+always system-authoritative before the merge begins and there is no unconfirmed
+metadata on it to discard.
 
-Scope is the metadata columns. Identifiers are not this: a user-mediated
+The name needs the trigger as well as the write. `recompute_instrument_name`
+ranks `BROKER_DESCRIPTION` above the stored name, so a completion that inserts
+only an ISIN re-derives the broker's text over whatever the write put there, and
+the two halves have to land together. The description drops below the stored
+name: an authority's identifier names the instrument, failing that the name an
+authority supplied, failing that the broker's own text, failing that its id.
+
+Ingestion should stop passing the description as the `name` argument at the same
+time. The trigger supplies the same display name from the `BROKER_DESCRIPTION`
+row it already holds, and the row is then the shape adr/0067 describes.
+
+Scope is the metadata columns. Identifiers are not this: a user-authoritative
 identifier is owned rather than discarded, which is 0142.
 
-See adr/0079-an-instrument-carries-the-authority-of-the-channel-that-named-it.md.
+See adr/0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md.

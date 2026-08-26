@@ -18,7 +18,7 @@ import (
 // the identifier set the caller assembled. Two identifiers reaching one caller
 // from two answers are a set nobody asserted, and merging on it is how two share
 // classes on one venue become one instrument. See
-// docs/adr/0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md.
+// docs/adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md.
 //
 // What a claim asserts is that its identifiers denote one security *now*. What
 // it takes to act on that is a chain: the stored row tying one of them to the
@@ -177,23 +177,27 @@ func (p *Postgres) mergeGroup(ctx context.Context, anchor uuid.UUID, claims []db
 // mayMerge reports whether a claim naming these two endpoints corroborates
 // merging the instruments that hold them.
 //
-// Both halves of adr/0061's rule are asked of both endpoints, because the chain
-// runs through both stored rows and is no stronger than its weaker end. A type
-// that reassigns its values as a matter of course carries nothing: a claim about
-// today's EA says nothing about the security that held the ticker in 2019, and
-// the same goes for a contract symbol a split has handed down the strike ladder.
+// Every condition is asked of both endpoints, because the chain runs through
+// both stored rows and is no stronger than its weaker end. A type that reassigns
+// its values as a matter of course carries nothing: a claim about today's EA
+// says nothing about the security that held the ticker in 2019, and the same
+// goes for a contract symbol a split has handed down the strike ladder.
 // Non-overlapping intervals say the two rows were never correct at one time, so
 // no claim made at any single moment can reach across them.
 //
-// The third condition -- that the association be system-owned -- is passed as
-// true because there is no owner column yet, so every stored row was written by
-// an identifier plugin or an admin's archive and is system-owned in fact. 0142
-// adds the column, and this is where it is read.
+// adr/0061's third condition -- that each association be one the system holds as
+// settled rather than as a user's claim -- is satisfied by construction and so
+// is not asked. There is no owner column yet, so every stored row was written by
+// an identifier plugin or an admin's archive. 0142 adds the column, and this is
+// where it is read; it is a question about the row rather than about the type,
+// since the same value is a fact from one source and a claim from another.
+//
+// The authority the caller's own claim arrived with is a further input this does
+// not take, for the reason db.IdentityClaim gives: every claim reaching here
+// today carries system authority. What a claim carrying user authority may do
+// instead is 0171 and 0172.
 func mayMerge(a, b endpoint) bool {
-	const systemOwned = true
-	return identifier.MayMediate(a.typ, systemOwned) &&
-		identifier.MayMediate(b.typ, systemOwned) &&
-		overlaps(a, b)
+	return identifier.MayMediate(a.typ) && identifier.MayMediate(b.typ) && overlaps(a, b)
 }
 
 // overlaps reports whether two stored names were both correct at some one time.

@@ -1,10 +1,10 @@
 # An instrument with no identity is completed in place
 
 Generalised by
-[0079](0079-an-instrument-carries-the-authority-of-the-channel-that-named-it.md),
-which makes this the special case of one rule: an instrument named only through a
-user-mediated channel accepts what an authority writes on to it, its own metadata
-being unconfirmed rather than merely absent. What stands is everything below
+[0079](0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md),
+which makes this the special case of one rule: an instrument named only by
+user-authoritative sources accepts what an authority writes on to it, its own
+metadata being unconfirmed rather than merely absent. What stands is everything below
 about identifiers; what changes is that filling a null column is the easy half of
 a rule whose hard half is discarding a column that was not null.
 
@@ -30,7 +30,7 @@ refusal has two reasons and neither reaches this case.
 The first is that a set of identifiers the resolver assembled from several
 results is not an association anybody stated, so acting on it merges securities
 nobody said were one
-([0060](0060-an-identity-claim-is-admitted-by-the-authority-for-its-scope.md),
+([0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md),
 issue [0140](../issues/0140-a-merge-requires-a-corroborated-association.md)).
 Here there is nothing to merge with. The instrument names no security, so the
 identifiers arriving are not being associated with an identity -- they are

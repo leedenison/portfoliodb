@@ -39,17 +39,18 @@ describes, arriving by a new route.
 
 A periodic sweep promotes a mapping to system-owned once a configurable number
 of users hold it with no user holding a conflicting one, deleting the rows it
-was promoted from. Conflicts are listed for an admin; resolving one deletes the
-rows agreeing with the winner and leaves the losing rows in place, so a user
-whose file said otherwise keeps working and the disagreement resurfaces rather
-than being settled by deletion.
+was promoted from. Where users hold conflicting mappings it promotes nothing and
+leaves both rows in place, each resolving for its own owner. Listing those
+conflicts and resolving one is 0168, which lands on the surface M21 builds
+rather than on a card of this issue's own.
 
 The threshold validates the channel rather than the claim -- users all read the
 same mapping out of the same broker security master, so their agreement rules
 out a doctored, stale or misattributed file and says nothing about whether the
-broker is right. It must therefore be allowed to be one, and an admin must be
-able to promote by hand, or the single-user instance this first ships to never
-promotes anything.
+broker is right. It must therefore be allowed to be one, or the single-user
+instance this first ships to never promotes anything. At one the sweep promotes
+whatever a lone user's file said and no person is waited on, which is what lets
+the admin surface follow rather than gate this.
 
 Scope is transaction uploads, meaning broker files and the postings of a user
 archive. Archives need nothing: a `UserArchive` has no instrument part and

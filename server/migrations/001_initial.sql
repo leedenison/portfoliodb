@@ -923,6 +923,33 @@ CREATE TRIGGER trg_recompute_listing_venues
   FOR EACH ROW EXECUTE FUNCTION recompute_listing_venues();
 
 
+-- Instance settings: what an admin configures about this deployment as a whole,
+-- as opposed to what a user configures about themselves -- which lives on the
+-- user row -- or about a plugin, which lives below.
+--
+-- A key-value table rather than a one-row table with a column per setting. The
+-- settings here have nothing in common but who sets them, they are read one at a
+-- time by whichever cycle wants one, and adding one is a seed rather than a
+-- schema change. Values are text and each reader parses and validates its own:
+-- there is no type here to enforce and no reader that wants an untyped one.
+--
+-- promotion_threshold is how many users must hold a user-owned identifier
+-- mapping, with none of them holding a conflicting one, before the promotion
+-- sweep makes it the instance's. It defaults to one, which is not a placeholder:
+-- the threshold validates the channel rather than the claim -- every user reads
+-- the same mapping out of the same broker security master, so their agreement
+-- says nothing about whether the broker is right, only that the file was not
+-- doctored, stale or from the wrong account. A small number is the whole of the
+-- evidence available, and anything above one leaves a single-user instance
+-- unable to promote anything at all. See
+-- docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
+CREATE TABLE settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+INSERT INTO settings (key, value) VALUES ('promotion_threshold', '1');
+
 -- Plugin config: which plugins are enabled, precedence (unique per category), plugin-specific config.
 -- category: 'identifier', 'candidate', 'price'.
 -- Precedence constraints are DEFERRABLE so that two plugins' precedences can be swapped

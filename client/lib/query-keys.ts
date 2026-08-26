@@ -19,6 +19,7 @@ export const qk = {
   plugins: (category: "identifier" | "candidate" | "price" | "inflation") =>
     ["plugins", category] as const,
   workers: () => ["workers"] as const,
+  settings: () => ["settings"] as const,
   unhandledCorporateEvents: () => ["unhandled-corporate-events"] as const,
   unhandledCorporateEventCount: () => ["unhandled-corporate-event-count"] as const,
   corporateEventSplits: () => ["corporate-event-splits"] as const,

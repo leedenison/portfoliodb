@@ -14,6 +14,9 @@ const adminNav: NavItem[] = [
   // Top-level rather than under a section: the archive spans Reference Data,
   // Plugins and Diagnostics, so it belongs to none of them.
   { href: "/admin/archive", label: "Archive" },
+  // Top-level for the same reason. What an admin configures about the instance
+  // is not reference data, not a plugin and not a diagnostic.
+  { href: "/admin/settings", label: "Settings" },
   {
     section: "Reference Data",
     children: [

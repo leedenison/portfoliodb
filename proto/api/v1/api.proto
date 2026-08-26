@@ -413,6 +413,13 @@ service ApiService {
   // to a line is unpriced and unvaluable, which is a repair rather than a fact
   // about one portfolio.
   rpc CountUnattributedHoldings(CountUnattributedHoldingsRequest) returns (CountUnattributedHoldingsResponse);
+
+  // Instance settings (admin-only). What an admin configures about this
+  // deployment as a whole, as against what a user configures about themselves --
+  // a display currency is that user's and is set through SetDisplayCurrency --
+  // or about a plugin, which the plugin config RPCs carry.
+  rpc ListSettings(ListSettingsRequest) returns (ListSettingsResponse);
+  rpc SetSetting(SetSettingRequest) returns (SetSettingResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -1306,6 +1313,36 @@ message TriggerCorporateEventFetchResponse {}
 message TriggerGroupingRequest {}
 
 message TriggerGroupingResponse {}
+
+// Setting is one instance-level setting.
+//
+// The value is a string whatever the setting means, because the settings have
+// nothing in common but who sets them: the server parses and range-checks each
+// one where it is read, and a client editing one is editing text.
+message Setting {
+  string key = 1;
+  string value = 2;
+}
+
+message ListSettingsRequest {}
+
+// Every setting, ordered by key. There are few enough that a page would be
+// ceremony, and an admin editing one wants to see the rest beside it.
+message ListSettingsResponse {
+  repeated Setting settings = 1;
+}
+
+message SetSettingRequest {
+  string key = 1 [(buf.validate.field).string.min_len = 1];
+  string value = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+// The setting as stored, which is what the server made of the value rather than
+// what was sent: a key the server does not recognise, or a value it cannot use,
+// is an error and nothing is written.
+message SetSettingResponse {
+  Setting setting = 1;
+}
 
 message TriggerTransferMatchRequest {}
 

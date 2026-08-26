@@ -102,7 +102,7 @@ func TestAttemptDBShortCircuit(t *testing.T) {
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("inst-1", "STOCK", []string{"USD"}, nil)
 
-	_, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(),
+	_, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(), "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestAttemptNoEligiblePlugins(t *testing.T) {
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "cash-only", Precedence: 10}}, nil)
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
@@ -227,7 +227,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "listing-id", nil)
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "USD"}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
@@ -303,7 +303,7 @@ func TestPluginTransportOutcomePassesThrough(t *testing.T) {
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "expired", Precedence: 10}}, nil)
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
@@ -350,7 +350,7 @@ func TestPluginCallCountsRetries(t *testing.T) {
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "flaky", Precedence: 10}}, nil)
 
-	if _, err := ResolveWithPlugins(context.Background(), database, registry,
+	if _, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{}},
 		false, nil, scope(tel), nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -402,7 +402,7 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-line-id", gomock.Any(), gomock.Any()).
 		Return("opt-id", "listing-id", nil)
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "OCC", Value: "AAPL240315C00100000"}}, Hints: identifier.Hints{}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
@@ -476,7 +476,7 @@ func TestIdentifierClaimsAreRecordedPerCall(t *testing.T) {
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "listing-id", nil)
 
-	_, err := ResolveWithPlugins(context.Background(), database, registry,
+	_, err := ResolveWithPlugins(context.Background(), database, registry, "",
 		"", "", "", identifier.Identity{Stated: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, Hints: identifier.Hints{Currency: "USD"}},
 		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {

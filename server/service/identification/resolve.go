@@ -182,7 +182,10 @@ func NewProposalFilter(ctx context.Context, database db.InstrumentDB, logger *sl
 // proposal satisfied would resolve the instrument without any plugin having
 // confirmed the proposal, which is the one thing a proposal must never do.
 // See adr/0057.
-func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]ResolvedInstrument, error) {
+// owner scopes every lookup below with a system fallback, on
+// FindInstrumentByIdentifier's terms. Empty is a caller with no user to speak
+// for and sees the instance's facts alone.
+func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, owner string, hints []identifier.Identifier) ([]ResolvedInstrument, error) {
 	seen := make(map[string]bool)
 	var resolved []ResolvedInstrument
 	for _, h := range hints {
@@ -196,12 +199,12 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 				value = compact
 			}
 		}
-		id, ac, curs, err := database.FindInstrumentWithMetaByIdentifier(ctx, "", h.Type, h.Domain, value)
+		id, ac, curs, err := database.FindInstrumentWithMetaByIdentifier(ctx, owner, h.Type, h.Domain, value)
 		if err != nil {
 			return nil, err
 		}
 		if id == "" && h.Domain == "" {
-			id, err = database.FindInstrumentByTypeAndValue(ctx, "", h.Type, value)
+			id, err = database.FindInstrumentByTypeAndValue(ctx, owner, h.Type, value)
 			if err != nil {
 				return nil, err
 			}
@@ -255,7 +258,8 @@ type HintMatch struct {
 // several names for one security are one answer, and it is the count of
 // instruments rather than of names that says whether the file disagreed with
 // itself.
-func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]HintMatch, error) {
+// owner scopes the lookups as ResolveByHintsDBOnly's do.
+func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, owner string, hints []identifier.Identifier) ([]HintMatch, error) {
 	seen := make(map[string]bool)
 	var ids []HintMatch
 	for _, h := range hints {
@@ -268,12 +272,12 @@ func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hint
 				value = compact
 			}
 		}
-		id, err := database.FindInstrumentByIdentifier(ctx, "", h.Type, h.Domain, value)
+		id, err := database.FindInstrumentByIdentifier(ctx, owner, h.Type, h.Domain, value)
 		if err != nil {
 			return nil, err
 		}
 		if id == "" && h.Domain == "" {
-			id, err = database.FindInstrumentByTypeAndValue(ctx, "", h.Type, value)
+			id, err = database.FindInstrumentByTypeAndValue(ctx, owner, h.Type, value)
 			if err != nil {
 				return nil, err
 			}
@@ -1189,6 +1193,7 @@ func ResolveWithPlugins(
 	ctx context.Context,
 	database db.DB,
 	registry *identifier.Registry,
+	owner string,
 	broker, source, instrumentDescription string,
 	ident identifier.Identity,
 	bindSourceDescription bool,
@@ -1245,7 +1250,7 @@ func ResolveWithPlugins(
 	}
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
-	resolved, err := ResolveByHintsDBOnly(ctx, database, lookupIDs)
+	resolved, err := ResolveByHintsDBOnly(ctx, database, owner, lookupIDs)
 	if err != nil {
 		return ResolveResult{}, err
 	}
@@ -1531,10 +1536,18 @@ func ResolveWithPlugins(
 				hasSource = true
 			}
 		}
+		// The one identifier here the plugins did not supply, and so the one
+		// that is not a fact. It is the broker's own text for the security,
+		// reaching us through whoever uploaded the file, and it is owned by
+		// them until the promotion sweep finds other users holding it too.
+		// Everything above it came back from a plugin and is stored
+		// system-owned. See
+		// docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
 		if bindSourceDescription && !hasSource {
 			identifiers = append(identifiers, db.IdentifierInput{
 				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 				Canonical: false,
+				Owner:     owner,
 				ValidFrom: nameFrom,
 			})
 		}
@@ -1551,7 +1564,7 @@ func ResolveWithPlugins(
 			}
 			copy(uIdent.Stated, inst.UnderlyingIdentifiers)
 			// Underlying resolution: no source description, no fallback needed (use nil).
-			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uIdent, false, nil, tel.underlying(), logger, depth+1, nil)
+			uResult, uErr := ResolveWithPlugins(ctx, database, registry, owner, broker, source, "", uIdent, false, nil, tel.underlying(), logger, depth+1, nil)
 			if uErr != nil {
 				l.WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
 			} else if uResult.InstrumentID != "" {
@@ -1659,7 +1672,7 @@ func ResolveWithPlugins(
 		// identifiers follow the same routing, so it is passed on rather than
 		// discarded; carrying it out of Resolve to the caller is 0147's third
 		// step.
-		id, listingID, err := database.EnsureInstrument(ctx, "", inst.AssetClass, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields, tel.RunID)
+		id, listingID, err := database.EnsureInstrument(ctx, owner, inst.AssetClass, inst.Listing.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, claims, underlyingListingID, optFields, tel.RunID)
 		if err != nil {
 			return ResolveResult{}, err
 		}

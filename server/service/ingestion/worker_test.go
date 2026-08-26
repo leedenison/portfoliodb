@@ -73,10 +73,14 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "UNKNOWN").
 		Return("", nil)
+	// Written owned by the uploader, and looked up as them. Nothing identified
+	// this security, so the description is the whole of what the instrument is
+	// called and there is no fact here for the instance to hold.
 	database.EXPECT().EnsureInstrument(
-		gomock.Any(), gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
+		gomock.Any(), "user-1", "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: "IBKR:test:statement"},
 			Canonical: false,
+			Owner:     "user-1",
 		}}, gomock.Any(), "", nil, gomock.Any()).
 		Return("broker-only-id", "listing-id", nil)
 	database.EXPECT().
@@ -155,9 +159,10 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), "IBKR:test:statement", "CACHED").
 		Return("", nil)
 	database.EXPECT().EnsureInstrument(
-		gomock.Any(), gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
+		gomock.Any(), "user-1", "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "CACHED", Domain: "IBKR:test:statement"},
 			Canonical: false,
+			Owner:     "user-1",
 		}}, gomock.Any(), "", nil, gomock.Any()).
 		Return("cached-inst-id", "listing-id", nil)
 	database.EXPECT().

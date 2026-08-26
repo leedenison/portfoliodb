@@ -40,6 +40,18 @@ type ingestDeps struct {
 	// RunKind is what kind of import this batch belongs to, and it decides more
 	// than how the run is filed: see mayPayForCompletion.
 	RunKind string
+	// UserID is whose upload this is, and it is what a name learned from the
+	// file is owned by: the mapping resolves for them until enough other users
+	// hold it for the promotion sweep to make it the instance's.
+	//
+	// Empty for a system archive, which is admin-only and states instrument data
+	// this instance takes as fact. It is set for a broker upload and for the
+	// postings of a user archive, and it is set whoever uploaded them: an
+	// admin's broker file is a third-party artefact uploaded as a matter of
+	// routine, exactly as anybody else's is, so the distinction is the artefact
+	// rather than the person. See
+	// docs/adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
+	UserID string
 }
 
 // mayPayForCompletion reports whether this batch may pay a candidate plugin

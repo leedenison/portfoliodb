@@ -370,7 +370,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		// A price or corporate-event archive names the instrument itself, so
 		// everything here is stated and nothing is proposed.
 		ident := identifier.Identity{Stated: []identifier.Identifier{hint}, Hints: hints}
-		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry,
+		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry, "",
 			"", "", "", ident,
 			false, fallback, keys.attempt(key, db.TelemetryPurposePrimary), nil, 0, hintsValidAt)
 		if err != nil {
@@ -390,7 +390,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 	// settles that by taking the name in force and falling back to the most
 	// recently closed one -- which answers "who holds this now" rather than "who
 	// held it on the row's date". Asking the second question is 0122.
-	resolved, err := identification.ResolveByHintsDBOnly(ctx, database, []identifier.Identifier{hint})
+	resolved, err := identification.ResolveByHintsDBOnly(ctx, database, "", []identifier.Identifier{hint})
 	if err != nil {
 		return identification.ResolveResult{}, fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
 	}
@@ -430,7 +430,7 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 		parsed, ok := derivative.ParseOptionTicker(value)
 		if ok && parsed.Symbol != "" {
 			uHint := identifier.Identifier{Type: "MIC_TICKER", Value: parsed.Symbol}
-			resolved, err := identification.ResolveByHintsDBOnly(ctx, database, []identifier.Identifier{uHint})
+			resolved, err := identification.ResolveByHintsDBOnly(ctx, database, "", []identifier.Identifier{uHint})
 			if err == nil && len(resolved) == 1 {
 				// The line the contract's strike is quoted in: the request's own
 				// currency, else what its symbology implies. The request states

@@ -593,18 +593,25 @@ CREATE TABLE telemetry.merge (
   --                           separate answers and are a set nobody asserted
   --   refused_unmediated      a claim named both, but a type that reassigns its
   --                           values routinely cannot carry the chain
+  --   refused_unsettled       a claim named both, but one of the stored rows is a
+  --                           user's claim rather than the instance's fact, and a
+  --                           chain drawn through it would settle an association
+  --                           for everybody on the strength of one unauthenticated
+  --                           file
   --   refused_disjoint        a claim named both, but the two stored names were
   --                           never correct at one time
   --   refused_collision       the merge was admitted and could not complete: both
   --                           instruments hold one triple over overlapping
   --                           intervals, and nothing in the data says which is right
   --
-  -- The four refusals are kept apart because they need different fixes. An
+  -- The five refusals are kept apart because they need different fixes. An
   -- uncorroborated pair wants a plugin that returns both names; an unmediated one
-  -- is working as intended and is noise; a collision wants a person.
+  -- is working as intended and is noise; an unsettled one wants another user
+  -- holding the same mapping, or a plugin confirming it; a collision wants a
+  -- person.
   outcome    TEXT NOT NULL CHECK (outcome IN ('merged', 'refused_uncorroborated',
-                                              'refused_unmediated', 'refused_disjoint',
-                                              'refused_collision')),
+                                              'refused_unmediated', 'refused_unsettled',
+                                              'refused_disjoint', 'refused_collision')),
   a_type     TEXT NOT NULL,
   a_domain   TEXT,
   a_value    TEXT NOT NULL,

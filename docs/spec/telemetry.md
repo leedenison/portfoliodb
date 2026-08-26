@@ -410,7 +410,7 @@ it.
 | column | notes |
 | --- | --- |
 | `run_id` | the run, directly: a merge is also taken by the corporate event cycle, which has no resolution key to hang off |
-| `outcome` | `merged`, `refused_uncorroborated`, `refused_unmediated`, `refused_disjoint`, `refused_collision` |
+| `outcome` | `merged`, `refused_uncorroborated`, `refused_unmediated`, `refused_unsettled`, `refused_disjoint`, `refused_collision` |
 | `a_type`, `a_domain`, `a_value` | one endpoint, as a whole triple |
 | `b_type`, `b_domain`, `b_value` | the other |
 | `a_instrument_id`, `b_instrument_id` | what the two endpoints resolved to when the decision was taken |
@@ -429,15 +429,20 @@ by security, on the terms `price_gap` records its instrument: not foreign keys, 
 telemetry outlives the work it describes. A merged pair need not contain the survivor,
 which is picked over the whole group rather than per pair.
 
-The four refusals are separate members because they need different fixes.
+The five refusals are separate members because they need different fixes.
 `refused_uncorroborated` is the resolver having assembled a set nobody asserted, and wants
 a plugin that returns both names; it is what a plugin set whose identifier vocabularies do
 not overlap produces all day. `refused_unmediated` is a type that reassigns its values
-routinely and is working as intended. `refused_disjoint` is two names that were never
-correct at one time, which may be a vintage recorded wrongly. `refused_collision` is the
-one that is neither noise nor design: both instruments hold one triple over overlapping
-intervals, so two claims cannot both hold and nothing in the data says which is right.
-See adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
+routinely and is working as intended. `refused_unsettled` is a chain that would have run
+through a row one user owns: the instruments are instance-global where the row is not, so
+acting on it would settle the association for everybody on the strength of one
+unauthenticated file. It wants another user holding the same mapping, which the promotion
+sweep turns into a fact, or a plugin confirming it. `refused_disjoint` is two names that
+were never correct at one time, which may be a vintage recorded wrongly.
+`refused_collision` is the one that is neither noise nor design: both instruments hold one
+triple over overlapping intervals, so two claims cannot both hold and nothing in the data
+says which is right. See adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md and
+adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
 
 Nothing recorded a merge before this table. The decision is taken inside the database
 layer, which has no run to hang a row off and no logger, so a merge that happened, a merge

@@ -199,11 +199,26 @@ func refKey(ref db.InstrumentRef) string {
 // returned: one is enough to stop the merge, and a merge that stops has not
 // begun to move anything, so there is no second name to report having lost.
 //
-// Note that the exclusion constraints on both tables are global and say nothing
-// about the instrument, so two instruments holding one triple over overlapping
-// intervals is a state they already forbid and this finds nothing today. It
-// becomes reachable when the owner enters the constraint, which is 0142.
+// What counts as one triple is what the exclusion constraint counts as one, the
+// owner included: this asks whether carrying the loser's names across would fail
+// that constraint, and an answer on any other terms would refuse a merge the
+// database would have accepted. Two instruments holding one triple under two
+// different owners is two owners agreeing about a security rather than a
+// contradiction -- once merged they name the same instrument, which is what the
+// claim said -- so it must not stop anything.
+//
+// Both constraints remain global for a given owner, so a triple one owner holds
+// exists at most once in the whole table and cannot straddle two instruments.
+// This still finds nothing, and that is the constraint holding rather than a gap:
+// it is here so that the merge cannot begin on a pair the database would refuse
+// half way through, and so it stays correct if the constraint is ever narrowed.
 func collidingIdentifier(ctx context.Context, q queryable, a, b uuid.UUID) (db.InstrumentRef, bool, error) {
+	// The owner is only on the security table. A listing-grain row is always a
+	// fact, so every row there has the one owner and comparing it says nothing.
+	owners := map[string]string{
+		"instrument_identifiers": "\n\t\t\t AND COALESCE(y.owner, '00000000-0000-0000-0000-000000000000'::uuid)" +
+			" = COALESCE(x.owner, '00000000-0000-0000-0000-000000000000'::uuid)",
+	}
 	for _, table := range []string{"instrument_identifiers", "instrument_listing_identifiers"} {
 		var (
 			typ    string
@@ -217,10 +232,10 @@ func collidingIdentifier(ctx context.Context, q queryable, a, b uuid.UUID) (db.I
 			  ON y.identifier_type = x.identifier_type
 			 AND COALESCE(y.domain, '') = COALESCE(x.domain, '')
 			 AND y.value = x.value
-			 AND daterange(y.valid_from, y.valid_before) && daterange(x.valid_from, x.valid_before)
+			 AND daterange(y.valid_from, y.valid_before) && daterange(x.valid_from, x.valid_before)%[2]s
 			WHERE x.instrument_id = $1 AND y.instrument_id = $2
 			LIMIT 1
-		`, table), a, b).Scan(&typ, &domain, &value)
+		`, table, owners[table]), a, b).Scan(&typ, &domain, &value)
 		if err == sql.ErrNoRows {
 			continue
 		}
@@ -428,11 +443,22 @@ func (p *Postgres) recordMerges(ctx context.Context, runID string, decisions []m
 // it is answered first.
 //
 // adr/0061's third condition -- that each association be one the system holds as
-// settled rather than as a user's claim -- is satisfied by construction and so
-// is not asked. There is no owner column yet, so every stored row was written by
-// an identifier plugin or an admin's archive. 0142 adds the column, and this is
-// where it is read; it is a question about the row rather than about the type,
-// since the same value is a fact from one source and a claim from another.
+// settled rather than as a user's claim -- is the owner. A row somebody owns is
+// that user's claim, and drawing a chain through one would settle an association
+// for every user of the instance on the strength of a single unauthenticated
+// file: instruments are instance-global where identifier rows are owner-scoped,
+// so the merge does not stay inside the scope the claim arrived in. Making that
+// mapping a fact is the promotion sweep's job and nothing else's.
+//
+// It is a question about the row rather than about the type, which is why the
+// type property is necessary and never sufficient: the same value is a fact from
+// one source and a claim from another. A broker contract identifier is the case
+// to watch, its issuer may well never reassign it and it still mediates nothing
+// until the sweep promotes it.
+//
+// The refusal is not permanent. A later plugin result naming both, or enough
+// other users holding the same mapping, turns the claim into a fact and the pair
+// is admitted the next time it is asked.
 //
 // The authority the caller's own claim arrived with is a further input this does
 // not take, for the reason db.IdentityClaim gives: every claim reaching here
@@ -442,6 +468,8 @@ func mergeVerdict(a, b endpoint) string {
 	switch {
 	case !identifier.MayMediate(a.typ) || !identifier.MayMediate(b.typ):
 		return db.TelemetryMergeUnmediated
+	case a.owner != "" || b.owner != "":
+		return db.TelemetryMergeUnsettled
 	case !overlaps(a, b):
 		return db.TelemetryMergeDisjoint
 	default:

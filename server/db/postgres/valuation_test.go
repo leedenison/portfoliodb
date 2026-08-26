@@ -607,7 +607,7 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval3", "U", "u@fxval3.com")
 
 	// Create a EUR-denominated instrument (no FX rate will be inserted).
-	instID, _, _ := p.EnsureInstrument(ctx, "STOCK", "EUR", "SAP-NR", "", "", []db.IdentifierInput{
+	instID, _, _ := p.EnsureInstrument(ctx, "STOCK", "EUR", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SAP NR", Domain: "IBKR"},
 			Canonical: false,
@@ -718,7 +718,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 
 	// GBP instrument displayed in EUR. GBP/USD rate is MISSING, EUR/USD is present.
 	// The base rate (GBPUSD) is needed for the cross-rate but absent.
-	instID, _, _ := p.EnsureInstrument(ctx, "STOCK", "GBP", "HSBC-MBR", "", "", []db.IdentifierInput{
+	instID, _, _ := p.EnsureInstrument(ctx, "STOCK", "GBP", "", "", "", []db.IdentifierInput{
 		{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "HSBC MBR", Domain: "IBKR"},
 			Canonical: false,

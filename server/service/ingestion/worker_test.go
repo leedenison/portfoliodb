@@ -74,7 +74,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "UNKNOWN").
 		Return("", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "UNKNOWN", "", "", []db.IdentifierInput{{
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: "IBKR:test:statement"},
 			Canonical: false,
 		}}, gomock.Any(), "", nil).
@@ -155,7 +155,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "CACHED").
 		Return("", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "CACHED", "", "", []db.IdentifierInput{{
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "CACHED", Domain: "IBKR:test:statement"},
 			Canonical: false,
 		}}, gomock.Any(), "", nil).

@@ -152,7 +152,7 @@ func TestResolve_NoExtractedHints_ExtractionFailed(t *testing.T) {
 	ctx := context.Background()
 	source := "IBKR:test:statement"
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "UNKNOWN", "", "", []db.IdentifierInput{{
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: source},
 			Canonical: false,
 		}}, gomock.Any(), "", nil).
@@ -195,7 +195,7 @@ func TestResolve_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *testing.T) 
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "p1", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "UNKNOWN", "", "", []db.IdentifierInput{{
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "UNKNOWN", Domain: source},
 			Canonical: false,
 		}}, gomock.Any(), "", nil).
@@ -660,7 +660,7 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "slow", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "SLOW", "", "", []db.IdentifierInput{{
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "SLOW", Domain: source},
 			Canonical: false,
 		}}, gomock.Any(), "", nil).
@@ -701,7 +701,7 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "bad", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "BAD", "", "", []db.IdentifierInput{{
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: "BAD", Domain: source},
 			Canonical: false,
 		}}, gomock.Any(), "", nil).
@@ -1269,8 +1269,9 @@ func TestResolve_ProposedKeyConfirmingNothingIsDropped(t *testing.T) {
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 		// Says nothing the source can be checked against.
 		&identifier.Instrument{Name: "Says nothing"},
-		// The fallback ensures the description itself, not the plugin's name.
-		"GUESS")
+		// The fallback names nothing: the description is the identifier it
+		// ensures, and no authority supplied a name.
+		"")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -1289,7 +1290,7 @@ func TestResolve_ProposedKeyWithNothingToCheckAgainstIsDropped(t *testing.T) {
 	r, err := roundTripResolve(t,
 		identifier.Hints{},
 		&identifier.Instrument{AssetClass: "STOCK", Name: "Real Co"},
-		"GUESS")
+		"")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

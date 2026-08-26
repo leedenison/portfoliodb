@@ -383,15 +383,27 @@ func TestEnsureInstrument_LeavesNameDatesAlone(t *testing.T) {
 
 // descriptionOnly is the instrument a first upload leaves behind when nothing
 // identified the security: one non-canonical BROKER_DESCRIPTION and no other
-// name, with every column still null.
+// name, with every column null -- the name column included, ingestion stating no
+// name it has no authority for.
+//
+// It still displays as the broker's text, which the trigger answers with from the
+// identifier rather than from the column. Asserted here so that every test using
+// this fixture rests on a row of the shape adr/0067 describes.
 func descriptionOnly(t *testing.T, p *Postgres, source, desc string) string {
 	t.Helper()
-	id, _, err := p.EnsureInstrument(context.Background(), "", "", desc, "", "", []db.IdentifierInput{{
+	id, _, err := p.EnsureInstrument(context.Background(), "", "", "", "", "", []db.IdentifierInput{{
 		Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source},
 		Canonical: false,
 	}}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure broker-description-only instrument: %v", err)
+	}
+	row, err := p.GetInstrument(context.Background(), id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.Name == nil || *row.Name != desc {
+		t.Fatalf("name = %v, want the broker's text %q", derefStr(row.Name), desc)
 	}
 	return id
 }
@@ -459,6 +471,99 @@ func TestEnsureInstrument_CompletesADescriptionOnlyInstrument(t *testing.T) {
 	}
 }
 
+// TestEnsureInstrument_CompletionReplacesTheUnconfirmedName is issue 0169's live
+// case. A completion whose identifiers carry a name of their own -- a ticker, a
+// contract symbol -- displaces the broker's text through the name trigger, and
+// that is what made this easy to miss. An ISIN carries none, so before 0169 the
+// statement line stayed as the security's name on a row that was by then
+// system-authoritative in every other respect.
+func TestEnsureInstrument_CompletionReplacesTheUnconfirmedName(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	const source = "IBKR:acct:statement"
+	const desc = "VANG FTSE AW USDD ACC"
+	id := descriptionOnly(t, p, source, desc)
+
+	// No listing-grain name anywhere in the set: the identifier that completes
+	// this instrument has no display name of its own for the trigger to reach.
+	again, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Vanguard FTSE All-World UCITS ETF", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "IE00BK5BQT80"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
+	}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if again != id {
+		t.Fatalf("ensure returned %q, want the existing instrument %q", again, id)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.Name == nil || *row.Name != "Vanguard FTSE All-World UCITS ETF" {
+		t.Errorf("name = %v, want the name the authority supplied rather than the broker's text", derefStr(row.Name))
+	}
+	// The description itself is not discarded with the metadata. It is an
+	// identifier, owned rather than dropped (0142), and it still resolves.
+	if findIdentifier(row, "BROKER_DESCRIPTION", desc) == nil {
+		t.Errorf("the broker description was dropped; only metadata is discarded")
+	}
+}
+
+// TestEnsureInstrument_CompletionDiscardsUnconfirmedMetadata is the rest of the
+// rule. Nothing an authority wrote is at stake on such a row, so what is there is
+// replaced wholesale rather than defended by having been stored first -- a column
+// the authority left empty included, since keeping that one would be the
+// per-column provenance adr/0079 declines.
+func TestEnsureInstrument_CompletionDiscardsUnconfirmedMetadata(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	const source = "IBKR:acct:statement"
+	const desc = "APPLE INC COM"
+
+	// A user-authoritative instrument carrying metadata: no canonical identifier,
+	// so nothing here was confirmed by anyone.
+	id, _, err := p.EnsureInstrument(ctx, "ETF", "", "Apple Incorporated", "9999999999", "1111", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
+	}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	// The authority answers with a different asset class and CIK, and says
+	// nothing about the SIC code.
+	again, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "Apple Inc.", "0000320193", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
+	}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("re-ensure: %v", err)
+	}
+	if again != id {
+		t.Fatalf("re-ensure returned %q, want the existing instrument %q", again, id)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.AssetClass == nil || *row.AssetClass != "STOCK" {
+		t.Errorf("asset_class = %v, want the authority's STOCK rather than the stored ETF", derefStr(row.AssetClass))
+	}
+	if row.CIK == nil || *row.CIK != "0000320193" {
+		t.Errorf("cik = %v, want the authority's rather than the stored one", derefStr(row.CIK))
+	}
+	if row.SICCode != nil {
+		t.Errorf("sic_code = %v, want it discarded: no authority has answered that field", derefStr(row.SICCode))
+	}
+	if row.Name == nil || *row.Name != "Apple Inc." {
+		t.Errorf("name = %v, want the authority's", derefStr(row.Name))
+	}
+}
+
 // TestEnsureInstrument_LeavesAnIdentifiedInstrumentAlone is the other side of the
 // line 0135 draws. An instrument that already holds a canonical identifier has an
 // identity, and what may be added to one is 0136's question, asked under a
@@ -467,14 +572,14 @@ func TestEnsureInstrument_LeavesAnIdentifiedInstrumentAlone(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	id, _, err := p.EnsureInstrument(ctx, "STOCK", "", "", "", "", []db.IdentifierInput{
+	id, _, err := p.EnsureInstrument(ctx, "STOCK", "", "Apple Inc.", "0000320193", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
 	}, nil, "", nil)
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 
-	again, _, err := p.EnsureInstrument(ctx, "STOCK", "USD", "", "", "", []db.IdentifierInput{
+	again, _, err := p.EnsureInstrument(ctx, "ETF", "USD", "Apple Incorporated", "9999999999", "", []db.IdentifierInput{
 		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
 		{Ref: db.InstrumentRef{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS"}, Canonical: true},
 	}, nil, "", nil)
@@ -492,7 +597,14 @@ func TestEnsureInstrument_LeavesAnIdentifiedInstrumentAlone(t *testing.T) {
 	if findIdentifier(row, "MIC_TICKER", "AAPL") != nil {
 		t.Errorf("ticker written onto an instrument that already had an identity; that is 0136's to decide")
 	}
-
+	// Nor is its metadata replaced. 0169 discards what nobody confirmed, and an
+	// authority wrote every one of these, so adr/0004 protects them.
+	if row.AssetClass == nil || *row.AssetClass != "STOCK" {
+		t.Errorf("asset_class = %v, want the stored STOCK rather than the caller's ETF", derefStr(row.AssetClass))
+	}
+	if row.CIK == nil || *row.CIK != "0000320193" {
+		t.Errorf("cik = %v, want the stored one", derefStr(row.CIK))
+	}
 }
 
 // TestEnsureInstrument_CompletionLeavesAStoredNameDateAlone extends the write

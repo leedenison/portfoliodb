@@ -407,8 +407,12 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// attempt is opened and OpenFIGI is never reached.
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
 		// No claim: one description associates nothing with anything, and
-		// nobody asserted an identity for it.
-		instID, _, ensureErr := database.EnsureInstrument(ctx, "", "", instrumentDescription, "", "", []db.IdentifierInput{{
+		// nobody asserted an identity for it. No name either: the description is
+		// already the identifier below, and the trigger deriving the display name
+		// reads it from there. Storing it in the column as well would be a
+		// user-supplied value for a field no authority has answered, which the
+		// completion would then have to discard (adr/0079).
+		instID, _, ensureErr := database.EnsureInstrument(ctx, "", "", "", "", "", []db.IdentifierInput{{
 			Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 			Canonical: false,
 		}}, nil, "", nil)
@@ -501,8 +505,9 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		// The listing is dropped rather than returned: a broker description is
 		// security-grain, so this instrument's line is its unknown one and
-		// nothing here has learned a currency to name it with.
-		id, _, err := database.EnsureInstrument(ctx, "", "", instrumentDescription, "", "",
+		// nothing here has learned a currency to name it with. The name is left
+		// empty for the reason the extraction-failed path above gives.
+		id, _, err := database.EnsureInstrument(ctx, "", "", "", "", "",
 			[]db.IdentifierInput{{
 				Ref:       db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: instrumentDescription, Domain: source},
 				Canonical: false,

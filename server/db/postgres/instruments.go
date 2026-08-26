@@ -1301,27 +1301,30 @@ func (p *Postgres) ensureSecurity(ctx context.Context, assetClass, currency, nam
 			return id.String(), nilUUIDToString(listingID), nil
 		}
 		// The instrument is nothing but a broker's text for a security: it holds
-		// no canonical identifier and every column is null. So what identified it
-		// is written on, rather than found and dropped as it is for an instrument
-		// that already has an identity.
+		// no canonical identifier, and what metadata it has nobody verified. So
+		// what identified it is written on, rather than found and dropped as it is
+		// for an instrument that already has an identity, and what was there is
+		// discarded rather than merged with.
 		//
 		// This asserts no association between two identities and chains nothing
 		// through the description (adr/0061), because there is no second identity
 		// here -- the identifiers arrive together and become this instrument's
 		// first. It is also the one write adr/0004's "a stored value wins" has
-		// nothing to protect: there is no stored value.
+		// nothing to protect: the values it protects are the ones an authority
+		// wrote, and this row holds none.
 		//
 		// An instrument that does hold a canonical identifier is left alone. What
 		// may be added to one is 0136, and it is a different question with a
 		// different answer.
 		var listingID uuid.UUID
 		err = p.runInTx(ctx, func(exec queryable) error {
-			if mErr := mergeIntoInstrument(ctx, exec, id, db.InstrumentMerge{
-				AssetClass:  assetClass,
-				CIK:         cik,
-				SICCode:     sicCode,
-				Identifiers: securityIDs,
-			}); mErr != nil {
+			// Before the identifiers, for the reason the function gives: the
+			// name trigger fires on their insert and takes what is stored here
+			// as its fallback.
+			if mErr := replaceUnconfirmedMetadata(ctx, exec, id, assetClass, name, cik, sicCode); mErr != nil {
+				return mErr
+			}
+			if mErr := insertSecurityIdentifiers(ctx, exec, id, securityIDs); mErr != nil {
 				return mErr
 			}
 			var lErr error
@@ -1663,36 +1666,27 @@ func listingGrain(idns []db.IdentifierInput) []db.IdentifierInput {
 // security-grain identifiers it lacks, and columns that are still NULL. A stored
 // value always wins (adr/0004), so it fills blanks and never rewrites.
 //
+// That is the rule for an instrument a system authority has already written to.
+// An instrument named only by user-authoritative sources holds no such value and
+// takes replaceUnconfirmedMetadata below instead.
+//
 // It does no listing work. Which lines a security has, and which of them each
 // listing-grain name belongs on, is what the two entry points disagree about, so
 // it is a placeListings run by the caller rather than a rule buried here.
 //
-// It takes an exec rather than opening its own transaction because both callers
-// already have one to run in, and because the second of them -- EnsureInstrument
-// completing a broker-description-only instrument -- has other writes that must
-// land or fail with these.
+// It takes an exec rather than opening its own transaction because its caller
+// already has one to run in, and files its listing-grain names inside it.
 //
-// MIC normalisation is the caller's: EnsureInstrument has already done it for the
-// whole identifier set, and doing it twice would ask the exchange table the same
-// question again.
+// MIC normalisation is the caller's, so that an entry point holding a whole
+// identifier set does it once rather than asking the exchange table the same
+// question twice.
 //
 // name is not among the columns. A trigger derives it from the identifiers in
 // force, so an inserted MIC_TICKER takes over from the broker description on its
 // own, and writing it here would fight that.
 func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in db.InstrumentMerge) error {
-	securityIDs, _ := splitByGrain(in.Identifiers)
-	for _, idn := range securityIDs {
-		// ON CONFLICT with no target covers the exclusion constraint as well as
-		// a unique index, so an identifier the row already holds over an
-		// overlapping interval is still a no-op rather than an error.
-		_, err := exec.ExecContext(ctx, `
-			INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT DO NOTHING
-		`, id, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
-		if err != nil {
-			return fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
-		}
+	if err := insertSecurityIdentifiers(ctx, exec, id, in.Identifiers); err != nil {
+		return err
 	}
 	// The WHERE guard leaves a row that needs nothing unwritten, so a file whose
 	// instruments are all already complete does no writes at all.
@@ -1706,6 +1700,62 @@ func mergeIntoInstrument(ctx context.Context, exec queryable, id uuid.UUID, in d
 	`, id, nullStr(in.AssetClass), nullStr(in.CIK), nullStr(in.SICCode))
 	if err != nil {
 		return fmt.Errorf("merge instrument columns: %w", err)
+	}
+	return nil
+}
+
+// insertSecurityIdentifiers writes the security-grain half of an identifier set
+// on to an instrument, leaving what it already holds alone. Listing-grain names
+// are the caller's placement to file.
+func insertSecurityIdentifiers(ctx context.Context, exec queryable, id uuid.UUID, idns []db.IdentifierInput) error {
+	securityIDs, _ := splitByGrain(idns)
+	for _, idn := range securityIDs {
+		// ON CONFLICT with no target covers the exclusion constraint as well as
+		// a unique index, so an identifier the row already holds over an
+		// overlapping interval is still a no-op rather than an error.
+		_, err := exec.ExecContext(ctx, `
+			INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT DO NOTHING
+		`, id, idn.Ref.Type, nullStr(idn.Ref.Domain), idn.Ref.Value, idn.Canonical, nullTime(idn.ValidFrom), nullTime(idn.ValidBefore))
+		if err != nil {
+			return fmt.Errorf("merge identifier (%s/%s): %w", idn.Ref.Type, idn.Ref.Value, err)
+		}
+	}
+	return nil
+}
+
+// replaceUnconfirmedMetadata overwrites every metadata column of an instrument
+// that until now was named only by user-authoritative sources, with what the
+// system authority identifying it supplied. Not merged with what is there, and
+// not defended by having been stored first: adr/0004 protects a value an
+// authority wrote, and this row holds none.
+//
+// Nothing is confirmed per column, and nothing has to be. Everything on such an
+// instrument arrived through a user-mediated upload, because by definition
+// nothing else has written to it, so the class of the instrument is the
+// provenance of every column at once. Checking each field against what the
+// plugin returned is the reading this deliberately does not take: it costs a
+// comparison per column and buys nothing, since the answer is the same for all
+// of them. See
+// docs/adr/0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md.
+//
+// A column the authority left empty is written NULL rather than kept. Keeping it
+// would be the per-column provenance adr/0079 declines -- a system-authoritative
+// row holding a user-supplied value for a field no authority has answered.
+//
+// It runs before the identifiers land. The name trigger fires on the identifier
+// insert and reads instruments.name as its own fallback, so a replacement made
+// afterwards would be re-derived away wherever the arriving identifiers carry no
+// name of their own -- an ISIN or a CUSIP, which is exactly the case that has the
+// broker's text to lose.
+func replaceUnconfirmedMetadata(ctx context.Context, exec queryable, id uuid.UUID, assetClass, name, cik, sicCode string) error {
+	_, err := exec.ExecContext(ctx, `
+		UPDATE instruments SET asset_class = $2, name = $3, cik = $4, sic_code = $5
+		WHERE id = $1
+	`, id, nullStr(assetClass), nullStr(name), nullStr(cik), nullStr(sicCode))
+	if err != nil {
+		return fmt.Errorf("replace unconfirmed metadata: %w", err)
 	}
 	return nil
 }

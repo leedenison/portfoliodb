@@ -65,8 +65,11 @@ operational fact about the association, decided on its own terms.
   unchanged. Only where the record lands changes.
 - Issue 0141's "The record" section, which specified the operational table, is
   superseded by this.
-- 0142's promotion route and 0143's hypothesis both park on the surface 0141 was
-  going to build, and both need re-scoping.
+- 0142's promotion route and 0143's hypothesis both parked on the surface 0141 was
+  going to build. The promotion needed nothing from it. The hypothesis has nowhere left
+  to wait, so a claim that would move a fact is refused, recorded here and resolved to
+  one instrument (issue
+  [0143](../issues/0143-a-claim-that-would-move-a-fact-is-refused.md)).
 - `unhandled_corporate_events` is the one existing table that is telemetry
   wearing an operational shape, and it moves. Its `resolved` flag goes with it,
   under the rule above.

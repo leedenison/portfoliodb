@@ -58,9 +58,10 @@ statement.
 - A record has to outlive the call that made it. A plugin disagreement discovered
   during one upload is a durable fact about the security, and logging it means
   rediscovering and re-logging it on the next upload while nothing accumulates.
-- The surface it lands on is the one
-  [0063](0063-identity-claims-are-owned-until-users-corroborate-them.md) needs
-  for users who disagree, and the one
-  [0062](0062-a-user-mediated-claim-is-a-lead-not-a-write.md) needs to park a
-  hypothesis on. Three problems, one shape: authorities that cannot both be
-  right, awaiting a person.
+- The record lands where the disagreement between users that
+  [0063](0063-identity-claims-are-owned-until-users-corroborate-them.md) produces is
+  read. There is no third problem to house:
+  [0062](0062-a-user-mediated-claim-is-not-a-write-to-shared-data.md)'s hypothesis lost
+  its surface with the queue, and a claim that would move a fact is refused outright
+  instead (issue
+  [0143](../issues/0143-a-claim-that-would-move-a-fact-is-refused.md)).

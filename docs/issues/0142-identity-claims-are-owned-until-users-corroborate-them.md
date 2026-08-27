@@ -52,12 +52,16 @@ instance this first ships to never promotes anything. At one the sweep promotes
 whatever a lone user's file said and no person is waited on, which is what lets
 the admin surface follow rather than gate this.
 
+What gets owned is stated here by scope, which 0175 restates: a claim is owned where
+no enabled identifier plugin could have adjudicated it, and broker-scoped identifiers
+are the usual case of that rather than the rule.
+
 Scope is transaction uploads, meaning broker files and the postings of a user
 archive. Archives need nothing: a `UserArchive` has no instrument part and
 importing a `SystemArchive` is admin-only, so the boundary is already in the
 message shape.
 
-See adr/0062-a-user-mediated-claim-is-a-lead-not-a-write.md and
+See adr/0062-a-user-mediated-claim-is-not-a-write-to-shared-data.md and
 adr/0063-identity-claims-are-owned-until-users-corroborate-them.md.
 
 Merge admission reads the column, so it lands with it rather than after.

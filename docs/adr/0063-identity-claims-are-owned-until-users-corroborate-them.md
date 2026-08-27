@@ -1,6 +1,6 @@
 # Identity claims are owned until users corroborate them
 
-[0062](0062-a-user-mediated-claim-is-a-lead-not-a-write.md) leaves a broker
+[0062](0062-a-user-mediated-claim-is-not-a-write-to-shared-data.md) leaves a broker
 trusted for its own contract identifiers and descriptions because nothing else
 can supply them, while the channel carrying that trust is a file a user handed
 us. The bound on that is ownership: a claim arriving through a regular user is

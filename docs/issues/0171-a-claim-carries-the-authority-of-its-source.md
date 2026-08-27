@@ -13,8 +13,8 @@ merge may do. `mayMerge` stands in for it with `const systemOwned = true`, which
 holds only while every claim reaching the merge site comes from a plugin result
 or an admin's archive.
 
-That stops holding when a broker file states an association of its own: 0143's
-cross-domain claim, and 0123's contract identifiers before it. Both arrive with
+That stops holding when a transaction upload states an association of its own: 0143's
+refused claim, and 0123's contract identifiers before it. Both arrive with
 user authority through a channel nobody can re-interrogate, and both are exactly
 the claims a merge must treat differently.
 

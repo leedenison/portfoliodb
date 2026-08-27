@@ -21,7 +21,7 @@ archive carry: an authenticated channel, repeatable, and one that can be asked a
 when an answer starts to look wrong. **User authority** is what a transaction upload
 carries -- a broker file, or the postings of a user archive -- which is
 unauthenticated, single-shot and impossible to re-interrogate
-([0062](0062-a-user-mediated-claim-is-a-lead-not-a-write.md)).
+([0062](0062-a-user-mediated-claim-is-not-a-write-to-shared-data.md)).
 
 Which source within a level does not matter. Every identifier plugin is equally
 authoritative for a global identifier, so attribution decides nothing; the level is the

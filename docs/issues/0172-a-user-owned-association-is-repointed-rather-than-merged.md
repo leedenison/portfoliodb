@@ -5,7 +5,9 @@ milestone: M24
 dependencies: [0171]
 ---
 
-The third of 0171's outcomes, and the only one with no code behind it today.
+The second of 0171's outcomes, and the only one with no code behind it today.
+0171 refuses every claim carrying user authority; this is where that blanket
+refusal is relaxed for the case where nothing but a claim would move.
 
 A user's broker file ties a description they hold to an instrument identified by
 an ISIN. The claim carries user authority, so it cannot settle the association

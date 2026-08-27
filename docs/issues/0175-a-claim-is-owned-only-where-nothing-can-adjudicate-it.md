@@ -2,7 +2,7 @@
 status: open
 title: A claim is owned only where nothing can adjudicate it
 milestone: M24
-dependencies: [0171]
+dependencies: [0171, 0177]
 ---
 
 0142 decides what to own by scope: a broker-scoped identifier or a broker-description
@@ -49,8 +49,9 @@ Neither writes a fact on the strength of a comment, which is what 0065 was defen
 against.
 
 Both surfaces are still needed, and only one of them is the declaration. Whether anything
-*could* have adjudicated the claim is the declaration; whether anything *did* is the
-record. The record read here is the resolution's own results, in flight, so nothing is
+*could* have adjudicated the claim is the declaration, which no plugin makes today and
+0177 builds; whether anything *did* is the record, which `Result.Identifiers` and
+`Result.Filtered` already carry. The record read here is the resolution's own results, in flight, so nothing is
 read back out of a table -- which is what keeps this clear of adr/0080's rule that no
 functional path reads telemetry.
 

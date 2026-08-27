@@ -27,6 +27,12 @@ import (
 // to be one a chain may be drawn through, which is a question about the
 // identifier type and about the interval the row was written with. See
 // docs/adr/0061-transitivity-needs-a-non-reassigned-identifier.md.
+//
+// And the claim has to be one its source had the standing to make. That is asked
+// of the claim rather than of either row, so it is asked before the chain is
+// looked at: a source with no authority over the association settles nothing
+// however sound the two ends are. See
+// docs/adr/0079-an-instrument-carries-the-authority-of-the-source-that-named-it.md.
 
 // endpoint is one end of a candidate merge: an instrument, reached through one
 // stored identifier row, what that row says about when the name was correct, and
@@ -326,7 +332,7 @@ func (p *Postgres) mergeGroup(ctx context.Context, owner string, anchor uuid.UUI
 				if ends[i].ep.instrument == ends[j].ep.instrument {
 					continue
 				}
-				v := mergeVerdict(ends[i].ep, ends[j].ep)
+				v := mergeVerdict(c.Owner, ends[i].ep, ends[j].ep)
 				record(mergeDecision{outcome: v, a: ends[i], b: ends[j]})
 				if v == db.TelemetryMerged {
 					link(ends[i].ep, ends[j].ep)
@@ -460,12 +466,28 @@ func (p *Postgres) recordMerges(ctx context.Context, runID string, decisions []m
 // other users holding the same mapping, turns the claim into a fact and the pair
 // is admitted the next time it is asked.
 //
-// The authority the caller's own claim arrived with is a further input this does
-// not take, for the reason db.IdentityClaim gives: every claim reaching here
-// today carries system authority. What a claim carrying user authority may do
-// instead is 0171 and 0172.
-func mergeVerdict(a, b endpoint) string {
+// claimOwner is the level the claim itself arrived with, and it is asked first
+// because it is the only condition here that is not about the two stored rows. A
+// claim carrying user authority reached us through an upload nobody can
+// re-interrogate, and instruments are instance-global, so acting on it would
+// settle an association for everybody on the strength of one file -- whatever
+// the rows at either end say. There is nothing for the endpoints to add once
+// that is true.
+//
+// Refused outright, which is the safe end of a range rather than the whole
+// answer. Where nothing but the user's own rows would move, the right outcome is
+// to repoint them and leave the instance's facts alone; that needs a third
+// verdict and a mover, and it is 0172. What a refused transaction resolves to is
+// 0143.
+//
+// Distinct from refused_unsettled below, though both come from adr/0062's
+// argument. That one is about a stored row -- the chain would run through
+// somebody's claim -- and this is about the claim asking, which may name two
+// rows the instance holds as facts and still have no standing to join them.
+func mergeVerdict(claimOwner string, a, b endpoint) string {
 	switch {
+	case claimOwner != "":
+		return db.TelemetryMergeUnauthoritative
 	case !identifier.MayMediate(a.typ) || !identifier.MayMediate(b.typ):
 		return db.TelemetryMergeUnmediated
 	case a.owner != "" || b.owner != "":

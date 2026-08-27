@@ -81,7 +81,7 @@ than derived from the identifier's scope or shape.
 A broker's contract identifier passes the type test outright: IBKR states that conids
 are static per contract and never change. Reading only that, an implementor would chain
 through one -- and reintroduce exactly the blast radius
-[0062](0062-a-user-mediated-claim-is-a-lead-not-a-write.md) exists to stop, because the
+[0062](0062-a-user-mediated-claim-is-not-a-write-to-shared-data.md) exists to stop, because the
 only way a conid ever reaches this system is inside a file a user uploaded.
 
 **An association the system holds as a claim mediates nothing.** Not even for the user
@@ -89,8 +89,11 @@ who supplied it: identifier rows are owner-scoped but instruments are not, so a 
 drawn through one merges instance-global rows on the strength of one unauthenticated
 file. It becomes eligible when it becomes a fact -- once the promotion sweep has made it
 system-owned ([0063](0063-identity-claims-are-owned-until-users-corroborate-them.md)),
-or once an identifier plugin has settled it as a hypothesis. Promotion and verification
-are two routes to the same place.
+or, where anything can adjudicate it at all, once an identifier plugin corroborates the
+pair in the ordinary course of re-identification. Nothing tracks the claim between times
+for either route to close: both simply find the association already stored when they next
+run. For a broker's own contract number the second route does not exist, and promotion is
+the whole of it.
 
 Nothing about the identifier's type says which it is. The same `CONID`, the same
 `ISIN`, is a fact from one channel and a claim from another

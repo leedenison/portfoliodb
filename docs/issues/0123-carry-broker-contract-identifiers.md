@@ -2,7 +2,7 @@
 status: open
 title: Carry broker contract identifiers through ingestion
 milestone: M24
-dependencies: [0140, 0143, 0145]
+dependencies: [0140, 0143, 0145, 0175]
 ---
 
 IBKR names every contract by a CONID that survives corporate actions: the same

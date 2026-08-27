@@ -41,7 +41,7 @@ Numbers are not reused. A gap is a milestone that was retired.
 - **M21** - One place that says what needs a person's attention, and the repairs reachable from it, replacing the per-problem admin cards.
 - **M22** - What a portfolio selects is settled, and a portfolio definition survives a rebuild.
 - **M23** - Everything that has to happen on a cadence has something running it.
-- **M24** - What makes an identity claim authoritative is written down and enforced: a merge acts on a claim a source actually made, a claim that cannot hold is recorded rather than guessed at, and a claim arriving through a user is owned by them until other users agree.
+- **M24** - What makes an identity claim authoritative is written down and enforced: a merge acts on a claim a source actually made, a claim that cannot hold is recorded rather than guessed at, and a claim arriving through a user is owned by them where nothing can adjudicate it.
 - **M25** - A security has listings and a listing is a currency: a holding, a price, a dividend and a transaction each name the line they belong to, so two currency lines of one security are told apart rather than merged.
 
 ## Productionisation

@@ -1,7 +1,8 @@
 # An identifier plugin declares what it claims; a call records what it claimed
 
-Two surfaces, and the temptation is to build one. They answer different questions and
-only one of them can be trusted to gate anything.
+Two surfaces, and the temptation is to build one. They answer different questions --
+what a plugin is able to claim, and what one call actually claimed -- and only the second
+can say that a given association was corroborated.
 
 **A declaration** says which claims an identifier plugin makes: which identifier types
 it returns, which of them it returns together, and **which it strictly filters on**. It
@@ -11,10 +12,11 @@ is a static property of the plugin, alongside its precedence and config.
 [0060](0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md) needs to
 tell a corroborated association from a manufactured one.
 
-The record is the enforcement surface because a declaration is an unenforced promise.
-Nothing checks that a plugin returns what it said it would, and a provider changing its
-response shape drifts the two apart silently. Gating a merge on a declaration means
-gating it on a comment.
+A merge turns on the record. Not because a declaration cannot be trusted, but because a
+declaration says what a plugin *can* claim and never what it claimed about these two
+values -- there is nothing in one to merge on. What a declaration can decide is what the
+system does when nothing claimed anything at all, which is a different bar and is set
+below.
 
 ## A filter is a claim, so both surfaces have to carry it
 
@@ -35,8 +37,8 @@ nothing is a hint, and a response to one confirms nothing -- it is exactly the e
 real filter resembles, and treating the two alike would let a guessed identifier confirm
 itself, the failure [0059](0059-an-invented-identifier-round-trips.md) exists to
 prevent. Since nothing can check a provider's strictness from outside, that declaration
-carries the same caveat as everything else static here: it is a claim about behaviour,
-useful for reasoning and not for gating on its own.
+carries the same caveat as everything else static here: it is a claim about behaviour
+rather than an observation of one, which is what bounds the decisions it may settle.
 
 ## What the record has to carry is less than it looks
 
@@ -52,7 +54,7 @@ Plugin identity is worth recording, but for the other surface.
 
 ## What declarations are for
 
-Not gating. Answering questions about the system rather than about a row:
+Answering questions about the system rather than about a row:
 
 - **Could anything have corroborated this?** If no enabled plugin declares that it
   returns ISIN and CUSIP together, or returns one while filtering on the other, then
@@ -65,6 +67,29 @@ Not gating. Answering questions about the system rather than about a row:
 - **What errors can this configuration produce?** The reachable claim graph is a
   function of the declarations, so the shapes of erroneous merge a given set of enabled
   plugins can generate are computable before any data arrives.
+
+## A declaration is trustworthy enough to set a bar
+
+A declaration is not a vendor's promise. The plugin set is ours: each declaration is
+written beside the code that makes the calls, reviewed with it, and changed when the
+provider's behaviour changes. That is weaker than a recorded call and much stronger than
+a comment, and it is enough to decide what the system does with a claim nothing can
+adjudicate.
+
+Being wrong costs little in either direction, which is what makes the bar safe to set
+there. A plugin declaring more than it can do withholds a claim that re-identification
+would have settled anyway; one declaring less stores a claim that re-identification then
+settles. The answer converges either way, and no association becomes a fact on the
+strength of the declaration -- that still takes the record of a call that made it.
+
+Issue [0175](../issues/0175-a-claim-is-owned-only-where-nothing-can-adjudicate-it.md) is
+the case. Whether a user-authoritative claim is stored owned by its supplier or not
+stored at all turns on whether any enabled plugin declares it could have adjudicated the
+claim. The matching question -- whether one *did* -- is the record, and it is read from
+the resolution's own results while it runs rather than queried back out of a table, which
+is what keeps it clear of
+[0080](0080-a-contradiction-is-logged-not-queued.md)'s rule that no functional path reads
+telemetry.
 
 ## Consequences
 

@@ -77,5 +77,6 @@ the dependency. Quota rather than correctness.
 
 The three routes out of a claim -- an identifier plugin, a promotion, an admin --
 were properties of the queue and go with it. **0142**'s promotion and **0143**'s
-hypothesis both parked on the surface this was going to build, and both need
-re-scoping.
+hypothesis both parked on the surface this was going to build. The promotion needed
+nothing from it and stayed where it was; the hypothesis had nowhere left to wait, so
+0143 became a refusal recorded here and resolved to one instrument instead.

@@ -5,7 +5,8 @@ milestone: M24
 dependencies: [0171]
 ---
 
-The third of 0171's outcomes, and the one whose answer had nowhere to go.
+The third of 0171's outcomes, and the one whose answer had nowhere to go. 0171
+takes the refusal itself; what a refused transaction resolves to is here.
 
 A user's file states that two identifiers denote one security. Both are held
 system-owned, on two instruments. The claim carries user authority, so acting on it

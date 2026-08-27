@@ -1197,6 +1197,13 @@ func (p *Postgres) ensureSecurity(ctx context.Context, owner, assetClass, curren
 	if (assetClass == db.AssetClassOption || assetClass == db.AssetClassFuture) && underlyingListingID == "" {
 		return "", "", fmt.Errorf("underlying_listing_id required when asset_class is %s", assetClass)
 	}
+	// A contract with no terms is refused here rather than by chk_option_fields,
+	// which would report it as a constraint violation on whichever statement
+	// happened to write the class. An OPTION reaches this when the resolution
+	// that classed it carried no OCC symbol to read a strike out of.
+	if assetClass == db.AssetClassOption && optionFields == nil {
+		return "", "", fmt.Errorf("strike, expiry and put_call required when asset_class is %s", assetClass)
+	}
 	// Normalize MIC_TICKER domains to operating MICs. It is the identifier's
 	// domain and nothing else: a venue is recorded against a line, and a line
 	// records one by holding the ticker that names it there.
@@ -1403,7 +1410,13 @@ func (p *Postgres) ensureSecurity(ctx context.Context, owner, assetClass, curren
 			// Before the identifiers, for the reason the function gives: the
 			// name trigger fires on their insert and takes what is stored here
 			// as its fallback.
-			if mErr := replaceUnconfirmedMetadata(ctx, exec, id, assetClass, name, cik, sicCode); mErr != nil {
+			//
+			// The underlying line and the contract terms go with it rather
+			// than through updateInstrumentOnMatch, because they are the same
+			// replacement: everything on this row is unconfirmed. It is also
+			// what lets the completion produce an option at all, the CHECKs on
+			// a contract being per statement.
+			if mErr := replaceUnconfirmedMetadata(ctx, exec, id, assetClass, name, cik, sicCode, underlyingUUID, optionFields); mErr != nil {
 				return mErr
 			}
 			if mErr := insertSecurityIdentifiers(ctx, exec, id, securityIDs); mErr != nil {
@@ -1411,10 +1424,7 @@ func (p *Postgres) ensureSecurity(ctx context.Context, owner, assetClass, curren
 			}
 			var lErr error
 			listingID, lErr = place(ctx, exec, id)
-			if lErr != nil {
-				return lErr
-			}
-			return updateInstrumentOnMatch(ctx, exec, id, underlyingUUID, optionFields)
+			return lErr
 		})
 		if err != nil {
 			return "", "", err
@@ -1524,19 +1534,49 @@ func holdsNoCanonicalIdentifier(ctx context.Context, exec queryable, id uuid.UUI
 	return !exists, nil
 }
 
-// updateInstrumentOnMatch optionally sets underlying_listing_id and option
-// fields on an existing instrument. It writes no identifier, which is what leaves each name's
-// valid_from where it was: matching an existing instrument is not evidence that
-// any of its names became correct today, and moving them is what used to disarm
-// the retroactive option-split guard.
+// updateInstrumentOnMatch fills the columns an existing instrument has no value
+// for and rewrites none of them. That is adr/0004 as adr/0079 amends it: the
+// values it protects are the ones an authority wrote, and the one row type
+// holding none -- an instrument named only by user-authoritative sources -- is
+// completed by replaceUnconfirmedMetadata rather than matched here.
 //
-// An instrument holding no identity at all is the exception, handled by its
-// caller: an absent name is inserted with the vintage the resolution stamped on
-// it (adr/0055), which is a different act from moving one that is already there.
+// A refused merge is the one case that arrives here holding such a row. Nothing
+// corroborated the instruments the caller's names reached as one, so the anchor
+// is matched rather than completed, and filling its blanks is more conservative
+// than the rule requires there rather than wrong: a user-mediated source may
+// write freely to an instrument only it has named.
+//
+// The contract terms are governed by that rule as much as the underlying line
+// beside them, and used to be written outright (issue 0176). What supplies them
+// on the ingestion path is an OCC symbol in the caller's identifier set, which
+// may be a plugin's answer or the broker's own text, and this write site cannot
+// tell the two apart -- so it does not ask. A stored value wins whoever is
+// calling, which needs no provenance recorded per column.
+//
+// It is a fill rather than a no-op only where a row is not classed OPTION:
+// chk_option_fields means a contract holds all three terms or does not exist. So
+// what this reaches is a security whose class nobody has settled, and an archive
+// restoring the terms of one is what wants it.
+//
+// A stored strike moves for one reason, and ProcessPendingOptionSplits is the
+// writer that moves it. Restoring the pre-split strike from a file exported
+// before the ex_date is what this refusing to rewrite prevents: both OCC symbols
+// stay stored, deliberately, so such a file still resolves to the contract.
+//
+// It writes no identifier, which is what leaves each name's valid_from where it
+// was: matching an existing instrument is not evidence that any of its names
+// became correct today, and moving them is what used to disarm the retroactive
+// option-split guard. An absent name is inserted with the vintage the resolution
+// stamped on it (adr/0055), which is a different act from moving one that is
+// already there.
 func updateInstrumentOnMatch(ctx context.Context, exec queryable, id uuid.UUID, underlyingListingID *uuid.UUID, optionFields *db.OptionFields) error {
 	if optionFields != nil {
 		_, err := exec.ExecContext(ctx, `
-			UPDATE instruments SET underlying_listing_id = COALESCE($2, underlying_listing_id), strike = $3, expiry = $4, put_call = $5
+			UPDATE instruments SET
+				underlying_listing_id = COALESCE($2, underlying_listing_id),
+				strike = COALESCE(strike, $3),
+				expiry = COALESCE(expiry, $4),
+				put_call = COALESCE(put_call, $5)
 			WHERE id = $1
 		`, id, nullUUID(underlyingListingID), optionFields.Strike, optionFields.Expiry, optionFields.PutCall)
 		return err
@@ -1826,16 +1866,37 @@ func insertSecurityIdentifiers(ctx context.Context, exec queryable, id uuid.UUID
 // would be the per-column provenance adr/0079 declines -- a system-authoritative
 // row holding a user-supplied value for a field no authority has answered.
 //
+// A contract's terms are metadata under that rule too, and the line its strike is
+// quoted in with them (issue 0176). The OCC symbol they are denormalised from is
+// an identifier and is not this: a name a user supplied is owned rather than
+// discarded, which is 0142.
+//
+// They are written in the same statement as asset_class because chk_option_fields
+// and chk_underlying_required are checked per statement rather than per
+// transaction. A row cannot be classed OPTION apart from the terms that class
+// requires, so completing a broker-description-only instrument into a contract
+// has to land whole or not at all.
+//
 // It runs before the identifiers land. The name trigger fires on the identifier
 // insert and reads instruments.name as its own fallback, so a replacement made
 // afterwards would be re-derived away wherever the arriving identifiers carry no
 // name of their own -- an ISIN or a CUSIP, which is exactly the case that has the
 // broker's text to lose.
-func replaceUnconfirmedMetadata(ctx context.Context, exec queryable, id uuid.UUID, assetClass, name, cik, sicCode string) error {
+func replaceUnconfirmedMetadata(ctx context.Context, exec queryable, id uuid.UUID, assetClass, name, cik, sicCode string,
+	underlyingListingID *uuid.UUID, optionFields *db.OptionFields) error {
+	var strike, expiry, putCall any
+	if optionFields != nil {
+		strike = optionFields.Strike
+		expiry = optionFields.Expiry
+		putCall = optionFields.PutCall
+	}
 	_, err := exec.ExecContext(ctx, `
-		UPDATE instruments SET asset_class = $2, name = $3, cik = $4, sic_code = $5
+		UPDATE instruments SET
+			asset_class = $2, name = $3, cik = $4, sic_code = $5,
+			underlying_listing_id = $6, strike = $7, expiry = $8, put_call = $9
 		WHERE id = $1
-	`, id, nullStr(assetClass), nullStr(name), nullStr(cik), nullStr(sicCode))
+	`, id, nullStr(assetClass), nullStr(name), nullStr(cik), nullStr(sicCode),
+		nullUUID(underlyingListingID), strike, expiry, putCall)
 	if err != nil {
 		return fmt.Errorf("replace unconfirmed metadata: %w", err)
 	}

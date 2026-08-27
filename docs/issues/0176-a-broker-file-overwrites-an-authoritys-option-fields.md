@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A broker file overwrites an authority's option fields
 milestone: M24
 dependencies: [0169]

@@ -2367,3 +2367,302 @@ func TestIdentifiedMatchesTheStore(t *testing.T) {
 		})
 	}
 }
+
+// TestEnsureInstrument_LeavesStoredOptionTermsAlone is issue 0176. A split
+// restates a contract: the pre-split OCC symbol is closed rather than deleted,
+// so a broker file exported before the ex_date still resolves to the same
+// option. What that file says about the contract's terms is the pre-split
+// strike, and an authority has since moved it.
+//
+// So a match fills the terms it finds missing and rewrites none, which is
+// adr/0004 as adr/0079 amends it: the values it protects are the ones an
+// authority wrote. ProcessPendingOptionSplits is the only writer that moves a
+// stored strike.
+func TestEnsureInstrument_LeavesStoredOptionTermsAlone(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "AAPL-UNDERLYING")
+	line := lineOf(t, p, underlyingID)
+	optID := setupOption(t, p, underlyingID, "AAPL250117C00150000", 150, timePtrCE(d(2024, 1, 1)))
+
+	// The 4:1 restatement: the old symbol closes at the ex_date, the adjusted
+	// one is minted from it, and the strike moves to a quarter.
+	if err := p.ApplyOptionSplit(ctx, db.OptionSplitParams{
+		InstrumentID: optID,
+		OldOCCValue:  "AAPL250117C00150000",
+		Mints: []db.OptionMint{{
+			ExDate: d(2024, 7, 1),
+			OCC: db.IdentifierInput{
+				Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00037500"},
+				Canonical: true,
+			},
+			Strike: decf(37.5),
+		}},
+	}); err != nil {
+		t.Fatalf("apply option split: %v", err)
+	}
+
+	// The same broker file uploaded again. It names the contract by the symbol
+	// it traded under, and the terms come out of that symbol.
+	again, _, err := p.EnsureInstrument(ctx, "", "OPTION", "USD", "", "", "", []db.IdentifierInput{{
+		Ref:       db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00150000"},
+		Canonical: true,
+	}}, nil, line, &db.OptionFields{Strike: decf(150), Expiry: d(2025, 1, 17), PutCall: "C"}, "")
+	if err != nil {
+		t.Fatalf("re-ensure: %v", err)
+	}
+	if again != optID {
+		t.Fatalf("re-ensure returned %q, want the restated contract %q", again, optID)
+	}
+
+	row, err := p.GetInstrument(ctx, optID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.Strike == nil || row.Strike.String() != "37.5" {
+		t.Errorf("strike = %v, want the split-adjusted 37.5 rather than the file's pre-split 150", row.Strike)
+	}
+}
+
+// TestEnsureInstrument_CompletesADescriptionOnlyInstrumentIntoAnOption is the
+// completion of adr/0067 for a contract. adr/0074 degrades to a
+// broker-description-only instrument wherever the line an option's strike is
+// quoted in could not be told, so these rows exist for exactly the contracts a
+// later resolution then identifies.
+//
+// Every column the authority supplied lands in one statement, because
+// chk_option_fields and chk_underlying_required are checked per statement: a row
+// cannot be classed OPTION apart from the terms that class requires.
+func TestEnsureInstrument_CompletesADescriptionOnlyInstrumentIntoAnOption(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	const source = "IBKR:acct:statement"
+	const desc = "CISCO SYSTEMS INC JAN25 60 CALL"
+
+	underlyingID := setupInstrument(t, p, "CSCO-UNDERLYING")
+	line := lineOf(t, p, underlyingID)
+	id := descriptionOnly(t, p, source, desc)
+
+	again, _, err := p.EnsureInstrument(ctx, "", "OPTION", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "OCC", Value: "CSCO250117C00060000"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "BROKER_DESCRIPTION", Value: desc, Domain: source}, Canonical: false},
+	}, nil, line, &db.OptionFields{Strike: decf(60), Expiry: d(2025, 1, 17), PutCall: "C"}, "")
+	if err != nil {
+		t.Fatalf("complete into an option: %v", err)
+	}
+	if again != id {
+		t.Fatalf("completion returned %q, want the existing instrument %q", again, id)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.AssetClass == nil || *row.AssetClass != "OPTION" {
+		t.Errorf("asset_class = %v, want OPTION", derefStr(row.AssetClass))
+	}
+	if row.Strike == nil || row.Strike.String() != "60" {
+		t.Errorf("strike = %v, want the authority's 60", row.Strike)
+	}
+	if row.Expiry == nil || !row.Expiry.Equal(d(2025, 1, 17)) {
+		t.Errorf("expiry = %v, want the authority's 2025-01-17", row.Expiry)
+	}
+	if row.PutCall == nil || *row.PutCall != "C" {
+		t.Errorf("put_call = %v, want C", derefStr(row.PutCall))
+	}
+	if row.UnderlyingListingID == nil || *row.UnderlyingListingID != line {
+		t.Errorf("underlying line = %v, want %s", row.UnderlyingListingID, line)
+	}
+}
+
+// TestEnsureInstrument_FillsBlankOptionTermsOnAMatch is the other half of the
+// rule TestEnsureInstrument_LeavesStoredOptionTermsAlone pins. A stored value
+// wins, and a column nobody has answered is not a stored value: an archive
+// restoring a contract on to a security the instance already knows fills it.
+//
+// Only a row whose class nobody has settled can be in that state --
+// chk_option_fields means a contract holds all three terms or does not exist --
+// so this is what the fill reaches and the whole of it.
+func TestEnsureInstrument_FillsBlankOptionTermsOnAMatch(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "CSCO-UNDERLYING")
+	line := lineOf(t, p, underlyingID)
+
+	// A security identified by an ISIN and classed as nothing in particular, so
+	// its contract terms are open questions rather than answers.
+	id, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US17275R1023"}, Canonical: true},
+	}, nil, "", nil, "")
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	again, _, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US17275R1023"}, Canonical: true},
+	}, nil, line, &db.OptionFields{Strike: decf(60), Expiry: d(2025, 1, 17), PutCall: "C"}, "")
+	if err != nil {
+		t.Fatalf("re-ensure: %v", err)
+	}
+	if again != id {
+		t.Fatalf("re-ensure returned %q, want %q", again, id)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.Strike == nil || row.Strike.String() != "60" {
+		t.Errorf("strike = %v, want the caller's 60: no authority had answered that field", row.Strike)
+	}
+	if row.Expiry == nil || !row.Expiry.Equal(d(2025, 1, 17)) {
+		t.Errorf("expiry = %v, want the caller's 2025-01-17", row.Expiry)
+	}
+	if row.PutCall == nil || *row.PutCall != "C" {
+		t.Errorf("put_call = %v, want C", derefStr(row.PutCall))
+	}
+}
+
+// TestEnsureInstrument_CompletionReplacesUnconfirmedOptionTerms is 0169's rule
+// over the contract terms. A broker's own contract identifier is not canonical,
+// so a row named by one alone is user-authoritative however complete it looks --
+// which is the shape 0123 will produce routinely. The terms on it are a claim
+// nobody checked, and the authority completing the instrument replaces them
+// rather than filling around them.
+func TestEnsureInstrument_CompletionReplacesUnconfirmedOptionTerms(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "AAPL-UNDERLYING")
+	line := lineOf(t, p, underlyingID)
+
+	id, _, err := p.EnsureInstrument(ctx, "", "OPTION", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "IBKR", Value: "AAPL 20250117C200"}, Canonical: false},
+	}, nil, line, &db.OptionFields{Strike: decf(200), Expiry: d(2025, 1, 17), PutCall: "C"}, "")
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	// The authority names the contract with an OCC symbol, and it reads a
+	// different strike out of it than the broker's own numbering said.
+	again, _, err := p.EnsureInstrument(ctx, "", "OPTION", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00150000"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "IBKR", Value: "AAPL 20250117C200"}, Canonical: false},
+	}, nil, line, &db.OptionFields{Strike: decf(150), Expiry: d(2025, 1, 17), PutCall: "C"}, "")
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if again != id {
+		t.Fatalf("completion returned %q, want the existing instrument %q", again, id)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.Strike == nil || row.Strike.String() != "150" {
+		t.Errorf("strike = %v, want the authority's 150 rather than the stored 200", row.Strike)
+	}
+}
+
+// TestEnsureInstrument_CompletionDiscardsUnconfirmedOptionTerms is the mirror of
+// TestEnsureInstrument_CompletionDiscardsUnconfirmedMetadata over the same
+// columns. An authority that says the security is no contract at all leaves no
+// strike behind: keeping one would be a system-authoritative row holding a
+// user-supplied value for a field no authority has answered, which is the
+// per-column provenance adr/0079 declines.
+func TestEnsureInstrument_CompletionDiscardsUnconfirmedOptionTerms(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "AAPL-UNDERLYING")
+	line := lineOf(t, p, underlyingID)
+
+	id, _, err := p.EnsureInstrument(ctx, "", "OPTION", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "IBKR", Value: "AAPL 20250117C200"}, Canonical: false},
+	}, nil, line, &db.OptionFields{Strike: decf(200), Expiry: d(2025, 1, 17), PutCall: "C"}, "")
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	again, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "Apple Inc.", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "IBKR", Value: "AAPL 20250117C200"}, Canonical: false},
+	}, nil, "", nil, "")
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if again != id {
+		t.Fatalf("completion returned %q, want the existing instrument %q", again, id)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.Strike != nil {
+		t.Errorf("strike = %v, want it discarded: the authority says this is no contract", row.Strike)
+	}
+	if row.Expiry != nil {
+		t.Errorf("expiry = %v, want it discarded", row.Expiry)
+	}
+	if row.PutCall != nil {
+		t.Errorf("put_call = %v, want it discarded", derefStr(row.PutCall))
+	}
+	if row.UnderlyingListingID != nil {
+		t.Errorf("underlying line = %v, want it discarded with the terms it was there for", row.UnderlyingListingID)
+	}
+}
+
+// TestEnsureInstrument_RefusedMergeLeavesTheAnchorsOptionTermsAlone covers the
+// contract terms through the merge branch, which the refusal reaches as well as
+// a merge: nothing corroborated the two instruments as one, so the group is the
+// anchor alone and every other instrument is left as it was.
+//
+// The write there is the same fill-blanks rule as anywhere else a match happens,
+// which is why the branch needs no question asked about the anchor's class. An
+// answer read off adr/0079's "the survivor of a merge is always
+// system-authoritative" would have been wrong here, that sentence being about a
+// merge which happened.
+func TestEnsureInstrument_RefusedMergeLeavesTheAnchorsOptionTermsAlone(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "AAPL-UNDERLYING")
+	line := lineOf(t, p, underlyingID)
+	optID := setupOption(t, p, underlyingID, "AAPL250117C00150000", 150, nil)
+
+	other, _, err := p.EnsureInstrument(ctx, "", "STOCK", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
+	}, nil, "", nil, "")
+	if err != nil {
+		t.Fatalf("ensure the other instrument: %v", err)
+	}
+
+	// Two instruments reached and no claim naming them together, so the pair is
+	// refused and the transaction attaches to the anchor.
+	anchor, _, err := p.EnsureInstrument(ctx, "", "OPTION", "USD", "", "", "", []db.IdentifierInput{
+		{Ref: db.InstrumentRef{Type: "OCC", Value: "AAPL250117C00150000"}, Canonical: true},
+		{Ref: db.InstrumentRef{Type: "ISIN", Value: "US0378331005"}, Canonical: true},
+	}, nil, line, &db.OptionFields{Strike: decf(37.5), Expiry: d(2025, 1, 17), PutCall: "C"}, "")
+	if err != nil {
+		t.Fatalf("re-ensure: %v", err)
+	}
+	if anchor != optID {
+		t.Fatalf("resolved to %q, want the anchor %q", anchor, optID)
+	}
+	if _, err := p.GetInstrument(ctx, other); err != nil {
+		t.Fatalf("the refused instrument should still be there: %v", err)
+	}
+
+	row, err := p.GetInstrument(ctx, optID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.Strike == nil || row.Strike.String() != "150" {
+		t.Errorf("strike = %v, want the stored 150", row.Strike)
+	}
+}

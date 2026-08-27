@@ -218,10 +218,11 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 		return fail(err.Error())
 	}
 	// EnsureArchiveInstrument matched rather than created whenever the instance
-	// already knew the instrument, and a match sets the underlying and the option
-	// terms and nothing else. A rebuild hits that on every currency and FX pair,
-	// which migration 002 seeds. The merge fills the gaps the match left; it does
-	// not overwrite, and on a row just created there is nothing to fill.
+	// already knew the instrument, and a match fills the underlying and the
+	// option terms where the row has none, and touches nothing else. A rebuild
+	// hits that on every currency and FX pair, which migration 002 seeds. The
+	// merge fills the gaps the match left; it does not overwrite, and on a row
+	// just created there is nothing to fill.
 	//
 	// The lines are not merged again here: placement already ensured every one of
 	// them and filed its names, which is the same fill-the-gaps rule at the grain

@@ -600,18 +600,30 @@ CREATE TABLE telemetry.merge (
   --                           file
   --   refused_disjoint        a claim named both, but the two stored names were
   --                           never correct at one time
+  --   refused_unauthoritative the claim itself carries user authority: it reached
+  --                           us through an upload nobody can re-interrogate, and
+  --                           acting on it would settle an association for every
+  --                           user of an instance whose instruments are global
   --   refused_collision       the merge was admitted and could not complete: both
   --                           instruments hold one triple over overlapping
   --                           intervals, and nothing in the data says which is right
   --
-  -- The five refusals are kept apart because they need different fixes. An
+  -- unsettled and unauthoritative are the same principle asked of different
+  -- things, and both are needed. unsettled is about a stored row -- the chain
+  -- would run through somebody's claim -- and unauthoritative is about the claim
+  -- asking, which may name two rows the instance holds as facts and still have no
+  -- standing to join them.
+  --
+  -- The six refusals are kept apart because they need different fixes. An
   -- uncorroborated pair wants a plugin that returns both names; an unmediated one
   -- is working as intended and is noise; an unsettled one wants another user
-  -- holding the same mapping, or a plugin confirming it; a collision wants a
-  -- person.
+  -- holding the same mapping, or a plugin confirming it; an unauthoritative one
+  -- wants a plugin able to corroborate what the file said, or the same sweep; a
+  -- collision wants a person.
   outcome    TEXT NOT NULL CHECK (outcome IN ('merged', 'refused_uncorroborated',
                                               'refused_unmediated', 'refused_unsettled',
-                                              'refused_disjoint', 'refused_collision')),
+                                              'refused_disjoint', 'refused_unauthoritative',
+                                              'refused_collision')),
   a_type     TEXT NOT NULL,
   a_domain   TEXT,
   a_value    TEXT NOT NULL,

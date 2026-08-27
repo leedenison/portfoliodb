@@ -369,6 +369,9 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		}
 		// A price or corporate-event archive names the instrument itself, so
 		// everything here is stated and nothing is proposed.
+		// No StatedBy. A price fetch speaks for the instance rather than for a
+		// user: the hint is a name this database already holds, not something an
+		// upload asserted, so it carries system authority.
 		ident := identifier.Identity{Stated: []identifier.Identifier{hint}, Hints: hints}
 		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry, "",
 			"", "", "", ident,

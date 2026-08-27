@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: A claim carries the authority of its source
 milestone: M24
 dependencies: [0142]

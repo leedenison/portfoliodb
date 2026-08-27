@@ -365,6 +365,12 @@ func isDerivative(ac typev1.AssetClass) bool {
 // archiveClaim is the archive's instrument block read as one identity claim.
 // Every identifier is returned rather than filtered: the file states them, it
 // does not corroborate them by constraining a provider.
+//
+// No owner. Only a system archive carries instruments and importing one is
+// admin-only, which is the system authority an admin archive is meant to have --
+// the same argument that has its identifier rows written system-owned. A user
+// archive reaches identity through its postings and the ingestion path instead,
+// where the statement is the uploader's own. See adr/0063.
 func archiveClaim(idns []db.IdentifierInput) db.IdentityClaim {
 	c := db.IdentityClaim{Identifiers: make([]db.ClaimedIdentifier, 0, len(idns))}
 	for _, i := range idns {

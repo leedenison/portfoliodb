@@ -16,10 +16,12 @@ import (
 // same user, so both see the row: one through the system fallback and one as
 // their own claim.
 //
-// Note this is not about the authority of the caller's own claim. That is a
-// separate input the merge does not take yet (0171 and 0172); the claim here
+// Note this is not about the authority of the caller's own claim, which is the
+// other half of the same principle and is asked separately. The claim here
 // carries system authority and is still refused, because what it would chain
-// through is somebody's.
+// through is somebody's. The mirror of it -- a claim carrying user authority
+// over two rows the instance holds as facts -- is in
+// merge_admission_authority_test.go.
 func TestEnsureInstrument_AClaimDoesNotChainThroughAnUnsettledRow(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

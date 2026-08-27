@@ -68,8 +68,22 @@ type Listing struct {
 // type. There is no proposed counterpart: a plugin that wants to offer a
 // currency offers it as a CURRENCY identifier in Proposed, which is what keeps
 // Hints usable as evidence without qualification.
+//
+// StatedBy is who vouched for Stated. Empty is a source carrying system
+// authority -- a plugin naming the underlying of a derivative it resolved, a
+// price fetch naming the ticker it holds a bar for -- and a user id is that
+// user's upload. It is what lets an association a broker file asserted be told
+// from one a plugin asserted, which decides what a merge may do with it. See
+// docs/adr/0060-an-identity-claim-is-admitted-by-the-authority-of-its-source.md.
+//
+// It cannot be read off the owner threaded through resolution: that is who the
+// resolution is being carried out for, and the underlying recursion passes it
+// unchanged while filling Stated with the plugin's own answer. Nor off Stated
+// itself, which is a source's statement at three removes -- a file's, a
+// plugin's, and a proposal promoted for want of anything better.
 type Identity struct {
 	Stated   []Identifier
+	StatedBy string
 	Proposed []Identifier
 	Hints    Hints
 }

@@ -747,10 +747,18 @@ type IdentifierInput struct {
 // returned: a provider that answers "no identifier found" when its filter
 // matches nothing has asserted the filtered value denotes the security it
 // described, so the association holds whether or not the value came back in the
-// payload. The same two strings are the telemetry.identifier_claim vocabulary.
+// payload. Those two are the telemetry.identifier_claim vocabulary, that table
+// recording what one plugin call said.
+//
+// ClaimRoleStated is what a source outside the plugin set named, and it grades
+// lower than either: the association is worth acting on where the source had the
+// authority to assert it, but the value itself is never written. A broker file's
+// ISIN is used for ranking and comparison and stored only when a plugin returns
+// it, which is the rule flattenClaims enforces by writing returned values alone.
 const (
 	ClaimRoleReturned = "returned"
 	ClaimRoleFiltered = "filtered"
+	ClaimRoleStated   = "stated"
 )
 
 // ClaimedIdentifier is one identifier inside a claim, and what the result said
@@ -758,7 +766,7 @@ const (
 // domains names two listings.
 type ClaimedIdentifier struct {
 	Ref  InstrumentRef
-	Role string // ClaimRoleReturned or ClaimRoleFiltered
+	Role string // ClaimRoleReturned, ClaimRoleFiltered or ClaimRoleStated
 }
 
 // IdentityClaim is what one identifier plugin result said in one answer: the
@@ -771,13 +779,18 @@ type ClaimedIdentifier struct {
 // deliberately not here: every identifier plugin is equally authoritative for a
 // global identifier, so attribution decides nothing a merge needs.
 //
-// The level of authority the claim arrived with is a different question and is
-// not here either, which is a gap rather than a decision: an identifier plugin
-// speaks with system authority and a broker file speaks with user authority, and
-// what a merge may do with the claim turns on which. Every claim reaching this
-// type today comes from a plugin result or an admin's archive, so the level is
-// constant and the field would carry nothing; it stops being constant when a
-// broker file states an association of its own.
+// Owner is the level of authority the claim arrived with, which is a different
+// question from attribution and is the one a merge turns on. Empty is system
+// authority -- an identifier plugin, reference data, an admin's archive -- and a
+// user id is that user's claim, carried through a channel nobody can
+// re-interrogate. Only the level decides anything; the id rides along because a
+// repointing has to know whose rows it may move.
+//
+// Per claim rather than per call, for the reason IdentifierInput.Owner is per
+// row: one ingestion resolution carries both levels at once, the plugin's
+// answers beside the statement the uploaded file made for itself. The owner
+// EnsureInstrument is given is who the resolution is being carried out for and
+// cannot stand in for this.
 //
 // An archive states one claim holding its instrument's whole identifier block,
 // which is what an admin archive asserting instrument data amounts to. A caller
@@ -787,6 +800,7 @@ type ClaimedIdentifier struct {
 // and adr/0065-a-plugin-declares-what-it-claims-a-call-records-what-it-claimed.md.
 type IdentityClaim struct {
 	Identifiers []ClaimedIdentifier
+	Owner       string
 }
 
 // VintageDate reduces a vintage to the date an identifier's validity is stated
@@ -2736,12 +2750,13 @@ const (
 // above it, so the vocabulary is read off the code rather than invented for the
 // chart.
 //
-// The five refusals are kept apart because they need different fixes. An
+// The six refusals are kept apart because they need different fixes. An
 // uncorroborated pair wants a plugin that returns both names; an unmediated one
 // is working as intended and is noise; an unsettled one wants either another
 // user holding the same mapping or a plugin confirming it, and the promotion
-// sweep is what turns the first into the second; a collision is two authorities
-// contradicting each other and wants a person. See
+// sweep is what turns the first into the second; an unauthoritative one wants a
+// plugin able to corroborate what the file said, or the same sweep; a collision
+// is two authorities contradicting each other and wants a person. See
 // docs/adr/0064-a-claim-that-cannot-hold-is-flagged-not-resolved.md.
 const (
 	TelemetryMerged              = "merged"
@@ -2750,6 +2765,10 @@ const (
 	TelemetryMergeUnsettled      = "refused_unsettled"
 	TelemetryMergeDisjoint       = "refused_disjoint"
 	TelemetryMergeCollision      = "refused_collision"
+	// The claim asking for the merge carries user authority, so it cannot settle
+	// an association for an instance whose instruments are global. Distinct from
+	// refused_unsettled, which is about a stored row rather than about the claim.
+	TelemetryMergeUnauthoritative = "refused_unauthoritative"
 )
 
 // Price gap outcomes. TelemetryGapSettledEmpty is a success and the mirror of

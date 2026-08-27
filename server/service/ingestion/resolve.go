@@ -451,7 +451,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// They are passed apart from the stated ones and stay that way: they
 		// choose between the listings the stated identifier produced, and
 		// introduce none of their own. See adr/0057.
-		return resolveWithIdentifierPlugins(ctx, database, registry, owner, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, Proposed: proposedIdentifiers(proposedHintsCache[key].Proposals), Hints: hints}, cache, key, rowIndex, descOnly != "", hintsValidAt, keys, db.TelemetryPurposePrimary)
+		return resolveWithIdentifierPlugins(ctx, database, registry, owner, broker, source, instrumentDescription, identifier.Identity{Stated: identifierHints, StatedBy: owner, Proposed: proposedIdentifiers(proposedHintsCache[key].Proposals), Hints: hints}, cache, key, rowIndex, descOnly != "", hintsValidAt, keys, db.TelemetryPurposePrimary)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.

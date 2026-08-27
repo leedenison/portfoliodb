@@ -341,6 +341,10 @@ type pluginResult struct {
 
 // claim is what one result asserted: the identifiers it named together, either
 // by returning them or by strictly filtering on them.
+//
+// No owner. A plugin is an authenticated channel that can be asked again, so
+// what it says is a fact rather than a claim awaiting corroboration, and the
+// zero value is the level it speaks with (adr/0060).
 func claim(r *pluginResult) db.IdentityClaim {
 	c := db.IdentityClaim{Identifiers: make([]db.ClaimedIdentifier, 0, len(r.ids)+len(r.filtered))}
 	for _, idn := range r.ids {
@@ -350,6 +354,36 @@ func claim(r *pluginResult) db.IdentityClaim {
 		c.Identifiers = append(c.Identifiers, claimed(idn, db.ClaimRoleFiltered))
 	}
 	return c
+}
+
+// statedClaim is what the source that asked for this resolution asserted for
+// itself: the identifiers it named together on one row, and who named them.
+//
+// Built from ident rather than from the keyed copy below it, so a proposal
+// promoted for want of a stated key is not laundered into an assertion. A
+// proposal is not evidence (adr/0057), and a claim is the one place that
+// distinction would be irrecoverable.
+//
+// Only where a user vouched for them. A system-authoritative source naming two
+// identifiers together has asserted an association too -- the underlying of a
+// derivative a plugin resolved is the case -- but acting on that would widen
+// what the system merges on, which is 0140's question and wants its own
+// argument. This one is only about a claim that could not be seen at all before.
+//
+// Fewer than two identifiers assert nothing: one name associates nothing with
+// anything, and a claim of one would be a row the merge site looks up to no end.
+func statedClaim(ident identifier.Identity) (db.IdentityClaim, bool) {
+	if ident.StatedBy == "" || len(ident.Stated) < 2 {
+		return db.IdentityClaim{}, false
+	}
+	c := db.IdentityClaim{
+		Identifiers: make([]db.ClaimedIdentifier, 0, len(ident.Stated)),
+		Owner:       ident.StatedBy,
+	}
+	for _, idn := range ident.Stated {
+		c.Identifiers = append(c.Identifiers, claimed(idn, db.ClaimRoleStated))
+	}
+	return c, true
 }
 
 // claimed is the domain triple as the store names it. The two are separate types
@@ -1483,6 +1517,15 @@ func ResolveWithPlugins(
 				fills = append(fills, r.inst)
 			}
 		}
+		// The source's own claim, last, so the plugin results keep the
+		// precedence-descending order the comment above promises. It contributes
+		// nothing to what is written -- flattenClaims takes returned values alone
+		// -- and reaches the store only so that the merge site can see an
+		// association a file asserted and answer for it, rather than never being
+		// told it was made.
+		if sc, ok := statedClaim(ident); ok {
+			claims = append(claims, sc)
+		}
 		// The winner supplies the instrument, but a plugin that identified the
 		// same security and merely lost on precedence still knows things the
 		// winner left blank. Its identifiers are already merged in; taking the
@@ -1558,6 +1601,9 @@ func ResolveWithPlugins(
 			// identifiers from the derivative it resolved, so they are stated
 			// rather than proposed, and no proposal about the derivative says
 			// anything about what it is written on.
+			//
+			// No StatedBy either: the plugin named them, so they carry its
+			// authority rather than that of whoever uploaded the derivative.
 			uIdent := identifier.Identity{
 				Stated: make([]identifier.Identifier, len(inst.UnderlyingIdentifiers)),
 				Hints:  identifier.Hints{SecurityTypeHint: identifier.UnderlyingSecTypeHint(inst.AssetClass)},
